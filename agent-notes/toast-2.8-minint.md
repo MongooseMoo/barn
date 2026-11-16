@@ -40,13 +40,15 @@ moo-conformance-tests branch `toast-2.8-minint`.
     gave 1). `intPowNegative` uses the exact parity.
   - Unary minus (`OP_UNARY_MINUS` in execute.cc) is unchanged; Go negation
     wraps the same way.
-- One int/int path for every profile. The Mongoose fork
-  (`/root/src/toaststunt-mongoose`, at 72e3c7f) predates a32843c and cdd6d38:
-  both its builds still return `MININT` for `MININT / -1`, would trap on
-  `INT64_MIN / -1`, use the old `(n % d + d) % d` modulus, and its
-  non-PROMOTE `do_power` has the inverted `(-1) ^ n` sign. Barn follows stock
-  2.8 and does not model those. The PROMOTE_NUMBERS negative-exponent float
-  path is unchanged and still matches the fork.
+- One int/int path for every profile, following stock 2.8 (team-lead
+  decision). The WSL checkout `/root/src/toaststunt-mongoose` (72e3c7f) is
+  stale. The live fork branch, MongooseMoo/toaststunt `mongoose` (upstream
+  2.8.0 merged in fork PR #17), matches stock 2.8 under PROMOTE_NUMBERS:
+  `do_divide` uses `(Num)(0 - (UNum)a)` (src/numbers.cc ~482), `do_modulus` uses
+  the `(d == -1) ? 0 : n % d` fix-up (~417), and `do_power` with a negative
+  int exponent returns float `pow()` (~512-515), which Barn's promote path
+  already models. Its non-PROMOTE `do_power` (~732) still has the pre-cdd6d38
+  inverted `(b & 1) ? 1 : -1`; Barn's strict path follows stock 2.8 there.
 
 ## Surprises
 
