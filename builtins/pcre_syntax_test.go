@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
@@ -126,5 +127,36 @@ func TestPcreReplaceLookbehind(t *testing.T) {
 	})
 	if res.Error != types.E_NONE || res.Val.Str() != "price: $99" {
 		t.Fatalf("got %v %v", res.Error, res.Val)
+	}
+}
+
+// Toast's pcre_replace expands templates with pcrs (src/dependencies/pcrs.c:
+// 309-371): only $N, $&, $+, $` and $' are references; "$_", "$$" and "${n}"
+// stay literal, and $N above the capture count is a compile error. Values
+// below are WSL Toast's results; "$_" was regexp2's whole-input reference,
+// which made issue #859's empty-match replace build gigabytes.
+func TestPcreReplaceTemplateIsPcrs(t *testing.T) {
+	for _, tc := range []struct{ subject, spec, want string }{
+		{"abc", "s/b/[$_]/g", "a[$_]c"},
+		{"ab", "s/|/<$_>/g", "<$_>a<$_>b<$_>"},
+		{"abc", "s/b/[$&|$$|${x}|$0]/g", "a[b|$$|${x}|b]c"},
+		{"xbx", "s/(?<n>b)/${n}/g", "x${n}x"},
+		{"xbx", "s/(b)/a$/g", "xa$x"},
+		{"xbcx", "s/(?<n>b)(c)/$2$1$+/", "xcbcx"},
+	} {
+		res := admitTestBuiltin("pcre_replace", newTestExecution(), []types.Value{
+			types.NewStr(tc.subject), types.NewStr(tc.spec),
+		})
+		if res.Error != types.E_NONE || res.Val.Str() != tc.want {
+			t.Errorf("pcre_replace(%q, %q) = %v %v, want %q", tc.subject, tc.spec, res.Error, res.Val, tc.want)
+		}
+	}
+	for _, spec := range []string{"s/(b)/$9/", "s/(b)/$10/", "s/b/" + strings.Repeat("$&", 33) + "/"} {
+		res := admitTestBuiltin("pcre_replace", newTestExecution(), []types.Value{
+			types.NewStr("xbx"), types.NewStr(spec),
+		})
+		if res.Error != types.E_INVARG {
+			t.Errorf("pcre_replace(\"xbx\", %q) = %v %v, want E_INVARG", spec, res.Error, res.Val)
+		}
 	}
 }
