@@ -204,35 +204,10 @@ func TestPromoteNumbers_PromoteOverflowIsEFLOAT(t *testing.T) {
 }
 
 func TestPromoteNumbers_PromoteMinIntDivStillInt(t *testing.T) {
-	// MININT / -1 on the pure int/int branch -> MININT (unchanged by promote).
-	// MININT has no positive magnitude, so build it as (MININT+1) - 1 to avoid
-	// a lexer/parse issue with the bare literal.
-	code := "x = " + intToStr(MININT+1) + " - 1; return x / -1;"
-	result := runBytecodeProgram(t, code, nil, promoteCtx())
-	requireInt(t, result, MININT)
-}
-
-func intToStr(v int64) string {
-	if v == 0 {
-		return "0"
-	}
-	neg := v < 0
-	var digits []byte
-	// Handle MININT safely using uint64.
-	var u uint64
-	if neg {
-		u = uint64(-(v + 1)) + 1
-	} else {
-		u = uint64(v)
-	}
-	for u > 0 {
-		digits = append([]byte{byte('0' + u%10)}, digits...)
-		u /= 10
-	}
-	if neg {
-		return "-" + string(digits)
-	}
-	return string(digits)
+	// Int / int stays on the integer branch under promote: dividing by -1
+	// negates with wrap, as in strict mode.
+	requireInt(t, runBytecodeProgram(t, "return -9223372036854775807 / -1;", nil, promoteCtx()), math.MaxInt64)
+	requireInt(t, runBytecodeProgram(t, "x = -9223372036854775808; return x / -1;", nil, promoteCtx()), math.MinInt64)
 }
 
 // --- cluster_by_proximity reduction (proving fixture) ---
