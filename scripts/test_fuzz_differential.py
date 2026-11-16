@@ -14,8 +14,8 @@ from unittest.mock import patch
 
 import bench_differ
 from bench_differ import REPO
-from fuzz_differential import (KILLED, TIMED_OUT, decode_corpus_file, engine_runner, exclusion, load_programs, main,
-                               outcome, probe, render_choices, results, run_bounded)
+from fuzz_differential import (CRASHED, KILLED, TIMED_OUT, decode_corpus_file, engine_runner, exclusion,
+                               load_programs, main, outcome, probe, render_choices, results, run_bounded)
 
 # Real records copied byte for byte from Go's fuzz cache of the structured
 # targets, as Go's internal/fuzz marshalCorpusFile wrote them.
@@ -153,6 +153,30 @@ class BoundedRunTests(unittest.TestCase):
         self.assertEqual(records, ["=> 0", value("F00001"), KILLED, value("F00003")])
         self.assertEqual((errors, timed_out), ([], []))
 
+    def test_toast_panic_is_recorded_on_its_probe_and_later_probes_still_run(self):
+        # Run 43806699303: Toast caught signal 11 on F02683 and aborted (exit 134).
+        def engine(lane, lines, bound):
+            if any("F00002" in line for line in lines):
+                return SimpleNamespace(returncode=134, stdout=f"=> 0\n{value('F00001')}\n",
+                                       stderr="Nov 16 06:54:38: *** PANIC: Caught signal 11\n")
+            return FakeEngine({"toast": ["=> 0", value("F00001"), None, value("F00003")]})(lane, lines, bound)
+        with tempfile.TemporaryDirectory() as directory:
+            records, errors, timed_out = run_bounded("toast", engine, self.lines(3), Path(directory),
+                                                     probe_timeout=1, startup=1, chunk=20)
+            transcript = Path(directory, "toast_raw.txt").read_text(encoding="utf-8")
+        self.assertEqual(records, ["=> 0", value("F00001"), CRASHED, value("F00003")])
+        self.assertEqual((errors, timed_out), ([], []))
+        self.assertIn("PANIC: Caught signal 11", transcript)
+
+    def test_barn_exit_134_and_toast_exit_134_without_a_panic_still_raise(self):
+        panic = "*** PANIC: Caught signal 11\n"
+        for lane, stderr in (("barn", panic), ("toast", "")):
+            engine = lambda lane, lines, bound: SimpleNamespace(  # noqa: E731
+                returncode=134, stdout="=> 0\n", stderr=stderr)
+            with tempfile.TemporaryDirectory() as directory:
+                with self.assertRaisesRegex(RuntimeError, f"{lane}.*134"):
+                    run_bounded(lane, engine, self.lines(1), Path(directory), probe_timeout=1, startup=1, chunk=20)
+
     def test_record_count_mismatch_is_an_error(self):
         engine = lambda lane, lines, bound: SimpleNamespace(returncode=0, stdout="=> 0\n", stderr="")  # noqa: E731
         with tempfile.TemporaryDirectory() as directory:
@@ -177,6 +201,7 @@ class BoundedRunTests(unittest.TestCase):
                         "    quit) echo 'Bye.'; exit 0 ;;\n"
                         "    *HANG*) while :; do sleep 1; done ;;\n"
                         "    *OOM*) kill -KILL $$ ;;\n"
+                        "    *CRASH*) echo '*** PANIC: Caught signal 11' >&2; trap - ABRT; kill -ABRT $$ ;;\n"
                         "    *) echo \"=> $line\" ;;\n"
                         "  esac\n"
                         "done\n", encoding="utf-8", newline="\n")
@@ -209,6 +234,19 @@ class BoundedRunTests(unittest.TestCase):
         self.assertEqual(records, ["=> ;;preamble", "=> ;;one", KILLED, "=> ;;three"])
         self.assertEqual((errors, timed_out), ([], []))
         self.assertIn("exit 137", transcript)
+
+    def test_real_shell_engine_that_panics_is_crashed_and_the_rest_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            db, toast = self.fake_toast(out)
+            lines = [";;preamble", ";;one", ";;CRASH", ";;three"]
+            run = engine_runner(db, out / "barn", toast, out, probe_timeout=60, startup=60)
+            records, errors, timed_out = run_bounded("toast", run, lines, out, probe_timeout=60, startup=60,
+                                                     chunk=20)
+            transcript = Path(directory, "toast_raw.txt").read_text(encoding="utf-8")
+        self.assertEqual(records, ["=> ;;preamble", "=> ;;one", CRASHED, "=> ;;three"])
+        self.assertEqual((errors, timed_out), ([], []))
+        self.assertIn("exit 134", transcript)
 
     def test_real_shell_kills_a_stalled_engine_after_probe_timeout(self):
         # The whole-process bound is 30 + 1 * 4 seconds; the hung probe must
