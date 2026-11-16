@@ -83,18 +83,20 @@ func (vm *VM) executeAdd() error {
 
 	// Handle list concatenation (list + list) and append (list + any)
 	if a.Type() == types.TYPE_LIST {
+		var result types.Value
 		if b.Type() == types.TYPE_LIST {
 			// list + list → concatenation (new list)
-			aElems := a.Elements()
-			bElems := b.Elements()
-			newElems := make([]types.Value, len(aElems)+len(bElems))
-			copy(newElems, aElems)
-			copy(newElems[len(aElems):], bElems)
-			vm.Push(types.NewList(newElems))
-			return nil
+			result = a.Concat(b)
+		} else {
+			// list + any → append (new list)
+			result = a.Append(b)
 		}
-		// list + any → append (new list)
-		vm.Push(a.Append(b))
+		// Toast's OP_ADD (execute.cc, 6505a7f) rejects a result whose
+		// value_bytes exceeds max_list_value_bytes; equal is allowed.
+		if limit := vm.Builtins.ListValueLimitForTask(vm.Context); limit > 0 && types.ValueBytes(result) > limit {
+			return newMooError(types.E_QUOTA, "list too large")
+		}
+		vm.Push(result)
 		return nil
 	}
 

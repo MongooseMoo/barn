@@ -182,8 +182,8 @@ func TestCommittedToastOracleManifests(t *testing.T) {
 			profileID:      "toast-stock-wsl-testdb",
 			fixture:        "testdb",
 			databaseSHA256: "1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e",
-			implementation: "aecc51e9449c6e7c95272f0f044b5ba38948459e",
-			configSHA256:   "a88a8c6c37b66ca65a08a318988361827f131421edeff25e5b4af83fb3fa8036",
+			implementation: "03af4fa2b53b418999f03566b646ee42bc7ea647",
+			configSHA256:   "e41bf84974987f9cf3ed38b669b0dbe26dccb24896cf61cba38b8a6bf99ebd60",
 			promoteNumbers: false,
 		},
 		{
