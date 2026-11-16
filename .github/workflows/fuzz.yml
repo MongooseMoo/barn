@@ -154,6 +154,12 @@ jobs:
           # Go discards a fuzz worker's stderr; internal/fuzzcrash writes each
           # test process's fatal error output here instead.
           export BARN_FUZZ_CRASH_DIR="$RUNNER_TEMP/fuzz-crash"
+          # Test temp files go to tmpfs. The checkpoint properties write and
+          # fsync a checkpoint at every suspend(); on the guest's shared disk
+          # those syncs held one input past Go's 60 s per-input limit, whose
+          # panic("deadlocked!") exits the worker 2 (#801). Builds stay on disk.
+          export TMPDIR="/dev/shm/barn-fuzz-$GITHUB_RUN_ID-$FUZZ_TARGET" GOTMPDIR="$RUNNER_TEMP/go-tmp"
+          mkdir -p "$TMPDIR" "$GOTMPDIR"
           while remaining=$((deadline - SECONDS)); [ "$remaining" -ge 60 ]; do
             run=$((run + 1))
             log="$logs/run-$(printf %03d "$run").log"
@@ -256,6 +262,8 @@ jobs:
         run: |
           expected="$GITHUB_WORKSPACE/.fuzz/go-cache/$GITHUB_RUN_ID-${{ matrix.target }}"
           [ "$GOCACHE" = "$expected" ] && [ "$GOCACHE" != / ] && rm -rf -- "$GOCACHE"
+          # A killed worker leaves its temp files on tmpfs, holding memory.
+          rm -rf -- "/dev/shm/barn-fuzz-$GITHUB_RUN_ID-${{ matrix.target }}"
 
   differential:
     needs: [route, fuzz]
