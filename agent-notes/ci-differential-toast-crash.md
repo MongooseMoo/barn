@@ -42,6 +42,10 @@ crashed on.
   separate jobs, recorded in the main checkout's
   agent-notes/machine-outage-and-findings.md.
 
+- Overlap: PR #862 (branch ci/toast-oracle-03af4fa, another session) moves
+  the Toast pin to upstream 03af4fa, which fixes this range segfault in
+  Toast. That removes this crash; this branch covers any later Toast panic.
+
 ## Decisions and why
 - Toast lane only: a Barn process that dies is a Barn defect and must stay a
   hard failure.
