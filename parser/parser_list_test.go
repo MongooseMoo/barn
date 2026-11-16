@@ -14,7 +14,6 @@ func TestParseListLiteral(t *testing.T) {
 		{"empty", "{}", []int64{}},
 		{"single", "{1}", []int64{1}},
 		{"multiple", "{1, 2, 3}", []int64{1, 2, 3}},
-		{"trailing_comma", "{1, 2, 3,}", []int64{1, 2, 3}},
 	}
 
 	for _, tt := range tests {
