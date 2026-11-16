@@ -25,7 +25,9 @@ FG_SECONDS seconds on both engines.  An input that one engine aborts (ticks,
 seconds) has no probe result there; those are listed but not compared,
 because tick accounting is not claimed to be Toast-exact.  An input the
 harness killed (TIMED_OUT) counts as aborted on that engine and is also
-listed under ``timeouts`` per engine.  A recovered Barn panic is always a
+listed under ``timeouts`` per engine; one whose engine died of a SIGKILL the
+harness did not send (KILLED, the memory limit) is listed under ``killed``
+instead.  A recovered Barn panic is always a
 divergence.
 
 Exit status: 0 positive completed coverage with no divergence or unknown outcome,
@@ -72,7 +74,12 @@ STARTUP_SECONDS = 30
 TIMEOUT_EXITS = (124, 137)
 # Not a line either engine prints, nor one RECORD_START begins.
 TIMED_OUT = "** timed out: the harness killed the engine **"
-ABORTED = ("=> *Aborted*", TIMED_OUT)
+# Exit 137 before the bound with no kill from the harness: the engine died of
+# a SIGKILL from elsewhere. On the fuzz guest that is the kernel's OOM killer
+# at the listener's 12 GiB MemoryMax (2026-11-14: Barn at 12.1 GB anon-rss on
+# `while n (l + E_NACC + n + n) endwhile`, whose list doubles each pass).
+KILLED = "** killed: by a signal the harness did not send (memory limit) **"
+ABORTED = ("=> *Aborted*", TIMED_OUT, KILLED)
 
 DEFERRED_COMPARISONS = {
     "b594964e16a6b933676a449a39e87c920aa0d86ae1682bca0100ea546b9e0fbd",
@@ -212,7 +219,8 @@ def run_streaming(script: str, timeout: int, kill: str, startup: int,
                   probe_timeout: int) -> subprocess.CompletedProcess:
     """run_wsl(script, timeout), except that once no result record has
     arrived for probe_timeout seconds (startup before the first record) it
-    runs the shell command kill and collects what the script printed."""
+    runs the shell command kill and collects what the script printed.
+    The result's harness_killed says whether kill was run."""
     lines: queue.Queue = queue.Queue()
     stderr: list[str] = []
     stdout: list[str] = []
@@ -246,7 +254,9 @@ def run_streaming(script: str, timeout: int, kill: str, startup: int,
                 stall_at = time.monotonic() + probe_timeout
         proc.wait()
         err_reader.join()
-    return subprocess.CompletedProcess(proc.args, proc.returncode, "".join(stdout), "".join(stderr))
+    result = subprocess.CompletedProcess(proc.args, proc.returncode, "".join(stdout), "".join(stderr))
+    result.harness_killed = stalled
+    return result
 
 
 def engine_runner(db: Path, barn_bin: Path, toast: str, out: Path, probe_timeout: int = PROBE_SECONDS,
@@ -266,7 +276,13 @@ def engine_runner(db: Path, barn_bin: Path, toast: str, out: Path, probe_timeout
         # The script's own timeout is the whole-process bound; the last
         # argument only guards the harness.
         script = f"echo $$ > {pid}; " + lane_scripts(db, barn_bin, toast, path, path, bound)[lane]
-        return run_streaming(script, bound + KILL_GRACE + 60, kill, startup, probe_timeout)
+        started = time.monotonic()
+        proc = run_streaming(script, bound + KILL_GRACE + 60, kill, startup, probe_timeout)
+        # Neither the harness's kill nor the script's own timeout (which
+        # needs the whole bound) ended it, so a SIGKILL came from elsewhere.
+        proc.outside_kill = (proc.returncode == 137 and not proc.harness_killed
+                             and time.monotonic() - started < bound)
+        return proc
     return run
 
 
@@ -274,7 +290,8 @@ def run_bounded(lane: str, run, lines: list[str], out: Path, probe_timeout: int 
                 startup: int = STARTUP_SECONDS, chunk: int = CHUNK) -> tuple[list, list[str], list[int]]:
     """Run lines (the preamble, then one probe per line) through one engine in
     bounded processes. Returns its record per line (TIMED_OUT for a probe the
-    harness killed), record errors, and the indexes of the timed-out lines.
+    harness killed, KILLED for one that died of a SIGKILL from elsewhere),
+    record errors, and the indexes of the timed-out lines.
     Every process's transcript is appended to <lane>_raw.txt."""
     records: list = [None] * len(lines)
     errors: list[str] = []
@@ -317,7 +334,9 @@ def run_bounded(lane: str, run, lines: list[str], out: Path, probe_timeout: int 
             # Killed: the probe after the last record never finished.
             hung = run_ids[done]
             stuck.add(hung)
-            if records[hung] is None:
+            if records[hung] is None and getattr(proc, "outside_kill", False):
+                records[hung] = KILLED
+            elif records[hung] is None:
                 records[hung] = TIMED_OUT
                 timed_out.append(hung)
             else:
@@ -418,7 +437,7 @@ def main() -> int:
     for lane, lines in lane_inputs.items():
         write_inputs(args.out / f"{lane}_in.txt", lines, lane)
     run = engine_runner(args.db, barn_bin, args.toast, args.out, args.probe_timeout)
-    records, record_errors, timeouts = {}, [], {}
+    records, record_errors, timeouts, killed = {}, [], {}, {}
     for lane in ("toast", "barn"):
         records[lane], errors, timed_out = run_bounded(lane, run, lane_inputs[lane], args.out, args.probe_timeout)
         # Without one record per input the positions mean nothing.
@@ -426,6 +445,7 @@ def main() -> int:
             print(message, file=sys.stderr)
         record_errors += errors
         timeouts[lane] = [keyed[i - 1][0] for i in timed_out]
+        killed[lane] = [keyed[i - 1][0] for i in range(1, len(records[lane])) if records[lane][i] == KILLED]
 
     rows = []
     completed = 0
@@ -471,7 +491,7 @@ def main() -> int:
         "unknown_pairs": counts.get("unknown", 0),
         "partial": completed != len(programs),
         "counts": counts, "record_errors": record_errors, "recovered_panics": recovered_panics,
-        "timeouts": timeouts, "lanes": corpus_lanes,
+        "timeouts": timeouts, "killed": killed, "lanes": corpus_lanes,
     }
     report = [
         "# Barn vs Toast fuzz differential", "",
@@ -481,6 +501,7 @@ def main() -> int:
         f"- record errors: {json.dumps(record_errors)}",
         f"- recovered Barn panics: {json.dumps(recovered_panics)}",
         f"- timed out (harness killed the engine): {json.dumps(timeouts)}",
+        f"- killed by a signal the harness did not send (memory limit): {json.dumps(killed)}",
         f"- excluded: {json.dumps(excluded, sort_keys=True)}",
         f"- bounds: fg_ticks {FG_TICKS}, fg_seconds {FG_SECONDS}; harness {args.probe_timeout}s per input, "
         f"{CHUNK} inputs per process; db `{args.db}`",
@@ -496,6 +517,11 @@ def main() -> int:
             report += [f"## timed out on {lane} ({len(keys)})", "",
                        f"No result within the harness bound; partial transcript in `{lane}_raw.txt`.", "",
                        *(f"- {key}" for key in keys), ""]
+    for lane, keys in killed.items():
+        if keys:
+            report += [f"## killed on {lane} ({len(keys)})", "",
+                       f"The engine died of a SIGKILL the harness did not send; partial transcript in `{lane}_raw.txt`.",
+                       "", *(f"- {key}" for key in keys), ""]
     for kind in ("divergence", "aborted on barn", "aborted on toast", "aborted on both", "unknown"):
         listed = [r for r in rows if r["kind"] == kind]
         if listed:
