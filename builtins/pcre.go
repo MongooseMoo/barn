@@ -418,7 +418,7 @@ func builtinPcreCacheStats(ctx *Execution, args []types.Value) types.Result {
 func pcreDescriptors() []Descriptor {
 	return []Descriptor{
 		function("pcre_cache_stats", builtinPcreCacheStats, 0, 0),
-		function("pcre_match", builtinPcreMatch, 2, 4, 2, 2, 0, 0),
+		function("pcre_match", builtinPcreMatch, 2, 4, 2, 2, argFlag, argFlag),
 		function("pcre_replace", builtinPcreReplace, 2, 2, 2, 2),
 	}
 }

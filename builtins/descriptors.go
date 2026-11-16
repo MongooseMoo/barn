@@ -58,7 +58,7 @@ func (s Signature) optionSignature() *Signature {
 	if s.PromotedFloat {
 		for i, t := range p.ArgTypes {
 			if t == int64(types.TYPE_FLOAT) {
-				p.ArgTypes[i] = -2
+				p.ArgTypes[i] = argNumeric
 			}
 		}
 	}
@@ -191,7 +191,7 @@ func (d Descriptor) validate() error {
 
 func validArgType(t int64) bool {
 	switch t {
-	case -2, -1, 0, 1, 2, 3, 4, 9, 10, 12, 13, 14:
+	case argFlag, argNumeric, argAny, 0, 1, 2, 3, 4, 9, 10, 12, 13, 14:
 		return true
 	}
 	return false

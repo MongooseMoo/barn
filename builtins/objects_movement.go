@@ -297,6 +297,6 @@ func builtinOccupants(ctx *Execution, args []types.Value) types.Result {
 func objectsMovementDescriptors() []Descriptor {
 	return []Descriptor{
 		function("move", builtinMove, 2, 3, 1, 1, 0),
-		function("occupants", builtinOccupants, 1, 4, 4, -1, 0, 0),
+		function("occupants", builtinOccupants, 1, 4, 4, -1, argFlag, argFlag),
 	}
 }

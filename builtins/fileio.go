@@ -1042,8 +1042,12 @@ func builtinFileGrep(ctx *Execution, args []types.Value) types.Result {
 	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	if len(args) == 3 && args[2].Type() != types.TYPE_INT {
-		return types.Err(types.E_TYPE)
+	matchAll := false
+	if len(args) == 3 {
+		var ok bool
+		if matchAll, ok = flagArg(args[2]); !ok {
+			return types.Err(types.E_TYPE)
+		}
 	}
 	if !h.canRead() {
 		return types.Err(types.E_INVARG)
@@ -1053,7 +1057,6 @@ func builtinFileGrep(ctx *Execution, args []types.Value) types.Result {
 	if _, err := h.file.Seek(0, io.SeekStart); err != nil {
 		return types.Err(types.E_FILE)
 	}
-	matchAll := len(args) == 3 && args[2].Truthy()
 	needle := args[1].Str()
 	reader := bufio.NewReader(h.file)
 	out := make([]types.Value, 0)
@@ -1117,6 +1120,6 @@ func fileioDescriptors() []Descriptor {
 		function("file_list", builtinFileList, 1, 2, 2, -1),
 		function("file_handles", builtinFileHandles, 0, 0),
 		function("file_count_lines", builtinFileCountLines, 1, 1, 0).withEffect(Irreversible),
-		function("file_grep", builtinFileGrep, 2, 3, 0, 2, 0).withEffect(Irreversible),
+		function("file_grep", builtinFileGrep, 2, 3, 0, 2, argFlag).withEffect(Irreversible),
 	}
 }

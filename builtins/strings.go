@@ -840,7 +840,7 @@ func stringsDescriptors() []Descriptor {
 		function("upcase", builtinUpcase, 1, 1, 2).plainArityError().hidden().withCapability(config.BarnExtensions),
 		function("downcase", builtinDowncase, 1, 1, 2).plainArityError().hidden().withCapability(config.BarnExtensions),
 		function("capitalize", builtinCapitalize, 1, 1, 2).plainArityError().hidden().withCapability(config.BarnExtensions),
-		function("explode", builtinExplode, 1, 3, 2, 2, 0),
+		function("explode", builtinExplode, 1, 3, 2, 2, argFlag),
 		function("implode", builtinImplode, 1, 2, 4, 2).plainArityError().hidden().withCapability(config.BarnExtensions),
 		function("trim", builtinTrim, 1, 2, 2, 2).plainArityError().hidden().withCapability(config.BarnExtensions),
 		function("ltrim", builtinLtrim, 1, 2, 2, 2).plainArityError().hidden().withCapability(config.BarnExtensions),
