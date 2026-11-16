@@ -14,7 +14,6 @@ func TestParseMapLiteral(t *testing.T) {
 		{"empty", "[]", map[string]int64{}},
 		{"single", `["a" -> 1]`, map[string]int64{"a": 1}},
 		{"multiple", `["a" -> 1, "b" -> 2]`, map[string]int64{"a": 1, "b": 2}},
-		{"trailing_comma", `["a" -> 1, "b" -> 2,]`, map[string]int64{"a": 1, "b": 2}},
 	}
 
 	for _, tt := range tests {

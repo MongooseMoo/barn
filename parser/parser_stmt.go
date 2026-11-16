@@ -683,6 +683,9 @@ func (p *Parser) parseScatterAssign(valuePrec int) (*ir.AssignExpr, error) {
 
 		if p.current.Type == TOKEN_COMMA {
 			p.nextToken() // consume ','
+			if p.current.Type == TOKEN_RBRACE {
+				return nil, fmt.Errorf("unexpected '}' after ',' in scatter")
+			}
 		} else if p.current.Type != TOKEN_RBRACE {
 			return nil, fmt.Errorf("expected ',' or '}' in scatter")
 		}
