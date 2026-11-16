@@ -91,6 +91,20 @@ class FuzzReportTests(unittest.TestCase):
                 self.assertTrue(result["input_path"].endswith(name))
                 self.assertEqual(result["barn_frames"], [])
 
+    def test_dead_worker_crash_output_after_hang_is_a_panic(self):
+        # The campaign step appends internal/fuzzcrash's crash files to the
+        # log after go test. This one is a real file from that package's test.
+        crash = ("panic: fuzzcrash helper panic\n\n"
+                 "goroutine 8 [running]:\n"
+                 "github.com/MongooseMoo/barn/internal/fuzzcrash_test.TestPanicOffTestGoroutineReachesCrashFile.gowrap1()\n"
+                 "\tC:/Users/Q/code/barn-fuzz-crash-output/internal/fuzzcrash/fuzzcrash_test.go:18 +0x1b\n")
+        log = (FIXTURES / "42201471629.log").read_text() + crash
+        result = report(log, "./vm", TARGET, "test-commit")
+        self.assertEqual(result["kind"], "panic")
+        self.assertEqual(result["first_error"], "panic: fuzzcrash helper panic")
+        self.assertEqual(result["barn_frames"][0]["function"],
+                         "github.com/MongooseMoo/barn/internal/fuzzcrash_test.TestPanicOffTestGoroutineReachesCrashFile.gowrap1")
+
     def test_real_sibling_signal_is_infrastructure(self):
         result = self.real_report(42009421620, "FuzzSourceExecution")
         self.assertEqual(result["kind"], "infrastructure")

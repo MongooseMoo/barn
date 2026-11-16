@@ -151,14 +151,22 @@ jobs:
           deadline=$((SECONDS + FUZZ_MINUTES * 60)) run=0 status=0
           # The cycle acceptance job reads `cycle`: a saved finding is a
           # completed campaign; a failure without a saved input is not.
+          # Go discards a fuzz worker's stderr; internal/fuzzcrash writes each
+          # test process's fatal error output here instead.
+          export BARN_FUZZ_CRASH_DIR="$RUNNER_TEMP/fuzz-crash"
           while remaining=$((deadline - SECONDS)); [ "$remaining" -ge 60 ]; do
             run=$((run + 1))
             log="$logs/run-$(printf %03d "$run").log"
+            rm -rf "$BARN_FUZZ_CRASH_DIR" && mkdir -p "$BARN_FUZZ_CRASH_DIR"
             if {
               go version
               # Keep the original failing seed so quarantine can remove its
               # exact bytes from the disposable cache before retrying.
-              env -u GITHUB_TOKEN go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime="${remaining}s" -fuzzminimizetime=0 -parallel=4 -timeout="$((remaining + 600))s"
+              env -u GITHUB_TOKEN go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime="${remaining}s" -fuzzminimizetime=0 -parallel=4 -timeout="$((remaining + 600))s" && rc=0 || rc=$?
+              # A dead worker's panic or fatal error goes into the log, where
+              # fuzz_report.py reads its first error and Barn frames.
+              find "$BARN_FUZZ_CRASH_DIR" -type f -size +0 -exec cat {} +
+              exit "$rc"
             } 2>&1 | tee "$log"; then
               mv "$log" "$logs/success-$(printf %03d "$run").log"
               break
