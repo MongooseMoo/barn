@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/internal/cli"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -29,6 +32,26 @@ func TestTZOffsetMatchesHelper(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestCommandKeepsTheHelperContract(t *testing.T) {
+	run := func(args ...string) (int, string) {
+		var out, errOut bytes.Buffer
+		code := cli.Execute(newRootCommand(), args, &out, &errOut)
+		return code, out.String()
+	}
+	if code, out := run(); code != 0 || out != "No timezone provided. Please provide a timezone as an argument." {
+		t.Fatalf("no zone: exit %d, stdout %q", code, out)
+	}
+	if code, out := run("UTC"); code != 0 || out != "+0000" {
+		t.Fatalf("UTC: exit %d, stdout %q", code, out)
+	}
+	if code, out := run("Not/AZone"); code != 1 || out != "" {
+		t.Fatalf("bad zone: exit %d, stdout %q", code, out)
+	}
+	if code, out := run("-V"); code != 0 || !strings.HasPrefix(out, "mongoose_tz ") {
+		t.Fatalf("-V: exit %d, stdout %q", code, out)
 	}
 }
 

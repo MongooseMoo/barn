@@ -320,7 +320,7 @@ class OwnedBarnServer:
         self.profile_path = self.run_dir / "barn-profile.json"
         self.log_path = self.run_dir / "server.log"
         log_level = "debug" if os.environ.get("BARN_RUNTIME_DIAGNOSTICS") == "1" else "info"
-        self.command = [str(self.executable), "--db", str(self.db),
+        self.command = [str(self.executable), "serve", "--db", str(self.db),
                         "--listen", f"tcp://{self.host}:{port}", "--checkpoint-interval", "0",
                         "--config", str(self.config), "--profile-id", profile_id,
                         "--profile-manifest", str(self.profile_path),

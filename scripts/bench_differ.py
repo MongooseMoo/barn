@@ -159,8 +159,8 @@ def lane_scripts(db: Path, barn_bin: Path, toast: str, barn_in: Path, toast_in: 
         ),
         "barn": (
             f'{private}cp {to_wsl(db)} "$d/in.db" && cp {to_wsl(barn_bin)} "$d/barn" && '
-            f'chmod +x "$d/barn" && cd "$d" && {limit}./barn -db in.db -log-dir= '
-            f"-debug-addr off -eval-file {to_wsl(barn_in)}"
+            f'chmod +x "$d/barn" && cd "$d" && {limit}./barn eval --db in.db --log-dir= '
+            f"--file {to_wsl(barn_in)}"
         ),
     }
 

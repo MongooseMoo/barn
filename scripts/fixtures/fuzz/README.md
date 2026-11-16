@@ -38,4 +38,4 @@ copy them here. Missing input files remain explicit in its JSON.
 records Go's fuzz cache held for those targets (written by Go's
 `internal/fuzz/encoding.go` `marshalCorpusFile` as `[]byte(%q)`).
 `test_fuzz_differential.py` decodes and renders them through
-`cmd/moo-fuzz-source -corpus`.
+`cmd/moo-fuzz-source --corpus`.

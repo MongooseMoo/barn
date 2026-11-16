@@ -38,7 +38,7 @@ uv run --project C:\Users\Q\src\lambdamoo-db-py python scripts/bench_players.py 
 ```
 
 The diagnostic opt-in also selects debug logging for Barn. Read the command
-records in `logs/` with `barn_logs -runtime -command ID`. The harness's terminal
+records in `logs/` with `barn_logs --runtime --command ID`. The harness's terminal
 latencies include an out-of-band completion probe and its scheduling delay;
 use the command's `first_output` stage for time to first response. Inspect native
 tracebacks and broken connections before accepting any throughput comparison.
@@ -262,7 +262,7 @@ a reason. Finally/suspension carries the pending error's reason; catching or
 replacing that error does not transfer it to a new exception. This metadata is
 not added to MOO-visible error tuples.
 
-`barn_logs -runtime -task ID` and its JSON output include a fixed-vocabulary
+`barn_logs --runtime --task ID` and its JSON output include a fixed-vocabulary
 terminal exception census, split by enum, reason, intrinsic eval and commit
 outcome. Detailed records exclude messages, exception values, arguments and
 source. A capture with no records cannot prove there were no exceptions: it may

@@ -37,7 +37,7 @@ You need Go 1.27 or newer (see `go.mod`).
 
 ```sh
 go build -o bin/ ./cmd/barn
-bin/barn -db Test.db -port 7777
+bin/barn serve --db Test.db --port 7777
 ```
 
 Connect any MOO client or telnet to `localhost:7777` and type
@@ -56,40 +56,42 @@ bin/moo program.moo
 
 ## Running a server
 
-Common flags:
+Common `barn serve` flags:
 
 | Flag | Purpose |
 |------|---------|
-| `-db <path>` | Database file (default `Test.db`) |
-| `-port <n>` | TCP port (default `7777`) |
-| `-listen <url>` | Listener URL such as `tcp://:7777`; can be repeated |
-| `-config <path>` | Server options file (examples in `profiles/barn/`) |
-| `-checkpoint-interval <s>` | Seconds between checkpoints (default `3600`, `0` disables) |
-| `-log-level`, `-log-dir` | Log verbosity and where JSON logs go (default `logs/`) |
+| `--db <path>` | Database file (default `Test.db`) |
+| `-p`, `--port <n>` | TCP port (default `7777`) |
+| `--listen <url>` | Listener URL such as `tcp://:7777`; can be repeated |
+| `--config <path>` | Server options file (examples in `profiles/barn/`) |
+| `--checkpoint-interval <s>` | Seconds between checkpoints (default `3600`, `0` disables) |
+| `-v`, `-q`, `-qq`, `--log-level` | Log debug records; only warnings; only errors; or name the level |
+| `--log-dir <dir>` | Where JSON logs go (default `logs/`, empty disables) |
 
-`bin/barn -h` lists everything else.
+`bin/barn help` lists every command and `bin/barn <command> --help` every flag.
+Every tool prints its version and git revision with `--version` or `-V`.
 
 Barn can also inspect a database and exit without opening any ports:
 
 ```sh
-bin/barn -db Test.db -eval 'return #0.name;'
-bin/barn -db Test.db -verb-code '#0:do_login_command'
-bin/barn -db Test.db -obj-info '#2'
-bin/barn -db Test.db -dump copy.db     # write, reload and compare
+bin/barn eval --db Test.db 'return #0.name;'
+bin/barn verb-code --db Test.db '#0:do_login_command'
+bin/barn obj-info --db Test.db '#2'
+bin/barn dump --db Test.db copy.db     # write, reload and compare
 ```
 
-There are also `-list-verbs`, `-verb-lookup`, `-ancestry`, `-dump-obj-raw`,
-`-eval-file` and `-memory-report`.
+There are also `list-verbs`, `verb-lookup`, `ancestry`, `dump-obj-raw`,
+`grep-verbs`, `eval --file`, `memory-report` and `offline-checkpoint`.
 
 ## Tools
 
 | Command | What it does |
 |---------|--------------|
-| `barn` | The server, plus the inspection flags above |
+| `barn` | The server (`serve`), plus the inspection commands above |
 | `moo` | Runs MOO code against a database with no network |
-| `moo_client` | Sends commands to a running server (`-cmd`, `-file`) |
-| `barn_logs` | Reads Barn's run logs; `barn_logs -level error` shows what failed |
-| `toast_oracle` | Runs an expression on a ToastStunt binary (`-bin`, `-db`) |
+| `moo_client` | Sends commands to a running server (`-c`/`--cmd`, `-f`/`--file`) |
+| `barn_logs` | Reads Barn's run logs; `barn_logs --level error` shows what failed |
+| `toast_oracle` | Runs an expression on a ToastStunt binary (`--bin`, `--db`) |
 | `mongoose_tz` | Mongoose's timezone helper program, for Windows |
 
 ## Development

@@ -6,7 +6,7 @@ directories -- the committed ``testdata/fuzz/<Target>`` inputs and Go's fuzz
 cache, which the nightly campaigns fill. A ``string(...)`` value (vm
 FuzzSourceExecution, compiler FuzzCompileVerifiable) is the program. A
 ``[]byte(...)`` value is the choice bytes of a structured target
-(FuzzStructured*); ``cmd/moo-fuzz-source -corpus`` decodes it and renders the
+(FuzzStructured*); ``cmd/moo-fuzz-source --corpus`` decodes it and renders the
 program with internal/fuzzseed, and each row keeps the choice bytes (hex) with
 the rendered source. Each directory is one lane with its own counts; a record
 neither form decodes is excluded as undecodable. It runs every program through both
@@ -162,7 +162,7 @@ def render_choices(paths: list[str]) -> dict[str, dict[str, str]]:
     one owner of the choice encoding and of the generated program."""
     if not paths:
         return {}
-    proc = subprocess.run(["go", "run", "./cmd/moo-fuzz-source", "-corpus"], cwd=REPO,
+    proc = subprocess.run(["go", "run", "./cmd/moo-fuzz-source", "--corpus"], cwd=REPO,
                           input="".join(path + "\n" for path in paths), capture_output=True,
                           text=True, encoding="utf-8", check=True)
     rendered = {}

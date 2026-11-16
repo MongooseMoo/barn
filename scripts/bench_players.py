@@ -784,6 +784,7 @@ class BarnServer(Server):
         self.log_file = open(self.run_dir / "server.log", "ab")
         cmd = [
             str(self.exe),
+            "serve",
             "--db", str(self.db_copy),
             "--listen", f"tcp://{self.host}:{self.port}",
             "--checkpoint-interval", "0",

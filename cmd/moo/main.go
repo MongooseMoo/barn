@@ -5,7 +5,7 @@
 //	moo                       # read one input per line from stdin
 //
 // Code runs as the database's first wizard, through the same eval path as
-// barn -eval. Without -db the database is an in-memory Minimal.db; with -db it
+// barn eval. Without --db the database is an in-memory Minimal.db; with --db it
 // is loaded from the named file. Either way nothing is written to disk.
 //
 // It exits 1 when -e or a file does not compile, raises an uncaught error, or
@@ -14,21 +14,23 @@ package main
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/cli"
 	"github.com/MongooseMoo/barn/internal/dbtool"
+	"github.com/MongooseMoo/barn/logging"
 )
 
 const (
-	exitOK = iota
-	exitFailed
-	exitUsage
+	exitOK     = cli.ExitOK
+	exitFailed = cli.ExitFailed
 )
 
 const prompt = "moo> "
@@ -39,41 +41,59 @@ func main() {
 
 // run is the whole command: it returns the exit status instead of exiting, so
 // tests drive it in-process.
-func run(args []string, stdin io.Reader, stdout, stderr io.Writer) (exitCode int) {
-	flags := flag.NewFlagSet("moo", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	flags.Usage = func() {
-		fmt.Fprintln(stderr, "usage: moo [-db path] [-e source | file]")
-		flags.PrintDefaults()
-	}
-	databasePath := flags.String("db", "", "Database file to load (default: an in-memory Minimal.db); never written back")
-	expression := flags.String("e", "", "Evaluate MOO code (statements, or one expression), then exit")
-	if err := flags.Parse(args); err != nil {
-		return exitUsage
-	}
-	expressionGiven := false
-	flags.Visit(func(f *flag.Flag) { expressionGiven = expressionGiven || f.Name == "e" })
-	if flags.NArg() > 1 || (expressionGiven && flags.NArg() == 1) {
-		flags.Usage()
-		return exitUsage
-	}
-
-	// Read the program before building anything, so a missing file costs no
-	// database load.
-	var program []string
-	switch {
-	case expressionGiven:
-		program = []string{*expression}
-	case flags.NArg() == 1:
-		data, err := os.ReadFile(flags.Arg(0))
-		if err != nil {
-			fmt.Fprintf(stderr, "Error: %v\n", err)
-			return exitFailed
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	var databasePath, expression string
+	root := cli.NewRoot("moo", "Run MOO code with no network server")
+	root.Use = "moo [file]"
+	root.Long = `Run MOO code as the database's first wizard, through the same eval path as
+barn eval, and print each result line ("=> VALUE", "Error: CODE" or
+"Compile error: ..."). With -e, evaluate that input; with a file, run the file as
+one program; with neither, read one input per line from stdin. Without --db the
+database is an in-memory Minimal.db. Nothing is written to disk.`
+	root.Example = `  moo -e '1 + 2'
+  moo --db Test.db -e 'return #0.name;'
+  moo program.moo
+  echo '1 + 2' | moo`
+	root.Args = cobra.MaximumNArgs(1)
+	flags := root.Flags()
+	flags.StringVar(&databasePath, "db", "", "Database `file` to load (default: an in-memory Minimal.db); never written back")
+	flags.StringVarP(&expression, "eval", "e", "", "Evaluate MOO `code` (statements, or one expression), then exit")
+	logs := cli.AddLogFlags(flags, "info")
+	root.RunE = cli.RunE(func(cmd *cobra.Command, args []string) error {
+		if cmd.Flags().Changed("eval") && len(args) == 1 {
+			return cli.UsageErrorf("give either -e or a file, not both")
 		}
-		program = dbtool.SourceLines(data)
-	}
+		level, err := logs.Level()
+		if err != nil {
+			return err
+		}
+		closeLogs, err := logging.Setup(logging.Options{LevelStr: level, Stderr: stderr})
+		if err != nil {
+			return err
+		}
+		defer closeLogs()
+		var program []string
+		switch {
+		case cmd.Flags().Changed("eval"):
+			program = []string{expression}
+		case len(args) == 1:
+			data, err := os.ReadFile(args[0])
+			if err != nil {
+				fmt.Fprintf(stderr, "Error: %v\n", err)
+				return cli.Exit(exitFailed)
+			}
+			program = dbtool.SourceLines(data)
+		}
+		return cli.Exit(runProgram(databasePath, program, stdin, stdout, stderr))
+	})
+	return cli.Execute(root, args, stdout, stderr)
+}
 
-	store, err := openStore(*databasePath)
+// runProgram runs program (nil reads stdin as a REPL) in databasePath's
+// database and returns the exit status.
+// The caller reads the program first, so a missing file costs no database load.
+func runProgram(databasePath string, program []string, stdin io.Reader, stdout, stderr io.Writer) (exitCode int) {
+	store, err := openStore(databasePath)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return exitFailed

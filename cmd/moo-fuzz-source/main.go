@@ -7,7 +7,7 @@
 // It prints one example program. It is not a grammar of the MOO language.
 // It exits 1 when the generated program has no MOO spelling.
 //
-// With -corpus, stdin instead lists Go fuzz corpus files of a structured
+// With --corpus, stdin instead lists Go fuzz corpus files of a structured
 // target, one path per line, and each file gives one JSON line:
 // {"path", "choices" (hex), "source"} or {"path", "error"}.
 package main
@@ -17,37 +17,53 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
 
+	"github.com/spf13/cobra"
+
+	"github.com/MongooseMoo/barn/internal/cli"
 	"github.com/MongooseMoo/barn/internal/fuzzseed"
 )
 
 func main() {
-	corpus := flag.Bool("corpus", false, "read corpus file paths on stdin and print one JSON line per file")
-	flag.Parse()
-	if *corpus {
-		if err := renderCorpus(os.Stdin, os.Stdout); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+	os.Exit(cli.Execute(newRootCommand(), os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func newRootCommand() *cobra.Command {
+	var corpus bool
+	root := cli.NewRoot("moo-fuzz-source", "Print the MOO program a structured fuzz target generates")
+	root.Long = `Print the MOO program that the structured fuzz targets generate from the choice
+bytes read on stdin. It prints one example program; it is not a grammar of the
+MOO language. Exits 1 when the generated program has no MOO spelling.
+
+With --corpus, stdin lists Go fuzz corpus files of a structured target, one path
+per line, and each file gives one JSON line: {"path", "choices" (hex),
+"source"} or {"path", "error"}.`
+	root.Example = `  moo-fuzz-source < choices.bin
+  head -c 200 /dev/urandom | moo-fuzz-source
+  ls testdata/fuzz/FuzzStructured/* | moo-fuzz-source --corpus`
+	root.Args = cobra.NoArgs
+	root.Flags().BoolVar(&corpus, "corpus", false, "Read corpus file paths on stdin and print one JSON line per file")
+	root.RunE = cli.RunE(func(cmd *cobra.Command, _ []string) error {
+		if corpus {
+			return renderCorpus(os.Stdin, cmd.OutOrStdout())
 		}
-		return
-	}
-	choices, err := io.ReadAll(os.Stdin)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	source, err := fuzzseed.Source(choices)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	fmt.Println(source)
+		choices, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		source, err := fuzzseed.Source(choices)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), source)
+		return nil
+	})
+	return root
 }
 
 type corpusRecord struct {

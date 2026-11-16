@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -13,19 +12,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/MongooseMoo/barn/internal/cli"
 )
 
 func TestMooClientConnectsToIPv6Host(t *testing.T) {
 	if os.Getenv("MOO_CLIENT_IPV6_HELPER") == "1" {
-		flag.CommandLine = flag.NewFlagSet("moo_client", flag.ExitOnError)
-		os.Args = []string{
-			"moo_client",
-			"-host", "::1",
-			"-port", os.Getenv("MOO_CLIENT_IPV6_PORT"),
-			"-timeout", "1",
-		}
-		main()
-		return
+		os.Exit(cli.Execute(newRootCommand(), []string{
+			"--host", "::1",
+			"-p", os.Getenv("MOO_CLIENT_IPV6_PORT"),
+			"--timeout", "1",
+		}, os.Stdout, os.Stderr))
 	}
 
 	listener, err := net.Listen("tcp6", "[::1]:0")
@@ -60,12 +57,10 @@ func TestMooClientConnectsToIPv6Host(t *testing.T) {
 
 func TestMooClientPromptLogin(t *testing.T) {
 	if os.Getenv("MOO_CLIENT_PROMPT_HELPER") == "1" {
-		flag.CommandLine = flag.NewFlagSet("moo_client", flag.ExitOnError)
-		os.Args = []string{"moo_client", "-host", "127.0.0.1", "-port", os.Getenv("MOO_CLIENT_PROMPT_PORT"),
-			"-login-prompts", "-stop-after-login", "-login-ready", "MOTD", "-banner-wait", "5000", "-inter-cmd", "5000",
-			"-max-duration", "3", "-timeout", "2", "-cmd", "PROXY TCP4 test", "-cmd", "account", "-cmd", "fake-password"}
-		main()
-		return
+		os.Exit(cli.Execute(newRootCommand(), []string{"--host", "127.0.0.1", "--port", os.Getenv("MOO_CLIENT_PROMPT_PORT"),
+			"--login-prompts", "--stop-after-login", "--login-ready", "MOTD", "--banner-wait", "5000", "--inter-cmd", "5000",
+			"--max-duration", "3", "--timeout", "2", "--cmd", "PROXY TCP4 test", "-c", "account", "-c", "fake-password"},
+			os.Stdout, os.Stderr))
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

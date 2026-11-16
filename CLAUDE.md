@@ -114,7 +114,7 @@ do not invent a Barn change.
 When a tool doesn't work, **fix the tool** - don't work around it with debug logging or manual inspection. Time spent fixing tooling pays dividends. Time spent on workarounds compounds into more workarounds.
 
 Examples:
-- `barn -verb-code` doesn't load mongoose.db → Fix Barn's inspection path, don't add printf debugging
+- `barn verb-code` doesn't load mongoose.db → Fix Barn's inspection path, don't add printf debugging
 - cow_py fails to parse database → Fix the parser or use barn's own loader
 - Test harness unreliable → Fix harness, don't run tests manually
 
@@ -185,7 +185,7 @@ CI's managed conformance invocation, which is the canonical Linux form:
 ```bash
 uv run --project ../moo-conformance-tests --frozen moo-conformance \
   -m "admission or conformance" \
-  --server-command "$PWD/bin/barn --db {db} --listen tcp://127.0.0.1:{port} --config=$PWD/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
+  --server-command "$PWD/bin/barn serve --db {db} --listen tcp://127.0.0.1:{port} --config=$PWD/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
   --server-db=../moo-conformance-tests/src/moo_conformance/_db/Test.db \
   --server-db-dir=../moo-conformance-tests/src/moo_conformance/_db/startup \
   --moo-host=127.0.0.1 \
@@ -221,8 +221,11 @@ Request flow: `server` (connections, login, input) → `engine.Runtime`
   is the per-task context passed into builtins.
 - **Values:** `types` (MOO values, persistent lists/maps, waifs, error codes,
   activation frames).
-- **Wiring:** `cmd/barn` → `internal/app`. `internal/dbtool` implements the
-  `-eval`/`-verb-code`/... inspection flags and the in-process path used by
+- **Wiring:** `cmd/barn` (cobra subcommands) → `internal/app`. `internal/cli`
+  gives every `cmd/` tool the same shape: GNU flags, `--version`/`-V` from
+  `internal/buildinfo`, `-v`/`-q`/`--log-level`, exit 2 on a command-line
+  mistake. `internal/dbtool` implements the
+  `eval`/`verb-code`/... inspection commands and the in-process path used by
   `scripts/bench_differ.py`. `internal/listener` holds the TCP/TLS/WebSocket
   listeners, and `config` parses the server options and capabilities.
 - **Observability:** `logging` (slog), `metrics` (expvar), `trace`
@@ -260,7 +263,7 @@ record, and cross-repository Toast-green/Barn-red/Barn-green loop, follow
 Manual reproduction (launching a Barn or Toast server yourself) is exceptional
 and requires the user's explicit approval, as specified in `AGENTS.md`.
 Investigating Barn needs no approval: read the code, write a Go test, run
-`bin/moo` or `barn -eval`, or use a debugger. "That would need a manual repro"
+`bin/moo` or `barn eval`, or use a debugger. "That would need a manual repro"
 is never a reason to stop at "I don't know".
 
 ## Reviewing What Happened On A Run
@@ -273,9 +276,9 @@ default — no flag needed.
 
 ```bash
 go build -o bin/ ./cmd/barn_logs
-./bin/barn_logs -level error     # failures only; exits 1 if the run logged an error
+./bin/barn_logs --level error    # failures only; exits 1 if the run logged an error
 ./bin/barn_logs                  # warnings and errors
-./bin/barn_logs -run list        # available runs
+./bin/barn_logs --run list       # available runs
 ```
 
 Every uncaught task exception is **one** `uncaught exception` record carrying the
@@ -310,9 +313,9 @@ messages). Use `-level error` to see what actually broke.
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `-log-level` | `info` | `debug`, `info`, `warn`, `error` |
-| `-log-dir` | `logs` | Empty disables the JSON file sink |
-| `-debug-addr` | `127.0.0.1:0` | pprof + expvar; `off` disables |
+| `--log-level` | `info` | `debug`, `info`, `warn`, `error`; or `-v` (debug), `-q` (warn), `-qq` (error) |
+| `--log-dir` | `logs` | Empty disables the JSON file sink |
+| `--debug-addr` (`serve`) | `127.0.0.1:0` | pprof + expvar; `off` disables |
 
 The debug endpoint binds an **ephemeral port**; its bound address is written to
 `debug.addr` in the log directory (servers sharing a log directory overwrite it;
@@ -384,27 +387,31 @@ end-to-end latency. Single-thread Go microbenchmarks stay in
 
 ## Database Inspection Tools
 
-Build the `barn` binary once; database inspection uses the same `-db` flag as
-the server and exits without starting listeners.
+Build the `barn` binary once; each inspection is a subcommand that takes the
+same `--db` flag as `barn serve` and exits without starting listeners. `barn
+help` lists them; `barn <command> --help` shows each one's flags. Every Barn
+tool prints its version and git revision with `--version` (`-V`).
 
 ```bash
 go build -o bin/ ./cmd/barn
 
-./bin/barn -db Test.db -verb-code '#0:do_login_command'
-./bin/barn -db Test.db -list-verbs '#0'
-./bin/barn -db Test.db -obj-info '#2'
-./bin/barn -db Test.db -eval '1 + 2'
-./bin/barn -db Test.db -dump-obj-raw '#2'
-./bin/barn -db Test.db -verb-lookup '#2:look'
-./bin/barn -db Test.db -ancestry '#2'
-./bin/barn -db Test.db -dump copy.db  # writes, reloads, and compares persistence fields
-./bin/barn -db Test.db -memory-report -memory-profile heap.pprof  # retained heap and property-slot counts after load
+./bin/barn verb-code --db Test.db '#0:do_login_command'
+./bin/barn list-verbs --db Test.db '#0'
+./bin/barn obj-info --db Test.db '#2'
+./bin/barn eval --db Test.db '1 + 2'
+./bin/barn eval --db Test.db --file probes.moo  # one input per line
+./bin/barn dump-obj-raw --db Test.db '#2'
+./bin/barn verb-lookup --db Test.db '#2:look'
+./bin/barn ancestry --db Test.db '#2'
+./bin/barn grep-verbs --db Test.db 'notify\('
+./bin/barn dump --db Test.db copy.db  # writes, reloads, and compares persistence fields
+./bin/barn memory-report --db Test.db --profile heap.pprof  # retained heap and property-slot counts after load
 ```
 
 ## Running MOO Code Without A Server
 
 `moo` is a MOO interpreter with no listeners. Code runs as the database's first
-wizard through the same eval path as `barn -eval`, and prints the same result
+wizard through the same eval path as `barn eval`, and prints the same result
 lines (`=> VALUE`, `Error: CODE`, `Compile error: ...`).
 
 ```bash
@@ -415,9 +422,9 @@ go build -o bin/ ./cmd/moo
 ./bin/moo                    # stdin, one input per line (prompts on a terminal)
 ```
 
-Without `-db` the database is an in-memory Minimal.db: `#0` System Object, `#1`
+Without `--db` the database is an in-memory Minimal.db: `#0` System Object, `#1`
 Root Class, `#2` The First Room and `#3` Wizard, with no verbs or properties.
-`-db path` loads a database file instead. Nothing is written to disk either way.
+`--db path` loads a database file instead. Nothing is written to disk either way.
 `-e` and a file exit 1 on a compile error, an uncaught error, or a panic; stdin
 mode exits 0 at EOF. There is no host (`builtins/host.go`), so no connection
 exists for `notify()` to deliver to.
