@@ -1250,7 +1250,7 @@ def provenance(args, output):
         "parameters": {name: getattr(args, name) for name in
                        ("phase1", "phase3", "phase_live", "rate", "concurrency", "seed", "jepsen_timeout",
                         "workloads", "stages", "stage_seconds", "control", "tasks", "dwell", "phase_transport",
-                        "transport_kinds")} | {"leak_check": getattr(args, "leak_check", False)},
+                        "transport_kinds", "leak_check")},
         "transport_lane": {"read_timeout_seconds": READ_TIMEOUT, "pause_hold_seconds": PAUSE_HOLD,
                            "arm_deadline_seconds": ARM_DEADLINE, "late_deadline_seconds": LATE_DEADLINE,
                            "truncate_bytes": TRUNCATE_BYTES, "slow_read_bytes": SLOW_READ_BYTES,

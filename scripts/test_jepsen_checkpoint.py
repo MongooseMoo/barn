@@ -1265,14 +1265,14 @@ class ProvenanceTests(unittest.TestCase):
                                    phase_live=7, rate=3, concurrency=4, seed=5, jepsen_timeout=6,
                                    workloads=["smoke", "keyed"], stages=["staged-2"], stage_seconds=8,
                                    control=None, tasks=True, dwell=9, phase_transport=10,
-                                   transport_kinds=["pre-send", "pause"])
+                                   transport_kinds=["pre-send", "pause"], leak_check=True)
             row = jc.provenance(args, root)
         sha = jc.barn_process.bench.sha256_file
         self.assertEqual(row["parameters"], {"phase1": 1, "phase3": 2, "phase_live": 7, "rate": 3, "concurrency": 4,
                                              "seed": 5, "jepsen_timeout": 6, "workloads": ["smoke", "keyed"],
                                              "stages": ["staged-2"], "stage_seconds": 8, "control": None,
                                              "tasks": True, "dwell": 9, "phase_transport": 10,
-                                             "transport_kinds": ["pre-send", "pause"]})
+                                          "transport_kinds": ["pre-send", "pause"], "leak_check": True})
         self.assertEqual((row["transport_lane"]["recovery_bound_seconds"],
                           row["transport_lane"]["recovery_bound_derivation"]),
                          (jc.RECOVERY_BOUND, jc.RECOVERY_BOUND_DERIVATION))

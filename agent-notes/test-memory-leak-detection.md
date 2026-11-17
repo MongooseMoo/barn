@@ -30,7 +30,11 @@ database/sql's connectionOpener labeled moo.task 94010. That producer is the
 threaded SQLite retry test. The shared fixture stopped its runtime but did not
 close its session. It now follows production shutdown by stopping the runtime
 and closing the session, reporting any close error. Full CI verification remains
-pending for that correction.
+pending for that correction. The next Go test run passed and its saved captures
+show zero native goroutine leaks for the parent and both diagnostics children;
+the same-runtime replay verdict is healthy. The Python driver suite then found
+its provenance fixture expected the pre-change parameter list. The fixture now
+sets leak_check=True and asserts it in the complete parameter comparison.
 
 ## Decisions and why
 
@@ -70,7 +74,7 @@ applied per file. No rejected edit was partially installed.
 
 ## Next step
 
-Push the session-ownership repair and improved incomplete-replay diagnostics, then
+Push the complete provenance-fixture update, then
 follow exact-head CI to completion. Q has a pending exact-text approval request
 for a scoped memory reproduction instruction in claude-fix.yml: its current
 single-fuzz-invocation recipe cannot reproduce retained-memory findings.
