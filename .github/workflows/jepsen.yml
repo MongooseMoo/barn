@@ -49,7 +49,7 @@ jobs:
           persist-credentials: false
       - id: tree
         if: github.event_name != 'workflow_dispatch' && github.event_name != 'schedule'
-        uses: ./.github/actions/tested-tree
+        uses: $/.github/actions/tested-tree
         with:
           mode: check
           name: jepsen
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: ./.github/actions/tested-tree
+      - uses: $/.github/actions/tested-tree
         with:
           mode: record
           name: jepsen
@@ -94,7 +94,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Build pinned checker
-        uses: ./.github/actions/elle-cli
+        uses: $/.github/actions/elle-cli
       - name: Build Barn
         run: go build -o bin/barn ./cmd/barn/
       - name: Build Jepsen workload
@@ -192,7 +192,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Build pinned checker
-        uses: ./.github/actions/elle-cli
+        uses: $/.github/actions/elle-cli
       - name: Build elle Barn
         run: go build -tags elle -o bin/barn-elle ./cmd/barn/
       # The stop points and checkpoint faults compile only into the elle
