@@ -9,8 +9,11 @@ fuzz, Elle, Jepsen and CI producers and their server runners.
 
 Published as PR #873 from the requested worktree; not merged. Q's "Go" approved
 the two proposed changes: restore the original audit scope and action references,
-and install the exact scoped memory-repair paragraph. Both edits are now made;
-verification of this updated revision is pending. The original checkout and its research artifacts remain
+and install the exact scoped memory-repair paragraph. Both edits are published;
+their CI build, test, driver and restored workflow-audit steps passed. A subsequent
+reported-command regression exposed the relative-input bug recorded below. Its
+fix passed the focused Linux regression; full CI for that final edit is pending.
+The original checkout and its research artifacts remain
 untouched. Shared Go
 capture, bounded VM corpus replay, native memory reporting, Elle capture,
 managed Jepsen generation capture and CI integration are implemented.
@@ -122,9 +125,17 @@ A later note edit also used an anchor missing its existing line prefix. That
 note patch was rejected; the live file was reread before correcting it. The
 three preceding workflow-file edits succeeded and were separately inspected.
 
+The reported memory reproduction supplied vm/testdata/memory/... as a relative
+environment value, but Go runs the VM test from the vm package directory. The
+existing report test only inspected the issue text and never executed its
+command. Extending that same test to execute the emitted command reproduced
+the missing-input failure on Linux. The reporter now prefixes the record path
+with quoted $PWD before Go changes directories. That regression then passed
+and preserved a healthy replay.json in its separate evidence directory.
+
 ## Next step
 
-Commit and push the approved workflow edits with this note, then follow the
+Commit and push the reported-command fix with this note, then follow the
 updated PR head's checks to completion. The approved paragraph's original is
 saved at C:/Users/Q/AppData/Local/Temp/barn-memory-repair-instruction.md.
 No other guard or governing instruction has been changed.

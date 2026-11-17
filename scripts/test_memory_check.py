@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shlex
 import tempfile
 import subprocess
 from types import SimpleNamespace
@@ -116,6 +117,24 @@ class MemoryEvidenceTests(unittest.TestCase):
         body = issue_body(finding, "./vm", "FuzzSourceExecution", "run", "artifact")
         self.assertIn("into vm/testdata/memory/FuzzSourceExecution/", body)
         self.assertNotIn("into " + str(record), body)
+        if os.name == "posix":
+            # Execute the issue's command: go test changes to the package directory.
+            portable = mc.ROOT / finding["repro_input_path"]
+            if portable.exists():
+                self.assertEqual(portable.read_bytes(), record.read_bytes())
+            else:
+                portable.parent.mkdir(parents=True, exist_ok=True)
+                portable.write_bytes(record.read_bytes())
+                self.addCleanup(portable.unlink)
+            evidence = self.root / "reported evidence"
+            command = finding["repro"].replace("BARN_LEAK_OUTPUT=/tmp/barn-memory-replay",
+                                               "BARN_LEAK_OUTPUT=" + shlex.quote(str(evidence)))
+            run = subprocess.run(["sh", "-c", command], cwd=mc.ROOT, text=True,
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                 timeout=60, check=False)
+            self.assertEqual(run.returncode, 0, run.stdout)
+            self.assertIn("--- PASS: TestMemorySourceReplay", run.stdout)
+            self.assertEqual(json.loads((evidence / "replay.json").read_text())["verdict"], "healthy")
         row["attempts"] = [attempt]
         report.write_text(json.dumps({"verdict": "finding", "records": [row]}))
         with self.assertRaises(ValueError):

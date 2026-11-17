@@ -186,7 +186,7 @@ def memory_reports(path, target, commit):
             raise ValueError("memory finding lacks two matching process replays")
         reasons = attempts[0]["result"]["reasons"]
         portable = Path("vm/testdata/memory") / target / row["sha256"]
-        repro = (f"BARN_LEAK_INPUT={shlex.quote(portable.as_posix())} BARN_LEAK_OUTPUT=/tmp/barn-memory-replay "
+        repro = (f'BARN_LEAK_INPUT="$PWD"/{shlex.quote(portable.as_posix())} BARN_LEAK_OUTPUT=/tmp/barn-memory-replay '
                  "go test ./vm -run '^TestMemorySourceReplay$' -count=1 -v -timeout=30s")
         reports.append({"kind": kind, "count": 2, "first_error": "; ".join(reasons),
                         "barn_frames": [], "signature": hashlib.sha256(
