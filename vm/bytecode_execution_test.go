@@ -623,6 +623,38 @@ func TestBytecodeFloatOverflowRaisesEFloat(t *testing.T) {
 	}
 }
 
+// Toast's do_power raises E_FLOAT when pow() sets errno, which libm does when a
+// nonzero base underflows to zero. Subnormal results and a zero base do not.
+func TestBytecodeFloatPowUnderflowRaisesEFloat(t *testing.T) {
+	exprs := []string{
+		"2.0 ^ -2000",
+		"2.0 ^ -1075",
+		"0.5 ^ 2000",
+		"(-2.0) ^ -2001",
+		"1.0e-300 ^ 1.5",
+		"0.1 ^ 324",
+		"1425^5%-84264%492.425^2.24455^2.244^42.455^-242616",
+	}
+	for _, expr := range exprs {
+		t.Run(expr, func(t *testing.T) {
+			requireError(t, runBytecodeExpr(t, expr), types.E_FLOAT)
+		})
+	}
+	values := map[string]float64{
+		"2.0 ^ -1074": math.SmallestNonzeroFloat64,
+		"0.5 ^ 1074":  math.SmallestNonzeroFloat64,
+		"0.0 ^ 2.0":   0,
+	}
+	for expr, want := range values {
+		t.Run(expr, func(t *testing.T) {
+			result := runBytecodeExpr(t, expr)
+			if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_FLOAT || result.Val.Float() != want {
+				t.Fatalf("%s: got flow=%v error=%v val=%v, want %v", expr, result.Flow, result.Error, result.Val, want)
+			}
+		})
+	}
+}
+
 func TestBytecodeIntegerLiteralOverflowWraps(t *testing.T) {
 	cases := map[string]int64{
 		"9223372036854775808":  -9223372036854775807 - 1,
