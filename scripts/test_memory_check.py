@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 import memory_check as mc
-from fuzz_report import memory_reports, saved_record
+from fuzz_report import issue_body, memory_reports, saved_record
 
 
 class MemoryEvidenceTests(unittest.TestCase):
@@ -110,6 +110,9 @@ class MemoryEvidenceTests(unittest.TestCase):
         finding = memory_reports(report, "FuzzSourceExecution", "test-revision")[0]
         self.assertEqual(finding["kind"], "retained growth")
         self.assertEqual(saved_record(finding), record.read_bytes())
+        body = issue_body(finding, "./vm", "FuzzSourceExecution", "run", "artifact")
+        self.assertIn("into vm/testdata/memory/FuzzSourceExecution/", body)
+        self.assertNotIn("into " + str(record), body)
         row["attempts"] = [attempt]
         report.write_text(json.dumps({"verdict": "finding", "records": [row]}))
         with self.assertRaises(ValueError):

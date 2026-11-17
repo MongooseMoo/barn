@@ -7,17 +7,19 @@ fuzz, Elle, Jepsen and CI producers and their server runners.
 
 ## State
 
-Implementation in progress in the requested worktree; no commit/publication yet.
+Published as PR #873 from the requested worktree; implementation is under CI.
 The original checkout and its research artifacts remain untouched. Shared Go
 capture, bounded VM corpus replay, native memory reporting, Elle capture,
 managed Jepsen generation capture and CI integration are implemented. Full CI
-and workflow audits are pending. Native goroutine, retained heap and bounded
+and workflow audits are pending. Initial CI stopped at a staticcheck tagged-switch
+finding in the new control test; that test is corrected on this branch.
+Native goroutine, retained heap and bounded
 cache controls passed locally. The Linux descriptor control awaits CI.
 Both source and structured-source VM replay controls passed. Python evidence
 and confirmation tests passed, including a real compiled replay subprocess.
 Cycle acceptance tests passed. The same-runtime lifecycle replay initially
 failed, identified the scheduler retention defect described below, and passed
-after the repair. Changes are prepared for first publication; CI is pending.
+after the repair. CI conformance, Elle and Jepsen are in progress.
 
 ## Decisions and why
 
@@ -49,7 +51,10 @@ unapproved and has not been installed or changed.
 
 ## Next step
 
-Finish the end-to-end replay driver test, commit/push/open the PR together and
-follow exact-head CI to completion. The implementation includes its first
-verified scheduler retention repair. No runtime semantics or isolation verdict
-is claimed from the local heap/regression tests alone.
+Push the control-test lint correction and portable memory-record handoff, then
+follow exact-head CI to completion. Q has a pending exact-text approval request
+for a scoped memory reproduction instruction in claude-fix.yml: its current
+single-fuzz-invocation recipe cannot reproduce retained-memory findings.
+No guard or governing workflow instruction has been changed without approval.
+The implementation includes its first verified scheduler retention repair.
+No isolation verdict is claimed from local heap/regression tests alone.

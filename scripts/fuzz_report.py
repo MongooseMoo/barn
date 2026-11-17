@@ -185,12 +185,14 @@ def memory_reports(path, target, commit):
         if len(attempts) != 2 or any(attempt["verdict"] != expected for attempt in attempts):
             raise ValueError("memory finding lacks two matching process replays")
         reasons = attempts[0]["result"]["reasons"]
-        repro = (f"BARN_LEAK_INPUT={shlex.quote(str(input_path))} BARN_LEAK_OUTPUT=/tmp/barn-memory-replay "
+        portable = Path("vm/testdata/memory") / target / row["sha256"]
+        repro = (f"BARN_LEAK_INPUT={shlex.quote(str(portable))} BARN_LEAK_OUTPUT=/tmp/barn-memory-replay "
                  "go test ./vm -run '^TestMemorySourceReplay$' -count=1 -v -timeout=30s")
         reports.append({"kind": kind, "count": 2, "first_error": "; ".join(reasons),
                         "barn_frames": [], "signature": hashlib.sha256(
                             f"{target}|{kind}|{row['sha256']}".encode()).hexdigest(),
-                        "input_path": str(input_path), "input_text": raw[:INLINE_LIMIT].decode(errors="replace"),
+                        "input_path": str(input_path), "repro_input_path": portable.as_posix(),
+                        "input_text": raw[:INLINE_LIMIT].decode(errors="replace"),
                         "repro": repro, "commit": commit,
                         "go_version": attempts[0]["result"]["samples"][0]["go_version"],
                         "log_tail": json.dumps(row, indent=2)[-TAIL_LIMIT:]})
@@ -209,6 +211,7 @@ def block(value, language="text"):
 
 def issue_body(result, package, target, run_url, artifact_url):
     record = saved_record(result)
+    shown_path = result.get("repro_input_path", result["input_path"])
     if record is None:
         exact = None
     elif len(record) > RECORD_LIMIT:
@@ -218,7 +221,7 @@ def issue_body(result, package, target, run_url, artifact_url):
         encoded = base64.b64encode(record).decode()
         exact = (f"Exact failing record {Path(result['input_path']).name}: {len(record)} bytes, "
                  f"sha256 {hashlib.sha256(record).hexdigest()}. Decode this block with base64 -d "
-                 f"into {result['input_path']} and check its sha256:\n"
+                 f"into {shown_path} and check its sha256:\n"
                  + block("\n".join(encoded[i:i + 76] for i in range(0, len(encoded), 76)), "base64"))
     frames = "\n".join(f"{f['function']}\n  {f['location']}" for f in result["barn_frames"])
     return "\n\n".join(part for part in [
@@ -230,7 +233,7 @@ def issue_body(result, package, target, run_url, artifact_url):
         f"Commit: {result['commit']}\nGo: {result['go_version']}",
         f"First error:\n{block(result['first_error'])}",
         f"Top Barn frames:\n{block(frames or 'Unavailable in Go output')}",
-        f"Failing input ({result['input_path'] or 'none recorded'}):\n{block(result['input_text'])}",
+        f"Failing input ({shown_path or 'none recorded'}):\n{block(result['input_text'])}",
         exact,
         f"Bounded reproduction:\n{block(result['repro'] or 'No failing input recorded; inspect the log.')}",
         f"Log tail:\n{block(result['log_tail'])}",

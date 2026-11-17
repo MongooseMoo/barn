@@ -79,9 +79,10 @@ func TestReplayControls(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := "healthy"
-			if kind == "heap" {
+			switch kind {
+			case "heap":
 				want = "heap-candidate"
-			} else if kind == "descriptor" {
+			case "descriptor":
 				want = "leak"
 			}
 			if result.Verdict != want {
