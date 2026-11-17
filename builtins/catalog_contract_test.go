@@ -22,7 +22,11 @@ func TestNativeCatalogPreservesHistoricalContract(t *testing.T) {
 	// FLOAT positions admit INT under PROMOTE_NUMBERS.
 	// Signature gained IncarnationArgs; valid's is STR, the Mongoose fork's
 	// optional expected incarnation_id, admitted only under VALID_INCARNATION.
-	const expected = "36032f1c0c88a7cedfce6ee57da82b666f12d881aa9f78d8cf8a015dd41fc5bb"
+	// ToastStunt 61f2b7a registers the flag positions of isa, locate_by_name,
+	// occupants, locations, explode, sort, queued_tasks, switch_player,
+	// set_thread_mode, is_member, maphaskey, file_grep and pcre_match as
+	// TYPE_FLAG (-3, INT or BOOL) instead of TYPE_INT.
+	const expected = "7f7827abd7af3e16b643cc0d4adca5b600d50f2419798b07dc31dfc8372c6bda"
 	type contract struct {
 		Name       string
 		Signature  *Signature

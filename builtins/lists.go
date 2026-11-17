@@ -213,10 +213,10 @@ func promoteMemberEqual(ctx *Execution, a, b types.Value) (equal bool, handled b
 func builtinIsMember(ctx *Execution, args []types.Value) types.Result {
 	caseMatters := true
 	if len(args) == 3 {
-		if args[2].Type() != types.TYPE_INT {
+		var ok bool
+		if caseMatters, ok = flagArg(args[2]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		caseMatters = args[2].Int() != 0
 	}
 
 	value := args[0]
@@ -279,13 +279,13 @@ func memberEqual(a, b types.Value, caseMatters bool) bool {
 // Signature (toaststunt src/list.cc:1779, sort_callback 947-1020):
 //
 //		sort(list [, keys] [, natural] [, reverse]) -> list
-//		register_function("sort", 1, 4, ..., TYPE_LIST, TYPE_LIST, TYPE_INT, TYPE_INT)
+//		register_function("sort", 1, 4, ..., TYPE_LIST, TYPE_LIST, TYPE_FLAG, TYPE_FLAG)
 //
 //	  - keys (LIST):    parallel list to sort BY; an empty list means "sort by the
 //	    list itself". When non-empty it must have the same length as list, else
 //	    E_INVARG, and the returned elements come from list (not keys).
-//	  - natural (INT):  when true, strings compare with natural order (strnatcasecmp).
-//	  - reverse (INT):  when true, the sorted order is reversed.
+//	  - natural (FLAG): when true, strings compare with natural order (strnatcasecmp).
+//	  - reverse (FLAG): when true, the sorted order is reversed.
 //
 // Errors: bad arity -> E_ARGS; wrong arg types -> E_TYPE (Toast enforces these via
 // register_function's type tokens); the sort-key list must be homogeneous and made
@@ -310,20 +310,17 @@ func builtinSort(ctx *Execution, args []types.Value) types.Result {
 		useKeys = keys.Len() > 0
 	}
 
-	// arg 3: natural flag (INT). arg 4: reverse flag (INT). is_true == nonzero.
-	natural := false
+	// arg 3: natural flag. arg 4: reverse flag. Both is_true.
+	var natural, reverse, ok bool
 	if len(args) >= 3 {
-		if args[2].Type() != types.TYPE_INT {
+		if natural, ok = flagArg(args[2]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		natural = args[2].Int() != 0
 	}
-	reverse := false
 	if len(args) >= 4 {
-		if args[3].Type() != types.TYPE_INT {
+		if reverse, ok = flagArg(args[3]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		reverse = args[3].Int() != 0
 	}
 	return backgroundValue(ctx, func() types.Value {
 		return sortCallback(list, keys, useKeys, natural, reverse)
@@ -929,8 +926,8 @@ func listsDescriptors() []Descriptor {
 		function("listset", builtinListset, 3, 3, 4, -1, 0),
 		function("setadd", builtinSetadd, 2, 2, 4, -1),
 		function("setremove", builtinSetremove, 2, 2, 4, -1),
-		function("is_member", builtinIsMember, 2, 3, -1, -1, 0),
-		function("sort", builtinSort, 1, 4, 4, 4, 0, 0),
+		function("is_member", builtinIsMember, 2, 3, -1, -1, argFlag),
+		function("sort", builtinSort, 1, 4, 4, 4, argFlag, argFlag),
 		function("reverse", builtinReverse, 1, 1, -1),
 		function("unique", builtinUnique, 1, 1, 4).plainArityError().hidden().withCapability(config.BarnExtensions),
 		function("slice", builtinSlice, 1, 3, 4, -1, -1),

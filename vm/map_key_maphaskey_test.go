@@ -148,11 +148,11 @@ func TestProtectedMaphaskeyOfPropertyReadsTheWholeMap(t *testing.T) {
 	}
 }
 
-// maphaskey's lookup of a boolean key depends on the other keys:
-// [true -> 1, false -> 2, 1 -> 3] has m[true], yet maphaskey(m, true) is 0, and
-// it is 1 once the key 1 is gone. So that call reads the whole map: a commit
-// that removes another key makes it lose.
-func TestMaphaskeyOfPropertyWithAnUnorderedKeyReadsTheWholeMap(t *testing.T) {
+// Toast 2.8 orders booleans (false < true) and WAIFs totally, so maphaskey's
+// lookup of such a key no longer depends on the other keys: in
+// [true -> 1, false -> 2, 1 -> 3] maphaskey(m, true) is 1, and it reads only
+// the tested entry. A commit that removes another key leaves the reader valid.
+func TestMaphaskeyOfPropertyWithABooleanKeyDependsOnTheOneEntry(t *testing.T) {
 	store := mapKeyVMStore(t)
 	setup := store.BeginSnapshot(0)
 	runOn(t, store, setup, "#0.m = [true -> 1, false -> 2, 1 -> 3];")
@@ -163,13 +163,13 @@ func TestMaphaskeyOfPropertyWithAnUnorderedKeyReadsTheWholeMap(t *testing.T) {
 	reader, other := store.BeginSnapshot(0), store.BeginSnapshot(0)
 	defer reader.Release()
 	defer other.Release()
-	runOn(t, store, reader, `r = maphaskey(#0.m, true); if (r != 0) raise(E_INVARG); endif #0.m["r"] = r;`)
+	runOn(t, store, reader, `r = maphaskey(#0.m, true); if (r != 1) raise(E_INVARG); endif #0.m["r"] = r;`)
 	runOn(t, store, other, "#0.m = mapdelete(#0.m, 1);")
 	if ec := other.Commit(); ec != types.E_NONE {
 		t.Fatalf("other commit: %v %v", ec, other.Conflicts())
 	}
-	if ec := reader.Commit(); ec == types.E_NONE || !reader.ValidationFailed() {
-		t.Fatalf("reader commit = %v; want a lost validation", ec)
+	if ec := reader.Commit(); ec != types.E_NONE {
+		t.Fatalf("reader commit: %v %v", ec, reader.Conflicts())
 	}
 }
 

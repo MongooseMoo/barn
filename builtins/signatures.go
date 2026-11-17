@@ -32,16 +32,36 @@ func isObjectRef(v types.Value) bool {
 	return t == types.TYPE_OBJ || t == types.TYPE_ANON
 }
 
+// Registration wildcards (structures.h): argument types below zero that admit
+// more than one value type. function_info reports them as these codes.
+const (
+	argAny     int64 = -1 // TYPE_ANY
+	argNumeric int64 = -2 // TYPE_NUMERIC: INT or FLOAT
+	argFlag    int64 = -3 // TYPE_FLAG: INT or BOOL
+)
+
 func valueMatchesFunctionArgType(v types.Value, expected int64) bool {
 	switch expected {
-	case -1:
+	case argAny:
 		return true
-	case -2:
+	case argNumeric:
 		t := v.Type()
 		return t == types.TYPE_INT || t == types.TYPE_FLOAT
+	case argFlag:
+		t := v.Type()
+		return t == types.TYPE_INT || t == types.TYPE_BOOL
 	default:
 		return int64(v.Type()) == expected
 	}
+}
+
+// flagArg is is_true of a value in an argFlag position; ok is false when the
+// value is neither INT nor BOOL (E_TYPE).
+func flagArg(v types.Value) (truth, ok bool) {
+	if !valueMatchesFunctionArgType(v, argFlag) {
+		return false, false
+	}
+	return v.Truthy(), true
 }
 
 func validateFunctionArgs(sig Signature, args []types.Value) types.ErrorCode {

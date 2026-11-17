@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"cmp"
 	"fmt"
 	"hash/maphash"
@@ -412,27 +413,23 @@ func toastTypeOrdinal(t TypeCode) int {
 	}
 }
 
+// boolOrdinal ranks false before true, as Toast's compare() does.
+func boolOrdinal(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func toastMapCompare(a, b Value, caseSensitive bool) int {
 	if a.Type() != b.Type() {
 		return toastTypeOrdinal(a.Type()) - toastTypeOrdinal(b.Type())
 	}
 	switch a.Type() {
 	case TYPE_INT:
-		if a.Int() < b.Int() {
-			return -1
-		}
-		if a.Int() > b.Int() {
-			return 1
-		}
-		return 0
+		return cmp.Compare(a.Int(), b.Int())
 	case TYPE_OBJ:
-		if a.Obj() < b.Obj() {
-			return -1
-		}
-		if a.Obj() > b.Obj() {
-			return 1
-		}
-		return 0
+		return cmp.Compare(a.Obj(), b.Obj())
 	case TYPE_ERR:
 		return int(a.ErrCode()) - int(b.ErrCode())
 	case TYPE_STR:
@@ -447,21 +444,17 @@ func toastMapCompare(a, b Value, caseSensitive bool) int {
 			return 1
 		}
 		return 0
+	// Toast 2.8 (c0966e5) orders waifs and anonymous objects by address and
+	// bools as false < true. Barn has no stable addresses; a waif's identity
+	// token and an anonymous object's id are fixed for the value's lifetime,
+	// so they give the same kind of arbitrary but total order.
 	case TYPE_WAIF:
-		if a.WaifIdentity() == b.WaifIdentity() {
-			return 0
-		}
-		return 1
+		ai, bi := a.WaifIdentity(), b.WaifIdentity()
+		return bytes.Compare(ai.swiss[:], bi.swiss[:])
 	case TYPE_ANON:
-		if a.ID() == b.ID() {
-			return 0
-		}
-		return 1
+		return cmp.Compare(a.ID(), b.ID())
 	case TYPE_BOOL:
-		if a.Bool() == b.Bool() {
-			return 0
-		}
-		return 1
+		return boolOrdinal(a.Bool()) - boolOrdinal(b.Bool())
 	default:
 		return 0
 	}
@@ -845,11 +838,8 @@ func (v Value) MapColumns() (values, keys []Value) {
 
 // PairsInInsertionOrder returns all key-value pairs in raw insertion order,
 // NOT tree-traversal order. Feeding these to NewMap reproduces the source
-// map's topology exactly. In-memory rebuilds (e.g. the snapshot anon-id
-// rewrite) must use this: Pairs() traversal order is REVERSED insertion order
-// for non-totally-ordered key types (waif/anon/bool), so a Pairs()->NewMap
-// round trip would flip those keys and cancel the Toast-pinned reversal that
-// dump/reload itself performs.
+// map's insertion order exactly. Key order (Pairs, Keys) comes from the
+// total order of toastMapCompare and does not depend on insertion order.
 func (v Value) PairsInInsertionOrder() [][2]Value {
 	m := v.goMap()
 	pairs := make([][2]Value, m.count)
@@ -900,14 +890,9 @@ func (v Value) KeyPosition(key Value) int64 {
 	return 0
 }
 
-// IsValidMapKey reports whether a value type is valid as a map key.
+// IsValidMapKey reports whether a value type is valid as a map key, both in
+// the VM and as the key argument to mapdelete() and maphaskey().
 func IsValidMapKey(v Value) bool {
 	t := v.Type()
 	return t == TYPE_INT || t == TYPE_FLOAT || t == TYPE_STR || t == TYPE_OBJ || t == TYPE_ANON || t == TYPE_ERR || t == TYPE_WAIF || t == TYPE_BOOL
-}
-
-// IsValidBuiltinMapKey reports whether a value is valid as a key argument to map
-// builtins. Anonymous object keys are rejected (E_TYPE).
-func IsValidBuiltinMapKey(v Value) bool {
-	return IsValidMapKey(v) && v.Type() != TYPE_ANON
 }

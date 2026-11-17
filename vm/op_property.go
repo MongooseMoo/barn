@@ -130,13 +130,13 @@ func (vm *VM) executeMaphaskeyKeyed() error {
 // orderedLookupKey reports whether maphaskey finds key exactly when MapGet
 // does, whatever else the map holds. maphaskey walks the map's Toast-ordered
 // tree (types.Value.GetWithCase); its comparator orders integers, objects,
-// errors, strings and floats totally, but calls any two distinct booleans,
-// WAIFs or anonymous objects, or NaN and any float, unordered, so for those
-// the walk's answer depends on the other keys: [true -> 1, false -> 2, 1 -> 3]
-// has m[true], yet maphaskey(m, true) is 0. Other key types are E_TYPE.
+// errors, strings, booleans, WAIFs and non-NaN floats totally (booleans and
+// WAIFs since Toast 2.8), but NaN against any float is unordered, so for that
+// key the walk's answer depends on the other keys. Anonymous-object keys are
+// E_TYPE here and keep the conservative whole-slot read.
 func orderedLookupKey(key types.Value) bool {
 	switch key.Type() {
-	case types.TYPE_INT, types.TYPE_OBJ, types.TYPE_ERR, types.TYPE_STR:
+	case types.TYPE_INT, types.TYPE_OBJ, types.TYPE_ERR, types.TYPE_STR, types.TYPE_BOOL, types.TYPE_WAIF:
 		return true
 	case types.TYPE_FLOAT:
 		return !math.IsNaN(key.Float())

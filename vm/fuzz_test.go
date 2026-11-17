@@ -175,9 +175,8 @@ func attachSourceFuzzTask(machine *VM, id int64) {
 	context.TicksRemaining = machine.TickLimit
 	machine.Context = context
 	machine.Task = task.NewState(id, context.Player, machine.TickLimit, 1)
-	// A named while test charges only an unchecked tick (Toast EOP_WHILE_ID,
-	// execute.cc:2286-2288), so such a loop is stopped by the seconds budget
-	// at a tick checkpoint, which needs a running deadline.
+	// The seconds budget is checked at tick checkpoints against a running
+	// deadline, as engine/task_runtime.go sets before a slice.
 	machine.Task.SetExecutionDeadline(time.Now().Add(100 * time.Millisecond))
 }
 

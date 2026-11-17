@@ -197,7 +197,7 @@ const (
 // sequences of ordinary opcodes; these let the compiler state exactly which
 // instructions carry Toast's tick charges (see InstructionTicks).
 const (
-	OP_TICKS               OpCode = OP_CHECK_MAP_LIMIT + 1 + iota // Prefix [ticks:byte]: the next instruction charges ticks&0x7F instead of its default; TicksUnchecked (0x80) set = charged without the limit check
+	OP_TICKS               OpCode = OP_CHECK_MAP_LIMIT + 1 + iota // Prefix [ticks:byte]: the next instruction charges ticks&0x7F instead of its default (PrefixTicks)
 	OP_SET_LOCAL                                                  // Pop and store to local [index] without a tick (compiler-internal stores)
 	OP_PUSH_INT                                                   // Push int64 immediate [value:8 bytes big-endian]
 	OP_SCATTER_TAKE                                               // Scatter element [listVar,cursorVar,targetVar,step]: target = list[cursor]; cursor += 1 (step 0) or -= 1 (step 1)
@@ -233,8 +233,10 @@ const (
 // retained at that target. Ordinary branches keep their historical meaning.
 const OP_UNWIND_JUMP OpCode = OP_SET_PROP_KEYED + 1
 
-// TicksUnchecked marks an OP_TICKS charge that, like a Toast extended opcode
-// at or above EOP_CATCH, decrements the budget without testing it.
+// TicksUnchecked is a retired OP_TICKS flag bit. It marked a charge that,
+// like a Toast extended opcode before 2.8, decremented the budget without
+// testing it. The compiler no longer sets it; bytecode persisted with
+// suspended tasks may still carry it, and PrefixTicks ignores it.
 const TicksUnchecked byte = 0x80
 
 // OpCodeNames maps opcodes to their string names for debugging
@@ -436,18 +438,17 @@ func MakeImmediateOpcode(value int) (OpCode, bool) {
 }
 
 // Tick accounting follows ToastStunt (src/include/opcode.h): every executed
-// opcode numbered at or below OP_G_PUT costs one tick, tested against the
-// budget before the opcode runs (COUNT_TICK, execute.cc), and every extended
-// opcode at or above EOP_CATCH costs one tick that is subtracted without the
-// test (COUNT_EOP_TICK). Each Barn opcode is charged what the Toast opcodes it
-// implements would charge. Compiler-synthesized helper instructions that have
-// no Toast counterpart are either tick-free opcodes (OP_SET_LOCAL,
-// OP_SCATTER_TAKE, OP_PUSH_INT) or carry an OP_TICKS prefix.
+// opcode numbered at or below OP_G_PUT (COUNT_TICK) and every extended opcode
+// at or above EOP_CATCH (COUNT_EOP_TICK) costs one tick, tested against the
+// budget before the opcode runs (execute.cc; extended opcodes since 2.8,
+// fdfa9ae). Each Barn opcode is charged what the Toast opcodes it implements
+// would charge. Compiler-synthesized helper instructions that have no Toast
+// counterpart are either tick-free opcodes (OP_SET_LOCAL, OP_SCATTER_TAKE,
+// OP_PUSH_INT) or carry an OP_TICKS prefix.
 const (
-	tickFree      uint8 = iota // no tick
-	tickOne                    // one checked tick (Toast COUNT_TICK opcode)
-	tickUnchecked              // one unchecked tick (Toast COUNT_EOP_TICK opcode)
-	tickDynamic                // cost depends on operands; see dynamicTicks
+	tickFree    uint8 = iota // no tick
+	tickOne                  // one tick (a Toast COUNT_TICK or COUNT_EOP_TICK opcode)
+	tickDynamic              // cost depends on operands; see DynamicTicks
 )
 
 var tickTable = func() (t [256]uint8) {
@@ -470,16 +471,12 @@ var tickTable = func() (t [256]uint8) {
 		OP_INDEX, OP_INDEX_SET, OP_RANGE, OP_SPLICE, OP_INDEX_KEYED,
 		// OP_FORK / OP_FORK_WITH_ID
 		OP_FORK, OP_FORK_WIDE, OP_FORK_LOCAL_WIDE,
-	} {
-		t[op] = tickOne
-	}
-	for _, op := range []OpCode{
 		// EOP_EXP and the bitwise extended opcodes
 		OP_POW, OP_BITOR, OP_BITAND, OP_BITXOR, OP_BITNOT, OP_SHL, OP_SHR,
 		// EOP_SCATTER, EOP_TRY_FINALLY, EOP_FOR_LIST_1/2
 		OP_SCATTER, OP_TRY_FINALLY, OP_TRY_FINALLY_WIDE, OP_FOR_LIST_CHECK_WIDE,
 	} {
-		t[op] = tickUnchecked
+		t[op] = tickOne
 	}
 	for _, op := range []OpCode{
 		OP_CALL_BUILTIN, OP_CALL_BUILTIN_WIDE, OP_PASS, OP_CALL_VERB, OP_CALL_VERB_DYNAMIC, OP_CALL_VERB_WIDE,
@@ -491,14 +488,20 @@ var tickTable = func() (t [256]uint8) {
 }()
 
 // InstructionTicks returns the ticks charged by the instruction at code[ip]
-// (whose opcode is op), split into ticks tested against the budget before the
-// instruction runs and ticks subtracted without that test. OP_TICKS prefixes
-// are handled by the caller.
-func InstructionTicks(op OpCode, code []byte, ip int) (checked, unchecked int64) {
+// (whose opcode is op), all tested against the budget before the instruction
+// runs. OP_TICKS prefixes are handled by the caller (PrefixTicks).
+func InstructionTicks(op OpCode, code []byte, ip int) int64 {
 	if kind := tickTable[op]; kind != TickDynamic {
 		return StaticTicks(kind)
 	}
 	return DynamicTicks(op, code, ip)
+}
+
+// PrefixTicks returns the charge an OP_TICKS prefix with operand b states. The
+// retired TicksUnchecked bit, still present in bytecode persisted with
+// suspended tasks, is ignored: that charge is tested like any other.
+func PrefixTicks(b byte) int64 {
+	return int64(b &^ TicksUnchecked)
 }
 
 // TickDynamic is the TickKind of an opcode whose charge depends on its
@@ -510,32 +513,32 @@ const TickDynamic = tickDynamic
 // combined InstructionTicks is too large to inline.
 func TickKind(op OpCode) uint8 { return tickTable[op] }
 
-// StaticTicks decodes a non-dynamic TickKind (free = 0, one checked = 1, one
-// unchecked = 2).
-func StaticTicks(kind uint8) (checked, unchecked int64) {
-	return int64(kind & tickOne), int64(kind >> 1)
+// StaticTicks decodes a non-dynamic TickKind (free = 0, one = 1).
+func StaticTicks(kind uint8) int64 {
+	return int64(kind)
 }
 
 // DynamicTicks returns the charge of an opcode whose TickKind is TickDynamic.
-func DynamicTicks(op OpCode, code []byte, ip int) (checked, unchecked int64) {
+func DynamicTicks(op OpCode, code []byte, ip int) int64 {
 	switch op {
 	case OP_CALL_BUILTIN, OP_CALL_VERB:
 		// OP_BI_FUNC_CALL / OP_CALL_VERB, plus MAKE_SINGLETON_LIST or
 		// CHECK_LIST_FOR_SPLICE for a nonempty argument list (0xFF = spliced).
-		return 1 + nonzero(code[ip+2]), 0
+		return 1 + nonzero(code[ip+2])
 	case OP_CALL_VERB_WIDE, OP_CALL_BUILTIN_WIDE:
-		return 1 + nonzero(code[ip+3]), 0
+		return 1 + nonzero(code[ip+3])
 	case OP_PASS, OP_CALL_VERB_DYNAMIC:
-		return 1 + nonzero(code[ip+1]), 0
+		return 1 + nonzero(code[ip+1])
 	case OP_MAKE_LIST:
 		// A list literal charges MAKE_SINGLETON_LIST once for its first element.
-		return nonzero(code[ip+1]), 0
+		return nonzero(code[ip+1])
 	case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE, OP_TRY_EXCEPT_LOCAL_WIDE:
-		// Each arm with an explicit code list builds it (one checked
+		// Each arm with an explicit code list builds it (one
 		// MAKE_SINGLETON_LIST or CHECK_LIST_FOR_SPLICE; ANY is a free
-		// immediate), then EOP_TRY_EXCEPT / EOP_CATCH ticks unchecked. An
+		// immediate), then EOP_TRY_EXCEPT / EOP_CATCH ticks once. An
 		// ExceptCodesInLocal arm's list was built, and charged, by the
-		// instructions that evaluated it.
+		// instructions that evaluated it. None of these has an effect
+		// visible after an abort, so the charge is tested as one.
 		varBytes, ipBytes := 1, 2
 		if op != OP_TRY_EXCEPT {
 			ipBytes = 4
@@ -546,16 +549,17 @@ func DynamicTicks(op OpCode, code []byte, ip int) (checked, unchecked int64) {
 		pos := ip + 1
 		clauses := int(code[pos])
 		pos++
+		ticks := int64(1)
 		for clause := 0; clause < clauses; clause++ {
 			codes := int(code[pos])
 			if codes != 0 && !clauseCodesInLocal(code[pos:]) {
-				checked++
+				ticks++
 			}
 			pos += 1 + codes + varBytes + ipBytes
 		}
-		return checked, 1
+		return ticks
 	}
-	return 0, 0
+	return 0
 }
 
 func nonzero(b byte) int64 {

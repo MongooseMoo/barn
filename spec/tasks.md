@@ -148,7 +148,8 @@ Tick cost is an opcode property, not a general cost table for source-level
 operations. In Toast, `COUNT_TICK(op)` charges one tick for every ordinary
 opcode through `OP_G_PUT`; later ordinary opcodes do not charge at dispatch.
 `COUNT_EOP_TICK(eop)` charges one tick for extended opcodes from `EOP_CATCH`
-onward. Consequently, a singleton-list opcode costs one tick while empty-list
+onward. Both are tested against the budget before the opcode runs (extended
+opcodes since ToastStunt 2.8, fdfa9ae). Consequently, a singleton-list opcode costs one tick while empty-list
 construction and list-tail/append opcodes do not; variable reads cost no tick,
 assignments cost one, and the builtin-call opcode costs one. The complete
 ordering is defined in `src/include/opcode.h` and enforced by `src/execute.cc`.

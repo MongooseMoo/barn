@@ -126,13 +126,12 @@ func (c *lowerer) compileWhile(n *ir.WhileStmt) error {
 	}
 
 	// Exit loop if false. A named loop's test is Toast's EOP_WHILE_ID, an
-	// extended opcode whose tick is not tested against the budget.
+	// extended opcode that charges the one tested tick the jump carries.
 	if n.Label != "" {
 		// EOP_WHILE_ID binds the complete condition value on every test,
 		// including the false value which terminates the loop.
 		c.emit(bytecode.OP_DUP)
 		c.emitStoreLocal(c.declareVariable(n.Label))
-		c.emitTicks(1 | bytecode.TicksUnchecked)
 	}
 	exitJump := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
 
@@ -277,8 +276,8 @@ func (c *lowerer) compileCollectionLoop(n *ir.CollectionLoopStmt) error {
 	loopStart := c.currentOffset()
 
 	// Condition: if idx > len, jump to exit. Fused FOR_LIST_CHECK (idx and len are
-	// ints) replaces GET_VAR/GET_VAR/LE/JUMP_IF_FALSE; it is FOR_RANGE_CHECK with
-	// the unchecked tick of Toast's EOP_FOR_LIST.
+	// ints) replaces GET_VAR/GET_VAR/LE/JUMP_IF_FALSE; it is FOR_RANGE_CHECK
+	// carrying the tick of Toast's EOP_FOR_LIST.
 	c.emit(bytecode.OP_FOR_LIST_CHECK_WIDE)
 	c.emitByte(byte(idxVar))
 	c.emitByte(byte(lenVar))
@@ -348,8 +347,8 @@ func (c *lowerer) compileBreak(n *ir.BreakStmt) error {
 	}
 
 	// Emit a forward jump past the loop end (will be patched by endLoop). It
-	// stands for Toast's EOP_EXIT / EOP_EXIT_ID: one unchecked tick.
-	c.emitTicks(1 | bytecode.TicksUnchecked)
+	// stands for Toast's EOP_EXIT / EOP_EXIT_ID: one tick.
+	c.emitTicks(1)
 	patchOffset := c.emitUnwindJump(loop.HandlerDepth, -1)
 	loop.BreakJumps = append(loop.BreakJumps, patchOffset)
 	return nil
@@ -366,7 +365,7 @@ func (c *lowerer) compileContinue(n *ir.ContinueStmt) error {
 	}
 
 	// Like break, continue is Toast's EOP_EXIT / EOP_EXIT_ID.
-	c.emitTicks(1 | bytecode.TicksUnchecked)
+	c.emitTicks(1)
 	if loop.ContinueIP > 0 {
 		c.emitUnwindJump(loop.HandlerDepth, loop.ContinueIP)
 	} else {

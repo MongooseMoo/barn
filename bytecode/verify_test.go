@@ -148,7 +148,16 @@ func TestVerifyProgramAcceptsTickingLoops(t *testing.T) {
 			byte(OP_LOOP), 0, 7,
 			byte(OP_RETURN_NONE),
 		},
-		"unchecked prefix": {
+		"prefix": {
+			immediate(0),
+			byte(OP_TICKS), 1,
+			byte(OP_JUMP_IF_FALSE), 0, 3,
+			byte(OP_LOOP), 0, 9,
+			byte(OP_RETURN_NONE),
+		},
+		// Bytecode persisted before ToastStunt 2.8 parity may carry the
+		// retired TicksUnchecked bit.
+		"legacy unchecked prefix": {
 			immediate(0),
 			byte(OP_TICKS), 1 | TicksUnchecked,
 			byte(OP_JUMP_IF_FALSE), 0, 3,
@@ -158,6 +167,16 @@ func TestVerifyProgramAcceptsTickingLoops(t *testing.T) {
 	} {
 		if err := VerifyProgram(&Program{Code: code}); err != nil {
 			t.Errorf("%s: VerifyProgram() error = %v", name, err)
+		}
+	}
+}
+
+// A persisted OP_TICKS operand carrying the retired TicksUnchecked bit
+// charges its count, tested like any other tick.
+func TestPrefixTicksIgnoresRetiredUncheckedBit(t *testing.T) {
+	for operand, want := range map[byte]int64{0: 0, 1: 1, 1 | TicksUnchecked: 1, 3 | TicksUnchecked: 3} {
+		if got := PrefixTicks(operand); got != want {
+			t.Errorf("PrefixTicks(%#x) = %d; want %d", operand, got, want)
 		}
 	}
 }

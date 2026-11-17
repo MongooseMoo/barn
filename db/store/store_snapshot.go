@@ -348,9 +348,8 @@ func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) 
 		}
 		return types.NewList(out), true
 	case types.TYPE_MAP:
-		// Insertion order, NOT traversal order: rebuilding from Pairs() would
-		// reverse waif/anon/bool-keyed topology (Pairs is reversed insertion
-		// for those types) and cancel the reversal dump/reload itself performs.
+		// Rebuild in the source's insertion order; key order comes from the
+		// rewritten keys themselves.
 		pairs := v.PairsInInsertionOrder()
 		out := make([][2]types.Value, len(pairs))
 		changed := false

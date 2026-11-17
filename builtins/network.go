@@ -1192,7 +1192,7 @@ func builtinSwitchPlayer(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 	if len(args) == 3 {
-		if args[2].Type() != types.TYPE_INT {
+		if _, ok := flagArg(args[2]); !ok {
 			return types.Err(types.E_TYPE)
 		}
 	}
@@ -1524,7 +1524,7 @@ func networkDescriptors() []Descriptor {
 		function("connection_name", builtinConnectionName, 1, 2, 1, 0),
 		function("connection_name_lookup", builtinConnectionNameLookup, 1, 2, 1, -1),
 		function("boot_player", builtinBootPlayer, 1, 1, 1),
-		function("switch_player", builtinSwitchPlayer, 2, 3, 1, 1, 0),
+		function("switch_player", builtinSwitchPlayer, 2, 3, 1, 1, argFlag),
 		function("idle_seconds", builtinIdleSeconds, 1, 1, 1),
 		function("connected_seconds", builtinConnectedSeconds, 1, 1, 1),
 		function("connection_info", builtinConnectionInfo, 1, 1, 1),
