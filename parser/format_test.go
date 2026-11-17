@@ -33,7 +33,7 @@ func TestFormatMOOPreservesSemanticIRAcrossParserCorpus(t *testing.T) {
 		"while named (condition) continue named; endwhile",
 		"for value, key in (collection) break value; endfor",
 		"for number in [start..finish] continue number; endfor",
-		"try value = risky(); except detail (E_TYPE, E_DIV) return detail; finally cleanup(); endtry",
+		"try try value = risky(); except detail (E_TYPE, E_DIV) return detail; endtry finally cleanup(); endtry",
 		"fork task_id (delay) notify(player, \"done\"); endfork",
 		"return `value / divisor ! E_DIV => 0';",
 		"try risky(); except detail (\"E_CUSTOM\", code, @more, E_DIV) return detail; except (E_TYPE) endtry",

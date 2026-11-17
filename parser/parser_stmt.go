@@ -502,10 +502,9 @@ func (p *Parser) parseBody(terminators ...TokenType) ([]ir.Stmt, error) {
 }
 
 // parseTryStatement parses try/except/finally/endtry statements
-// Handles three forms:
+// Handles the two forms Toast accepts:
 // - try ... except ... endtry
 // - try ... finally ... endtry
-// - try ... except ... finally ... endtry
 func (p *Parser) parseTryStatement() (ir.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'try'
@@ -567,7 +566,12 @@ func (p *Parser) parseTryStatement() (ir.Stmt, error) {
 		})
 	}
 
-	// Parse finally clause (optional)
+	// Parse finally clause. Toast's grammar (parser.y:277-288) has only
+	// `try statements excepts endtry` and `try statements finally statements
+	// endtry`, so a finally after an except clause is a syntax error.
+	if p.current.Type == TOKEN_FINALLY && len(handlers) > 0 {
+		return nil, fmt.Errorf("expected 'endtry' or 'except', got 'finally'")
+	}
 	if p.current.Type == TOKEN_FINALLY {
 		finalizerPos := p.current.Position
 		p.nextToken() // consume 'finally'
