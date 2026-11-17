@@ -34,7 +34,11 @@ pending for that correction. The next Go test run passed and its saved captures
 show zero native goroutine leaks for the parent and both diagnostics children;
 the same-runtime replay verdict is healthy. The Python driver suite then found
 its provenance fixture expected the pre-change parameter list. The fixture now
-sets leak_check=True and asserts it in the complete parameter comparison.
+sets leak_check=True and asserts it in the complete parameter comparison. The
+next full Go and Python driver suites passed. Expanding the existing workflow
+audit to the touched CI/Jepsen/Elle files exposed ShellCheck SC2054 on the
+existing comma-separated workload argument in a Bash array. It is now quoted
+as one argument, preserving the selected workload list.
 
 ## Decisions and why
 
@@ -74,7 +78,7 @@ applied per file. No rejected edit was partially installed.
 
 ## Next step
 
-Push the complete provenance-fixture update, then
+Push the workload-array quoting correction, then
 follow exact-head CI to completion. Q has a pending exact-text approval request
 for a scoped memory reproduction instruction in claude-fix.yml: its current
 single-fuzz-invocation recipe cannot reproduce retained-memory findings.

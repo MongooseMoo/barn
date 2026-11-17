@@ -132,7 +132,7 @@ jobs:
               --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" "$@"
           }
           status=0
-          lane=(--workloads smoke,props,keyed,effects,authority,topology --tasks)
+          lane=(--workloads 'smoke,props,keyed,effects,authority,topology' --tasks)
           if [ "$EXTENDED" = true ]; then
             first=$((GITHUB_RUN_NUMBER * 10))
             for seed in $(seq "$first" $((first + 2))); do
