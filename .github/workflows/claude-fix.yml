@@ -107,7 +107,9 @@ jobs:
             jobs' tests too. Start potentially hanging reproductions with timeout, and clean up only
             PIDs you started. The Bash hook blocks process-name kills; do not bypass it.
 
-            1. Read the issue: `gh issue view ${{ env.ISSUE }} --comments`. For a fuzz failure, recreate the
+            For a memory leak or retained-growth issue, recreate the exact record at the relative path named in the issue and use its BARN_LEAK_INPUT/BARN_LEAK_OUTPUT reproduction command, including an independent second process. A passing single native fuzz invocation does not test this finding. Keep the record outside testdata/fuzz unless it also fails the ordinary fuzz target before the fix. Add a regression that repeats the failing lifecycle and checks cleanup; preserve the raw sample series and profiles. Other fuzz failures continue through the existing instructions below.
+
+            1. Read the issue: `gh issue view ${{ env.ISSUE }} --comments`. For other fuzz failures, recreate the
                input it names in <package>/testdata/fuzz/<Target>/. Fuzz lanes report a finding while they are
                still running, so the issue body normally holds the exact record in a base64 block: decode that
                block's contents with `base64 -d` into the path the issue names, and check `sha256sum` against the
@@ -139,7 +141,7 @@ jobs:
                file:line, not only the same fuzz target), open no PR: use your one allowed issue comment
                (`gh issue comment ${{ env.ISSUE }} --body-file <file>`) to link that issue or PR with the
                evidence (the shared file:line, and the reproduction output of this issue's input), and stop.
-            3. Find the cause in the code and make the smallest production fix. Commit the failing input under
+            3. Find the cause in the code and make the smallest production fix. For other fuzz failures, commit the failing input under
                testdata/fuzz with the fix so ordinary CI replays it, but only an input that fails on this
                checkout without your fix: CI (scripts/fuzz_red_green.py) refuses an added input that passes
                before the change. Never weaken, skip or delete a test or check.

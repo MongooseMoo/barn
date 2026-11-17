@@ -7,11 +7,15 @@ fuzz, Elle, Jepsen and CI producers and their server runners.
 
 ## State
 
-Published as PR #873 from the requested worktree; implementation is under CI.
-The original checkout and its research artifacts remain untouched. Shared Go
+Published as PR #873 from the requested worktree; not merged. Q's "Go" approved
+the two proposed changes: restore the original audit scope and action references,
+and install the exact scoped memory-repair paragraph. Both edits are now made;
+verification of this updated revision is pending. The original checkout and its research artifacts remain
+untouched. Shared Go
 capture, bounded VM corpus replay, native memory reporting, Elle capture,
-managed Jepsen generation capture and CI integration are implemented. Full CI
-and workflow audits are pending. Initial CI stopped at a staticcheck tagged-switch
+managed Jepsen generation capture and CI integration are implemented.
+
+Earlier implementation and CI progression: initial CI stopped at a staticcheck tagged-switch
 finding in the new control test; that test is corrected on this branch.
 Native goroutine, retained heap and bounded
 cache controls passed locally. The Linux descriptor control passed in CI.
@@ -46,6 +50,30 @@ references now use that supported syntax; the audit remains unchanged.
 Final path inspection found that native corpus replay lacked the cgroup/tmpfs
 context already captured for Jepsen. That existing capture code is now shared
 by both paths, with before/after replay snapshots and explicit shared scope.
+
+Previous pushed-head CI evidence is saved under .fuzz/current-engine/,
+.fuzz/current-elle/ and .fuzz/current-jepsen/. Go tests, race tests, Python
+drivers, conformance, Elle and the Jepsen durability campaign passed. The
+separate Jepsen stage-controls job also passed; its preserved archive is under
+.fuzz/current-jepsen-stage/. Its healthy schedule has 23 memory captures, no
+memory errors/leaks and no missing obligations; all seven fault controls have
+their expected witnesses. All eight engine capture
+boundaries report zero native leaked goroutines and the lifecycle replay is
+healthy. Elle has no driver errors, six healthy model verdicts, rejected fault
+controls, 96 memory captures and zero native leaked goroutines. Its seed-412
+manifest has parallel=806, suspend=481 and fork=14. Jepsen is healthy with 43
+memory captures, no memory errors/leaks and no missing obligations. These are
+bounded observations, not proof that no memory leak exists.
+
+The previous build CI failed only at the workflow audit. The expanded audit exposed a
+released-tool incompatibility: actionlint v1.7.12 rejects the supported $/
+syntax required by zizmor 1.32.0. The actionlint releases API confirms v1.7.12
+is the latest release. Q approved restoring the original two-workflow audit
+scope and the nine original ./ references; this removes only my added audit
+expansion and reference migration. Both pinned auditors still run on the
+original fuzz workflows. The approved memory-repair paragraph is installed
+verbatim in claude-fix.yml, and its existing single-native-invocation and fuzz
+corpus instructions now explicitly apply to other fuzz failures.
 
 ## Decisions and why
 
@@ -96,10 +124,9 @@ three preceding workflow-file edits succeeded and were separately inspected.
 
 ## Next step
 
-Push the shared native-replay runner context capture, then
-follow exact-head CI to completion. Q has a pending exact-text approval request
-for a scoped memory reproduction instruction in claude-fix.yml: its current
-single-fuzz-invocation recipe cannot reproduce retained-memory findings.
-No guard or governing workflow instruction has been changed without approval.
+Commit and push the approved workflow edits with this note, then follow the
+updated PR head's checks to completion. The approved paragraph's original is
+saved at C:/Users/Q/AppData/Local/Temp/barn-memory-repair-instruction.md.
+No other guard or governing instruction has been changed.
 The implementation includes its first verified scheduler retention repair.
 No isolation verdict is claimed from local heap/regression tests alone.

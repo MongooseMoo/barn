@@ -49,7 +49,7 @@ jobs:
           persist-credentials: false
       - id: tree
         if: github.event_name != 'workflow_dispatch' && github.event_name != 'schedule'
-        uses: $/.github/actions/tested-tree
+        uses: ./.github/actions/tested-tree
         with:
           mode: check
           name: elle
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: $/.github/actions/tested-tree
+      - uses: ./.github/actions/tested-tree
         with:
           mode: record
           name: elle
@@ -92,7 +92,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Build pinned checker
-        uses: $/.github/actions/elle-cli
+        uses: ./.github/actions/elle-cli
       # Extended mode: 50 healthy seeds taken from the run number, so each night
       # differs (the step log prints them; a dispatch with that seed list
       # replays them), at 400 rounds each. Cost grows faster than rounds

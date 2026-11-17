@@ -36,7 +36,7 @@ jobs:
       - id: suite
         run: echo "sha=$(git ls-remote https://github.com/MongooseMoo/moo-conformance-tests refs/heads/main | cut -f1)" >> "$GITHUB_OUTPUT"
       - id: tree
-        uses: $/.github/actions/tested-tree
+        uses: ./.github/actions/tested-tree
         with:
           mode: check
           name: ci
@@ -139,8 +139,8 @@ jobs:
 
       - name: Audit discovery workflows
         run: |
-          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/fuzz.yml .github/workflows/fuzz-controller.yml .github/workflows/ci.yml .github/workflows/jepsen.yml .github/workflows/elle.yml
-          uvx --from zizmor==1.32.0 zizmor --offline --no-progress .github/workflows/fuzz.yml .github/workflows/fuzz-controller.yml .github/workflows/ci.yml .github/workflows/jepsen.yml .github/workflows/elle.yml
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/fuzz.yml .github/workflows/fuzz-controller.yml
+          uvx --from zizmor==1.32.0 zizmor --offline --no-progress .github/workflows/fuzz.yml .github/workflows/fuzz-controller.yml
 
   conformance:
     name: MOO conformance suite
@@ -277,7 +277,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: $/.github/actions/tested-tree
+      - uses: ./.github/actions/tested-tree
         with:
           mode: record
           name: ci
