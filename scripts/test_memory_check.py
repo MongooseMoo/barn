@@ -29,11 +29,11 @@ class MemoryEvidenceTests(unittest.TestCase):
 
     def test_negative_correctness_exit_cannot_hide_memory_failures(self):
         for boundary in ("before", "after"):
-            directory = self.root / boundary
-            directory.mkdir()
+            directory = self.root / "process-42" / boundary
+            directory.mkdir(parents=True)
             (directory / "sample.json").write_text(json.dumps({"leaked_goroutines": int(boundary == "after")}))
-        self.assertEqual(mc.test_process_findings(self.root), ["after: 1 native goroutine leaks"])
-        (self.root / "after/sample.json").unlink()
+        self.assertEqual(mc.test_process_findings(self.root), ["process-42/after: 1 native goroutine leaks"])
+        (self.root / "process-42/after/sample.json").unlink()
         self.assertIn("incomplete memory evidence", mc.test_process_findings(self.root)[0])
 
     def sample(self, *, paused=False, count=0):

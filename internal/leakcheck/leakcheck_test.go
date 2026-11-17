@@ -1,6 +1,7 @@
 package leakcheck
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -106,5 +107,51 @@ func TestMainPreservesFailureAndRejectsMissingEvidence(t *testing.T) {
 	called := false
 	if code := Main(func() int { called = true; return 0 }); code != 1 || !called {
 		t.Fatalf("missing evidence must fail without suppressing tests: code=%d called=%v", code, called)
+	}
+}
+
+func TestMainKeepsParentAndChildEvidence(t *testing.T) {
+	if os.Getenv("BARN_LEAK_EVIDENCE_CHILD") == "1" {
+		os.Exit(Main(func() int { return 0 }))
+	}
+	dir := t.TempDir()
+	t.Setenv("BARN_LEAK_OUTPUT", dir)
+	code := Main(func() int {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestMainKeepsParentAndChildEvidence$")
+		cmd.Env = append(os.Environ(), "BARN_LEAK_EVIDENCE_CHILD=1")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("child capture: %v\n%s", err, output)
+			return 1
+		}
+		return 0
+	})
+	if code != 0 {
+		t.Fatalf("capture exit=%d", code)
+	}
+	paths, err := filepath.Glob(filepath.Join(dir, "process-*"))
+	if err != nil || len(paths) != 2 {
+		t.Fatalf("parent and child evidence: paths=%v error=%v", paths, err)
+	}
+	pids := make(map[int]bool)
+	for _, path := range paths {
+		pid := 0
+		for _, boundary := range []string{"before", "after"} {
+			data, err := os.ReadFile(filepath.Join(path, boundary, "sample.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var s Sample
+			if err := json.Unmarshal(data, &s); err != nil {
+				t.Fatal(err)
+			}
+			if pid != 0 && pid != s.PID {
+				t.Fatal("before/after captures belong to different processes")
+			}
+			pid = s.PID
+		}
+		pids[pid] = true
+	}
+	if len(pids) != 2 {
+		t.Fatal("child overwrote the parent's captures")
 	}
 }

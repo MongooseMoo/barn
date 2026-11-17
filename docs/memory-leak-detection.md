@@ -10,6 +10,7 @@ and RSS alone is never a leak verdict.
 - CI engine tests capture before/after the process and repeat eval, suspension
   and automatic anonymous cleanup on one live runtime. `engine-memory-*` keeps
   raw samples, heap profiles and full stacks.
+  Test subprocess captures use separate `process-<pid>` directories.
 - Elle's existing driver captures each process and each stopped model runtime.
   The latter retains the existing task/history/read-floor/pending-GC census.
   Histories are still checked even when memory checks fail. A fault case's

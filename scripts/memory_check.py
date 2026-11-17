@@ -27,16 +27,20 @@ def leak_count(text):
 def test_process_findings(directory):
     """Check captures independently of Go exit status, including fault runs."""
     findings = []
-    for boundary in ("before", "after"):
-        try:
-            sample = json.loads((directory / boundary / "sample.json").read_text())
-            count = sample["leaked_goroutines"]
-            if type(count) is not int or count < 0:
-                raise ValueError("invalid leaked_goroutines")
-            if count:
-                findings.append(f"{boundary}: {count} native goroutine leaks")
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            findings.append(f"{boundary}: incomplete memory evidence: {error}")
+    processes = sorted(directory.glob("process-*"))
+    if not processes:
+        return ["incomplete memory evidence: no test process captures"]
+    for process in processes:
+        for boundary in ("before", "after"):
+            try:
+                sample = json.loads((process / boundary / "sample.json").read_text())
+                count = sample["leaked_goroutines"]
+                if type(count) is not int or count < 0:
+                    raise ValueError("invalid leaked_goroutines")
+                if count:
+                    findings.append(f"{process.name}/{boundary}: {count} native goroutine leaks")
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                findings.append(f"{process.name}/{boundary}: incomplete memory evidence: {error}")
     return findings
 
 

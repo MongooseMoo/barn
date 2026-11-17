@@ -31,6 +31,7 @@ func TestRunServerVerbTaskRunsBeforeReturning(t *testing.T) {
 		[]string{"#0.started = 1;"}))
 
 	rt := NewRuntime(store)
+	t.Cleanup(rt.Stop)
 	if _, err := rt.RunServerVerbTask(0, "server_started", nil, 0); err != nil {
 		t.Fatalf("run server verb task: %v", err)
 	}
@@ -56,6 +57,7 @@ func TestCreateLoginHookTaskUsesServerOriginCaller(t *testing.T) {
 		[]string{"#0.login_frame = {this, player, caller, args, argstr};", "return 0;"}))
 
 	rt := NewRuntime(store)
+	t.Cleanup(rt.Stop)
 	connectionPlayer := types.ObjID(-7)
 	if _, err := rt.CreateLoginHookTask(0, "do_login_command", nil, connectionPlayer, "", nil, nil); err != nil {
 		t.Fatalf("CreateLoginHookTask: %v", err)

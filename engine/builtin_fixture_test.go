@@ -39,5 +39,7 @@ func newTestRuntimeWithWorkersAndBuiltins(t *testing.T, store *dbstore.Store, op
 	if err != nil {
 		t.Fatal(err)
 	}
-	return newRuntimeWithRegistry(store, options, workers, r)
+	rt := newRuntimeWithRegistry(store, options, workers, r)
+	t.Cleanup(rt.Stop)
+	return rt
 }

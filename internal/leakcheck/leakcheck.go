@@ -122,6 +122,9 @@ func Main(run func() int) int {
 	if dir == "" {
 		return run()
 	}
+	// A diagnostic test can re-exec this binary with the same output root.
+	// Preserve each process's evidence instead of overwriting its parent's.
+	dir = filepath.Join(dir, fmt.Sprintf("process-%d", os.Getpid()))
 	before, firstErr := Capture(filepath.Join(dir, "before"), "test-process-start", nil)
 	code := run()
 	after, lastErr := Capture(filepath.Join(dir, "after"), "test-process-finished", nil)

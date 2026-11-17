@@ -53,6 +53,7 @@ func TestDoCommandTaskResumesAfterEnterfuncSuspend(t *testing.T) {
 
 	rt := NewRuntime(store)
 	var startedID int64
+	t.Cleanup(rt.Stop)
 	args := []types.Value{types.NewStr("home")}
 	res, err := rt.RunServerVerbTaskWithArgstr(0, "do_command", args, player, "home", func(id int64) { startedID = id })
 	if err != nil {
@@ -94,6 +95,7 @@ func TestRunServerVerbTaskWithArgstrReportsMissingVerb(t *testing.T) {
 	store := dbstore.NewStore()
 	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
 	rt := NewRuntime(store)
+	t.Cleanup(rt.Stop)
 	_, err := rt.RunServerVerbTaskWithArgstr(0, "do_command", nil, 0, "", nil)
 	if !errors.Is(err, ErrServerVerbNotFound) {
 		t.Fatalf("err = %v, want ErrServerVerbNotFound", err)
