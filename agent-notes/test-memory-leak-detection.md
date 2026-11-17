@@ -43,6 +43,9 @@ nine self-repository references in the newly audited workflows. GitHub's primary
 documentation says $/ resolves actions at the running repository commit and
 requires runner 2.336.0. The actual runner log reports 2.338.2. Those nine
 references now use that supported syntax; the audit remains unchanged.
+Final path inspection found that native corpus replay lacked the cgroup/tmpfs
+context already captured for Jepsen. That existing capture code is now shared
+by both paths, with before/after replay snapshots and explicit shared scope.
 
 ## Decisions and why
 
@@ -93,7 +96,7 @@ three preceding workflow-file edits succeeded and were separately inspected.
 
 ## Next step
 
-Push the supported self-repository action references, then
+Push the shared native-replay runner context capture, then
 follow exact-head CI to completion. Q has a pending exact-text approval request
 for a scoped memory reproduction instruction in claude-fix.yml: its current
 single-fuzz-invocation recipe cannot reproduce retained-memory findings.

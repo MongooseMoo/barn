@@ -44,6 +44,29 @@ def test_process_findings(directory):
     return findings
 
 
+def runner_context(directory, membership):
+    """Shared-runner context only; never attribute these deltas to an input."""
+    directory.mkdir(parents=True, exist_ok=True)
+    result = {"runner_scope": "shared cgroup/tmpfs; not attributable to one PID or input"}
+    try:
+        lines = membership.read_text().splitlines()
+        group = next(line[3:] for line in lines if line.startswith("0::"))
+        root = Path("/sys/fs/cgroup").resolve()
+        path = (root / group.lstrip("/")).resolve()
+        if not path.is_relative_to(root):
+            raise ValueError("cgroup path escapes mount")
+        for name in ("memory.events", "memory.stat", "memory.current"):
+            (directory / name).write_bytes((path / name).read_bytes())
+    except (OSError, ValueError, StopIteration) as error:
+        result["runner_error"] = str(error)
+    try:
+        fs = os.statvfs("/dev/shm")
+        result["tmpfs_used_bytes"] = (fs.f_blocks - fs.f_bfree) * fs.f_frsize
+    except (OSError, AttributeError) as error:
+        result["tmpfs_error"] = str(error)
+    return result
+
+
 def capture_owned(server, directory):
     """Capture only the verified managed PID. Never query a SIGSTOPped server."""
     directory.mkdir(parents=True, exist_ok=False)
@@ -61,24 +84,7 @@ def capture_owned(server, directory):
         result["fds"] = len(list((proc / "fd").iterdir()))
     except OSError as error:
         result["errors"].append(f"fds: {error}")
-    # Shared group and tmpfs counters are context, never per-input attribution.
-    result["runner_scope"] = "shared cgroup/tmpfs; not attributable to this PID"
-    try:
-        lines = (proc / "cgroup").read_text().splitlines()
-        group = next(line[3:] for line in lines if line.startswith("0::"))
-        root = Path("/sys/fs/cgroup").resolve()
-        path = (root / group.lstrip("/")).resolve()
-        if not path.is_relative_to(root):
-            raise ValueError("cgroup path escapes mount")
-        for name in ("memory.events", "memory.stat", "memory.current"):
-            (directory / name).write_bytes((path / name).read_bytes())
-    except (OSError, ValueError, StopIteration) as error:
-        result["runner_error"] = str(error)
-    try:
-        fs = os.statvfs("/dev/shm")
-        result["tmpfs_used_bytes"] = (fs.f_blocks - fs.f_bfree) * fs.f_frsize
-    except OSError as error:
-        result["tmpfs_error"] = str(error)
+    result.update(runner_context(directory, proc / "cgroup"))
     if not server.paused:
         address = (server.identity.get("endpoints") or {}).get("debug")
         # OwnedBarnServer validates that this endpoint is private loopback.
@@ -158,7 +164,8 @@ def replay(args):
     args.output.mkdir(parents=True, exist_ok=False)
     started, rows = time.monotonic(), []
     result = {"verdict": "incomplete", "records": rows, "seconds_budget": args.seconds,
-              "target": args.target, "commit": os.environ.get("GITHUB_SHA"), "argv": sys.argv}
+              "target": args.target, "commit": os.environ.get("GITHUB_SHA"), "argv": sys.argv,
+              "runner_before": runner_context(args.output / "runner-before", Path("/proc/self/cgroup"))}
     report = args.output / "results.json"
     report.write_text(json.dumps(result, indent=2) + "\n")
     # One executable avoids leaving a `go test` child running after a timeout.
@@ -206,6 +213,7 @@ def replay(args):
         else:
             result["error"] = "no native input completed memory replay within the budget"
     result["elapsed_seconds"] = time.monotonic() - started
+    result["runner_after"] = runner_context(args.output / "runner-after", Path("/proc/self/cgroup"))
     report.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result), flush=True)
     return {"healthy": 0, "finding": 1, "incomplete": 2}[result["verdict"]]

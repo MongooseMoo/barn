@@ -94,6 +94,9 @@ class MemoryEvidenceTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stdout)
         result = json.loads((self.root / "evidence/results.json").read_text())
         self.assertEqual(result["verdict"], "healthy")
+        for boundary in ("runner_before", "runner_after"):
+            self.assertIn("not attributable", result[boundary]["runner_scope"])
+            self.assertTrue((self.root / "evidence" / boundary.replace("_", "-")).is_dir())
         record = result["records"][0]
         self.assertEqual(Path(record["input_path"]).read_bytes(), raw)
         self.assertEqual(len(record["attempts"][0]["result"]["samples"]), 7)
