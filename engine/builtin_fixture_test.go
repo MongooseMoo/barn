@@ -40,6 +40,11 @@ func newTestRuntimeWithWorkersAndBuiltins(t *testing.T, store *dbstore.Store, op
 		t.Fatal(err)
 	}
 	rt := newRuntimeWithRegistry(store, options, workers, r)
-	t.Cleanup(rt.Stop)
+	t.Cleanup(func() {
+		rt.Stop()
+		if err := rt.Session().Close(); err != nil {
+			t.Errorf("close runtime fixture session: %v", err)
+		}
+	})
 	return rt
 }

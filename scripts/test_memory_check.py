@@ -132,6 +132,14 @@ class MemoryEvidenceTests(unittest.TestCase):
             result = mc.replay_attempt(self.root / "test", source, self.root / "attempt", 1)
         self.assertEqual(result["verdict"], "incomplete")
 
+    def test_incomplete_replay_report_keeps_the_actual_failure(self):
+        report = self.root / "results.json"
+        report.write_text(json.dumps({"verdict": "incomplete", "records": [],
+                                      "error": "replay build exited 1"}))
+        finding = memory_reports(report, "FuzzSourceExecution", "test-revision")[0]
+        self.assertEqual(finding["kind"], "infrastructure")
+        self.assertEqual(finding["first_error"], "memory replay incomplete: replay build exited 1")
+
 
 if __name__ == "__main__":
     unittest.main()

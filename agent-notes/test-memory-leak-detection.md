@@ -25,6 +25,12 @@ native goroutine leaks. Its saved full stacks identify scheduler workers whose
 test fixtures never stopped their runtime. Fixes are prepared in the existing
 shared fixture and the affected direct-construction tests. Linux descriptor
 controls ran successfully as part of the internal/leakcheck package in that job.
+After fixture cleanup, the next full-suite capture had only one remaining leak:
+database/sql's connectionOpener labeled moo.task 94010. That producer is the
+threaded SQLite retry test. The shared fixture stopped its runtime but did not
+close its session. It now follows production shutdown by stopping the runtime
+and closing the session, reporting any close error. Full CI verification remains
+pending for that correction.
 
 ## Decisions and why
 
@@ -64,7 +70,7 @@ applied per file. No rejected edit was partially installed.
 
 ## Next step
 
-Push the runtime-fixture ownership and per-process evidence repairs, then
+Push the session-ownership repair and improved incomplete-replay diagnostics, then
 follow exact-head CI to completion. Q has a pending exact-text approval request
 for a scoped memory reproduction instruction in claude-fix.yml: its current
 single-fuzz-invocation recipe cannot reproduce retained-memory findings.
