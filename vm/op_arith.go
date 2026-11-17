@@ -381,6 +381,12 @@ func (vm *VM) executePow() error {
 	if math.IsNaN(result) || math.IsInf(result, 0) {
 		return newMooError(types.E_FLOAT, "result is NaN or Inf")
 	}
+	// Toast checks errno after pow(), and libm reports ERANGE when a finite
+	// nonzero base underflows to zero (2.0 ^ -2000), so that is E_FLOAT too.
+	// A zero base (0.0 ^ 2.0) is an exact zero, not an underflow.
+	if result == 0 && af != 0 && !math.IsInf(af, 0) && !math.IsInf(bf, 0) {
+		return newMooError(types.E_FLOAT, "result underflows to zero")
+	}
 
 	vm.Push(types.NewFloat(result))
 	return nil
