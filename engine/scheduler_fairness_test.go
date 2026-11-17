@@ -115,6 +115,7 @@ func TestProcessReadyBatchRetainsTasksBetweenSelections(t *testing.T) {
 // complete in a single ProcessReadyTasks call.
 func TestProcessReadyTasksRunsAllReadyTasksInOnePass(t *testing.T) {
 	s := NewRuntime(dbstore.NewStore())
+	t.Cleanup(s.Stop)
 	program, diagnostics := s.registry.Compiler().CompileMOO([]string{"return 1;"})
 	if len(diagnostics) != 0 {
 		t.Fatalf("compile task: %v", diagnostics)

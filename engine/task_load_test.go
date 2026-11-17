@@ -29,6 +29,7 @@ func TestLoadQueuedTaskWithEmptyBody(t *testing.T) {
 // the verb it was running; the task id alone is gone with the task.
 func TestRestoreSuspendedTaskFailureNamesTheVerb(t *testing.T) {
 	s := NewRuntime(dbstore.NewStore())
+	t.Cleanup(s.Stop)
 	saved := &dbformat.SuspendedTask{Snapshot: task.Snapshot{
 		ID: 99, VerbName: "heartbeat", VerbLoc: 5, This: 6, Programmer: 7,
 		VM: &task.VMSnapshot{},

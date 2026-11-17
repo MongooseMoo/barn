@@ -24,6 +24,7 @@ func TestUncaughtExceptionInRealTaskLogsOneRecord(t *testing.T) {
 		[]string{`x = 1 + "a";`}))
 
 	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
 
 	records := captureRecords(t, func() {
 		if _, err := s.RunServerVerbTask(0, "boom", nil, 2); err != nil {
@@ -111,6 +112,7 @@ func TestHandledForkedUncaughtExceptionLogsOneWarnRecord(t *testing.T) {
 		[]string{"fork (0)", `  raise(E_INVARG, "custom uncaught message");`, "endfork", "return 1;"}))
 
 	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
 	s.SetTracebackSender(func(types.ObjID, types.Result, *metrics.Command) {})
 	records := captureRecords(t, func() {
 		if _, err := s.RunServerVerbTask(0, "forkboom", nil, 2); err != nil {
@@ -148,6 +150,7 @@ func TestFailingUncaughtHandlerLogsBothErrors(t *testing.T) {
 		[]string{`raise(E_INVARG);`}))
 
 	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
 	s.SetTracebackSender(func(types.ObjID, types.Result, *metrics.Command) {})
 	records := captureRecords(t, func() {
 		if _, err := s.RunServerVerbTask(0, "boom", nil, 2); err != nil {
@@ -184,6 +187,7 @@ func TestUncaughtForkInvokesDatabaseErrorHandler(t *testing.T) {
 		[]string{"fork (0)", `  raise(E_INVARG, "custom uncaught message", {7, 8});`, "endfork", "return 1;"}))
 
 	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
 	fallbacks := 0
 	s.SetTracebackSender(func(types.ObjID, types.Result, *metrics.Command) {
 		fallbacks++
@@ -248,6 +252,7 @@ func TestTruthyTaskTimeoutHandlerSuppressesGenericExceptionFallback(t *testing.T
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, spinCode))
 
 	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
 	program, diagnostics := s.registry.Compiler().CompileMOO(spinCode)
 	if len(diagnostics) != 0 {
 		t.Fatalf("compile spin: %v", diagnostics)

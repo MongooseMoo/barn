@@ -208,6 +208,40 @@ jobs:
         run: |
           python3 scripts/fuzz_retention.py capture --cache "$GOCACHE" --package '${{ matrix.package }}' --target '${{ matrix.target }}' --head "$GITHUB_SHA" --go-version "$(go version)" --logs "$RUNNER_TEMP/fuzz-logs" --campaign "$CAMPAIGN_OUTCOME"
 
+      # The source lanes also replay actual discoveries with normal cleanup in
+      # one process per input. At most 60 s per 30-minute lane; mutation rate
+      # and the existing campaign duration/limits stay unchanged.
+      - name: Check source corpus resource lifetimes
+        if: ${{ !cancelled() && (matrix.target == 'FuzzSourceExecution' || matrix.target == 'FuzzStructuredSourceExecution') }}
+        run: |
+          set -euo pipefail
+          status=0
+          python3 scripts/memory_check.py --cache "$GOCACHE" --target "$FUZZ_TARGET" \
+            --output ".fuzz/memory/$FUZZ_TARGET" --seconds 60 || status=$?
+          cp ".fuzz/memory/$FUZZ_TARGET/results.json" ".fuzz/retained/vm/$FUZZ_TARGET/memory.json"
+          exit "$status"
+
+      - name: Upload memory replay evidence
+        id: memory-artifact
+        if: ${{ always() && (matrix.target == 'FuzzSourceExecution' || matrix.target == 'FuzzStructuredSourceExecution') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fuzz-memory-${{ matrix.target }}
+          path: .fuzz/memory/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Report memory replay findings
+        if: ${{ !cancelled() && (matrix.target == 'FuzzSourceExecution' || matrix.target == 'FuzzStructuredSourceExecution') }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ARTIFACT_URL: ${{ steps.memory-artifact.outputs.artifact-url }}
+        run: |
+          python3 scripts/fuzz_report.py --memory-result ".fuzz/memory/$FUZZ_TARGET/results.json" \
+            --package "$FUZZ_PACKAGE" --target "$FUZZ_TARGET" --commit "$GITHUB_SHA" \
+            --campaign-outcome failure --artifact-url "$ARTIFACT_URL" --publish
+
       - name: Upload retained corpus and native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -239,7 +273,7 @@ jobs:
 
       - &failure-reporter
         name: Open failure issues
-        if: failure()
+        if: ${{ failure() && steps.campaign.outcome != 'success' }}
         env:
           CAMPAIGN_OUTCOME: ${{ steps.campaign.outcome }}
           ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}

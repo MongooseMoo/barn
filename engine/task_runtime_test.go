@@ -24,6 +24,7 @@ import (
 func TestRunTaskStaleStartTimeDoesNotExpireDeadline(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
 
 	program, diagnostics := s.registry.Compiler().CompileMOO([]string{"return 1;"})
 	if len(diagnostics) > 0 {
@@ -81,6 +82,7 @@ func TestQueueTaskInitializesNewTaskFullContextBeforeRetryCapture(t *testing.T) 
 func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
 	mgr := s.taskManager
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
@@ -140,6 +142,7 @@ func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 func TestReadStdinErrorResumesAsLiteralValue(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
 
 	reader, writer := io.Pipe()
 	t.Cleanup(func() {
@@ -194,6 +197,7 @@ func TestReadStdinErrorResumesAsLiteralValue(t *testing.T) {
 func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
 
 	program, diagnostics := s.registry.Compiler().CompileMOO([]string{
 		"fork (0)",

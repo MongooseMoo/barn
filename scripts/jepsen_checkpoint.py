@@ -83,6 +83,7 @@ from pathlib import Path
 
 import check_elle
 import mongoose_barn_process as barn_process
+import memory_check
 
 PROFILE_ID = "barn-linux-testdb-outbound-on"
 CONFIG = barn_process.ROOT / "profiles" / "barn" / "outbound-on.conf"
@@ -197,9 +198,10 @@ CORRECTNESS = "correctness-violation"
 RECOVERY = "recovery-failure"
 INCOMPLETE = "incomplete-experiment"
 INVALID = "invalid-harness-evidence"
+MEMORY = "memory-leak"
 # Exit status names the most severe class found; results.json lists them all.
-PRECEDENCE = (CORRECTNESS, RECOVERY, INVALID, INCOMPLETE)
-EXIT_CODES = {"healthy": 0, CORRECTNESS: 1, RECOVERY: 3, INCOMPLETE: 4, INVALID: 5}
+PRECEDENCE = (CORRECTNESS, MEMORY, RECOVERY, INVALID, INCOMPLETE)
+EXIT_CODES = {"healthy": 0, CORRECTNESS: 1, MEMORY: 7, RECOVERY: 3, INCOMPLETE: 4, INVALID: 5}
 # A --control run exits 0 only with its designated witness, else this.
 CONTROL_MISSED_EXIT = 6
 
@@ -1248,7 +1250,7 @@ def provenance(args, output):
         "parameters": {name: getattr(args, name) for name in
                        ("phase1", "phase3", "phase_live", "rate", "concurrency", "seed", "jepsen_timeout",
                         "workloads", "stages", "stage_seconds", "control", "tasks", "dwell", "phase_transport",
-                        "transport_kinds")},
+                        "transport_kinds", "leak_check")},
         "transport_lane": {"read_timeout_seconds": READ_TIMEOUT, "pause_hold_seconds": PAUSE_HOLD,
                            "arm_deadline_seconds": ARM_DEADLINE, "late_deadline_seconds": LATE_DEADLINE,
                            "truncate_bytes": TRUNCATE_BYTES, "slow_read_bytes": SLOW_READ_BYTES,
@@ -1295,7 +1297,8 @@ class Campaign:
     def __init__(self, executable, source_db, output, transport_factory, *, server_class=None, port_source=free_port,
                  probe_deadline=PROBE_DEADLINE, seed=1, stages=(), control=None, tasks=False, effects=False,
                  receiver_class=Receiver, release_deadline=RELEASE_DEADLINE, shaped=(), dwell=0,
-                 recovery_bound=RECOVERY_BOUND, pause_hold=PAUSE_HOLD, arm_deadline=ARM_DEADLINE):
+                 recovery_bound=RECOVERY_BOUND, pause_hold=PAUSE_HOLD, arm_deadline=ARM_DEADLINE,
+                 leak_check=False):
         self.executable, self.output = executable, output
         self.recovery_bound, self.pause_hold, self.arm_deadline = recovery_bound, pause_hold, arm_deadline
         self.armed_transport = None         # the client transport kind the next transaction applies
@@ -1337,6 +1340,8 @@ class Campaign:
         self.server = None
         self.generation = -1
         self.failures = []
+        self.leak_check = leak_check
+        self.memory_seq = 0
         # The launch source: the original fixture, then each verified pair.
         self.source = {"database": str(source_db.resolve()),
                        "database_sha256": barn_process.bench.sha256_file(source_db),
@@ -1499,6 +1504,19 @@ class Campaign:
                 return json.loads(response.read().decode("utf-8")).get("barn.commit_retries")
         except Exception:
             return None
+
+    def capture_memory(self, boundary):
+        if not self.leak_check:
+            return
+        self.memory_seq += 1
+        relative = Path(f"gen-{self.generation:03d}") / f"memory-{self.memory_seq:03d}-{boundary}"
+        try:
+            sample = memory_check.capture_owned(self.server, self.output / relative)
+            self.record(dict(sample, event="memory", generation=self.generation,
+                             boundary=boundary, path=str(relative)))
+        except Exception as error:
+            self.record({"event": "memory", "generation": self.generation, "boundary": boundary,
+                         "path": str(relative), "error": str(error)})
 
     # -- task lane ---------------------------------------------------------
 
@@ -1699,6 +1717,7 @@ class Campaign:
             self.layouts[generation] = layout
             self.live = (generation, port)
         self.probe("launch")
+        self.capture_memory("admitted")
         return generation
 
     def observe_recovery(self, generation, port, restart):
@@ -1738,12 +1757,14 @@ class Campaign:
             self.server.resume()
         self.record({"event": "resume", "generation": self.generation})
         self.probe("resume")
+        self.capture_memory("resumed")
         return {"generation": self.generation}
 
     def crash(self):
         generation = self.generation
         self.observe("crash")
         self._quiesce()
+        self.capture_memory("pre-crash")
         result = self.server.crash()
         self.record({"event": "crash", "generation": generation, "result": result})
         return {"crashed": generation, "generation": self.launch("crash")}
@@ -1758,6 +1779,7 @@ class Campaign:
         _, port = self.live
         baseline = parse_ledger(self.evaluate(port, LEDGER_CODE))
         self._quiesce()
+        self.capture_memory("pre-checkpoint-stop")
         result = self.server.stop()
         self.record({"event": "checkpoint", "generation": generation, "baseline": ledger_json(baseline),
                      "result": result})
@@ -1888,6 +1910,7 @@ class Campaign:
             log = {"unavailable": f"{type(error).__name__}: {error}"}
         self.record(dict(stop, event="checkpoint-stop", generation=generation, seq=seq, stopped_ns=stopped_ns,
                          artifacts=artifacts, log=log))
+        self.capture_memory("stopped-checkpoint")
         result = self.server.crash()
         forensic = barn_process.preserve_artifacts(database, self.output / f"gen-{generation:03d}-forensic")
         if artifacts["output"] is not None or artifacts["journal"] is not None:
@@ -2114,6 +2137,7 @@ class Campaign:
             try:
                 if self.server.paused:
                     self.server.resume()
+                self.capture_memory("final-drain")
                 self.record({"event": "final-stop", "generation": self.generation, "result": self.server.stop()})
             except Exception as error:
                 self.fail("final-stop", error)
@@ -3856,6 +3880,12 @@ def analyze(inputs, output, jar, java):
         results["provenance"] = json.loads((inputs / "provenance.json").read_text(encoding="utf-8"))
     except FileNotFoundError:
         find(INVALID, "no provenance.json: the campaign's inputs are not recorded")
+    enabled = (results.get("provenance") or {}).get("parameters", {}).get("leak_check", False)
+    results["memory"] = memory_check.generation_findings(inputs, lifecycle, enabled)
+    for message in results["memory"]["leaks"]:
+        find(MEMORY, message)
+    for message in results["memory"]["errors"]:
+        find(INCOMPLETE, message)
     results["logs"], log_problems = log_findings(inputs, lifecycle)
     for kind, message in log_problems:
         find(kind, message)
@@ -4004,7 +4034,8 @@ def run_campaign(args, output):
     campaign = Campaign(args.barn.resolve(strict=True), args.db, output, socket_transport_factory(), seed=args.seed,
                         stages=args.stages, control=args.control, tasks=args.tasks,
                         effects="effects" in args.workloads,
-                        shaped=[name for name in args.workloads if name in SHAPED], dwell=args.dwell)
+                        shaped=[name for name in args.workloads if name in SHAPED], dwell=args.dwell,
+                        leak_check=args.leak_check)
     adapter = None
     try:
         (output / "provenance.json").write_text(json.dumps(provenance(args, output), indent=2, default=str) + "\n",
@@ -4063,6 +4094,8 @@ def main(argv=None):
     parser.add_argument("--tasks", action="store_true",
                         help="task lane: plant held test tasks before every graceful checkpoint and before each "
                              "generation's first live checkpoint, release them after the restart's recovery read")
+    parser.add_argument("--leak-check", action="store_true",
+                        help="capture native goroutine leak, heap, stacks and process resources per generation")
     parser.add_argument("--dwell", type=int, default=0,
                         help="string_hash calls over a 1 MiB string (about 1.7 ms each) between each "
                              "authority/topology verb's reads and writes, so concurrent transactions overlap "
@@ -4164,7 +4197,9 @@ def main(argv=None):
         print(f"control {control}: witness {results['control']['witness']} "
               f"{'reported' if results['control']['passed'] else 'MISSING'} "
               f"(observed {results['control']['observed_witnesses']})", flush=True)
-        return 0 if results["control"]["passed"] else CONTROL_MISSED_EXIT
+        memory = results.get("memory") or {}
+        memory_ok = not (memory.get("leaks") or memory.get("errors"))
+        return 0 if results["control"]["passed"] and memory_ok else CONTROL_MISSED_EXIT
     return EXIT_CODES[verdict]
 
 

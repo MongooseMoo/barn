@@ -33,6 +33,7 @@ import (
 func TestReview_DoneChannelClosedOnSuspend(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
 
 	program, diagnostics := s.registry.Compiler().CompileMOO([]string{"suspend(100);"})
 	if len(diagnostics) > 0 {
@@ -75,6 +76,7 @@ func TestReview_DoneChannelClosedOnSuspend(t *testing.T) {
 func TestReview_IDCollisionManagerAndRuntimeCountersAreIndependent(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
 	mgr := s.taskManager
 
 	// Simulate a restored database whose highest task ID was 99. Eval and queued
@@ -105,6 +107,7 @@ func TestReview_IDCollisionManagerAndRuntimeCountersAreIndependent(t *testing.T)
 func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 

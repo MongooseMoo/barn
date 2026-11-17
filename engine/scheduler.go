@@ -188,11 +188,6 @@ func (s *scheduler) Dispatch(now time.Time, catalog []*Task, claim func(*Task) b
 		flight int64
 	}
 	s.mu.Lock()
-	for t := range s.yieldBarriers {
-		if t.GetState() != task.TaskQueued {
-			delete(s.yieldBarriers, t)
-		}
-	}
 	ready := s.readyLocked(now, catalog)
 	if s.order != nil {
 		s.order(ready)
@@ -263,6 +258,13 @@ func (s *scheduler) heldLocked(lane any) bool {
 func (s *scheduler) SetLane(lane func(*Task) any) { s.lane = lane }
 
 func (s *scheduler) readyLocked(now time.Time, catalog []*Task) []*Task {
+	// Eval and batch callers use this scan without Dispatch. A finished yield
+	// barrier must not keep its task, VM locals and context alive on those paths.
+	for t := range s.yieldBarriers {
+		if t.GetState() != task.TaskQueued {
+			delete(s.yieldBarriers, t)
+		}
+	}
 	blocked := s.blockedReadiersLocked(now, catalog)
 	var admitted []*Task
 	var held []*Task

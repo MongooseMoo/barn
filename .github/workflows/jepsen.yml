@@ -126,12 +126,13 @@ jobs:
           run() {
             uv run --project moo-conformance-tests --frozen python scripts/jepsen_checkpoint.py \
               --barn bin/barn \
+              --leak-check \
               --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
               --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
               --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" "$@"
           }
           status=0
-          lane=(--workloads smoke,props,keyed,effects,authority,topology --tasks)
+          lane=(--workloads 'smoke,props,keyed,effects,authority,topology' --tasks)
           if [ "$EXTENDED" = true ]; then
             first=$((GITHUB_RUN_NUMBER * 10))
             for seed in $(seq "$first" $((first + 2))); do
@@ -230,6 +231,7 @@ jobs:
           run() {
             uv run --project moo-conformance-tests --frozen python scripts/jepsen_checkpoint.py \
               --barn bin/barn-elle \
+              --leak-check \
               --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
               --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
               --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" \

@@ -18,6 +18,7 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
+	"github.com/MongooseMoo/barn/internal/leakcheck"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -763,6 +764,14 @@ func TestElleIsolationHistories(t *testing.T) {
 			}
 			elleDrain(t, rt, []*Task{elleTask(t, rt, id, final)})
 		}()
+		if os.Getenv("BARN_LEAK_OUTPUT") != "" {
+			sample, err := leakcheck.Capture(filepath.Join(out, "memory-"+model), "model-runtime-stopped", holders(rt, store))
+			if err != nil {
+				t.Errorf("memory capture: %v", err)
+			} else if sample.Leaked != 0 {
+				t.Errorf("memory leak: %d permanently blocked goroutines after %s", sample.Leaked, model)
+			}
+		}
 	}
 	manifest["coverage"] = coverage
 	if fault != "" {

@@ -54,6 +54,7 @@ func TestMoveHooksResumeOnOwningVM(t *testing.T) {
 	)
 
 	runtime := NewRuntime(store)
+	t.Cleanup(runtime.Stop)
 	if line := runtime.EvalCommandOutput(2, "#13:run_move(#12, #11); return 1;"); line != "{1, 1}" {
 		t.Fatalf("eval result = %s, want {1, 1}", line)
 	}

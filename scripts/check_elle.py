@@ -8,6 +8,8 @@ import re
 import subprocess
 import sys
 
+from memory_check import test_process_findings
+
 # Each BARN_ELLE_FAULT removes one protection; Elle must reject every one of
 # them. Kept equal to elleFaults in engine/elle_workload_test.go by
 # test_check_elle.py.
@@ -109,10 +111,12 @@ def main():
     for fault in ("", "finished-task-index"):
         label = "lifecycle-" + (fault or "healthy")
         env = os.environ.copy()
-        env.update(BARN_ELLE_FAULT=fault, GOMAXPROCS="4")
+        env.update(BARN_ELLE_FAULT=fault, GOMAXPROCS="4",
+                   BARN_LEAK_OUTPUT=str(args.output / (label + "-memory")))
         command = ["go", "test", "-tags", "elle", "./engine", "-run",
                    "^TestUncaughtHandlerBeforeYieldedParent$", "-count=1", "-v", "-timeout=1m"]
         code, output = run(command, args.output / f"{label}-go.log", env)
+        errors.extend(f"{label}: {finding}" for finding in test_process_findings(args.output / (label + "-memory")))
         record = {"case": label, "fault": fault, "go_command": command, "exit_code": code}
         try:
             record["verdict"] = lifecycle_verdict(code, output, fault)
@@ -131,10 +135,12 @@ def main():
         env.update(BARN_ELLE_OUTPUT=str(case), BARN_ELLE_SEED=str(seed),
                    BARN_ELLE_ROUNDS=str(args.rounds), GOMAXPROCS="4",
                    BARN_ELLE_PATHS="",
+                   BARN_LEAK_OUTPUT=str(args.output / (label + "-memory")),
                    BARN_ELLE_FAULT=fault)
         command = ["go", "test", "-tags", "elle", "./engine", "-run",
                    "^TestElleIsolationHistories$", "-count=1", "-v", "-timeout=5m"]
         code, _ = run(command, args.output / f"{label}-go.log", env)
+        errors.extend(f"{label}: {finding}" for finding in test_process_findings(args.output / (label + "-memory")))
         if code:
             errors.append(f"{label}: Go workload exited {code}")
         for model in ["list-append", "rw-register"]:
