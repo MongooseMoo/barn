@@ -62,12 +62,6 @@ func TestTryFormsLowerToOneSemanticStatement(t *testing.T) {
 			source:        "try\nreturn 1;\nfinally\nreturn 2;\nendtry",
 			wantFinalizer: true,
 		},
-		{
-			name:          "handlers and finalizer",
-			source:        "try\nreturn 1;\nexcept (E_DIV)\nreturn 2;\nexcept (ANY)\nreturn 3;\nfinally\nreturn 4;\nendtry",
-			wantHandlers:  2,
-			wantFinalizer: true,
-		},
 	}
 
 	for _, test := range tests {
@@ -88,6 +82,20 @@ func TestTryFormsLowerToOneSemanticStatement(t *testing.T) {
 				t.Fatalf("finalizer present = %t, want %t", tryStmt.Finalizer != nil, test.wantFinalizer)
 			}
 		})
+	}
+}
+
+// Toast's grammar (parser.y:277-288) has try/except and try/finally but no
+// try/except/finally, so a finally after an except clause is a syntax error
+// (issue #874: Barn returned 0 where the Toast oracle refused to compile).
+func TestTryExceptFinallyIsSyntaxError(t *testing.T) {
+	for _, source := range []string{
+		"try return 1 / e; except ereturn  (ANY) 0; finally 1; endtry",
+		"try\nreturn 1;\nexcept (E_DIV)\nreturn 2;\nexcept (ANY)\nreturn 3;\nfinally\nreturn 4;\nendtry",
+	} {
+		if _, err := NewParser(source).ParseProgram(); err == nil {
+			t.Errorf("ParseProgram(%q) succeeded, want syntax error", source)
+		}
 	}
 }
 

@@ -257,7 +257,7 @@ var restoreFuzzSeeds = []restoreFuzzSeed{
 	{"return 1;", 0, 0, -1, 0},
 	{"x = {1, 2}; for y in (x) x = {@x, y}; endfor return x;", 0, 0, -1, 0},
 	{"for i in [1..3] suspend(0); endfor", 0, 0, -1, 1},
-	{"try return 1 / 0; except e (E_DIV) return e; finally x = 2; endtry", 0, 0, -1, 2},
+	{"try try return 1 / 0; except e (E_DIV) return e; endtry finally x = 2; endtry", 0, 0, -1, 2},
 	{"while loop (1) break loop; endwhile return 3;", 0, 0, -1, 3},
 	{"fork (0) return 4; endfork return 5;", 0, 0, -1, 4},
 	{"return eval(\"return 6;\");", 0, 0, -1, 5},

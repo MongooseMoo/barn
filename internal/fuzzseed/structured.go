@@ -344,7 +344,14 @@ func (g *generator) tryStatement(depth int) ir.Stmt {
 		}
 	}
 	if handlers == 0 || g.choose(2) == 1 {
-		stmt.Finalizer = &ir.Finalizer{Body: g.block(maxBlockLen, depth+1)}
+		finalizer := &ir.Finalizer{Body: g.block(maxBlockLen, depth+1)}
+		if len(stmt.Handlers) == 0 {
+			stmt.Finalizer = finalizer
+			return stmt
+		}
+		// MOO has no try/except/finally (parser_stmt.go:parseTryStatement):
+		// nest the try/except in a try/finally, which runs the same way.
+		return &ir.TryStmt{Body: []ir.Stmt{stmt}, Finalizer: finalizer}
 	}
 	return stmt
 }

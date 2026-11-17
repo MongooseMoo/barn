@@ -14,7 +14,7 @@ var recompileBuiltins = map[string]int{"suspend": 1, "length": 2, "notify": 3, "
 var recompileSources = []string{
 	"x = 1; return x + 2 * 3;",
 	"for x in ({1, \"a\", 2.5, #3, E_DIV, [1 -> 2]}) y = tostr(x); suspend(0); endfor return y;",
-	"try suspend(0); x = 1 / 0; except e (E_DIV, E_TYPE) return e; finally notify(#0, \"done\"); endtry",
+	"try try suspend(0); x = 1 / 0; except e (E_DIV, E_TYPE) return e; endtry finally notify(#0, \"done\"); endtry",
 	"while loop (1) if (length({1}) > 0) break loop; endif endwhile",
 	"fork (0) a = 1; fork t (1) b = 2; endfork endfork fork (2) c = 3; endfork return {a, b, c};",
 	"{a, ?b = 3, @c} = {1, 2, 3, 4}; return \"Mixed\" + \"mixed\";",
