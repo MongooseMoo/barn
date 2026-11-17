@@ -1,0 +1,2 @@
+go test fuzz v1
+string("x = create(#4, 1); x = 0; suspend(0); fork (0) return 2; endfork return 1;")

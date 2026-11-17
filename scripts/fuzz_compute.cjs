@@ -56,6 +56,8 @@ async function accept({github, context, core}) {
       if (entry.isDirectory()) walk(file);
       else if (entry.name === 'census.json') {
         const lane = JSON.parse(fs.readFileSync(file, 'utf8'));
+        const memory = path.join(directory, 'memory.json');
+        if (fs.existsSync(memory)) lane.memory = JSON.parse(fs.readFileSync(memory, 'utf8'));
         census.set(lane.target, lane);
       }
     }
@@ -72,13 +74,27 @@ async function accept({github, context, core}) {
   if (!lanes.length) problems.push('no native lanes ran');
   for (const job of lanes) {
     const lane = census.get(job.name);
+    const source = ['FuzzSourceExecution', 'FuzzStructuredSourceExecution'].includes(job.name);
+    const failed = (job.steps || []).filter(s => s.conclusion === 'failure').map(s => s.name);
+    const nativeFailed = failed.includes(`Fuzz ${job.name}`);
+    const memoryFailed = failed.includes('Check source corpus resource lifetimes');
     if (!['success', 'failure'].includes(job.conclusion)) problems.push(`${job.name}: job ${job.conclusion}`);
-    else if (!onlyFailed(job, `Fuzz ${job.name}`)) problems.push(`${job.name}: a step other than the campaign failed`);
+    else if (job.conclusion === 'success' && failed.length) problems.push(`${job.name}: success with failed steps`);
+    else if (failed.some(name => name !== `Fuzz ${job.name}` &&
+      !(source && name === 'Check source corpus resource lifetimes'))) {
+      problems.push(`${job.name}: a step other than a discovery producer failed`);
+    }
     else if (!lane) problems.push(`${job.name}: no census`);
     else if (!(lane.completed_executions > 0)) problems.push(`${job.name}: zero measured executions`);
-    else if (lane.campaign !== (job.conclusion === 'success' ? 'clean' : 'finding')) {
+    else if (lane.campaign !== (nativeFailed ? 'finding' : 'clean')) {
       problems.push(`${job.name}: campaign ${lane.campaign} with job ${job.conclusion}`);
     }
+    if (source && (!lane?.memory?.records?.length ||
+      lane.memory.verdict !== (memoryFailed ? 'finding' : 'healthy') ||
+      lane.memory.records.some(row => !['healthy', 'leak', 'retained-growth'].includes(row.verdict)))) {
+      problems.push(`${job.name}: incomplete memory replay evidence`);
+    }
+    if (job.conclusion === 'failure' && failed.length === 0) problems.push(`${job.name}: failure without a failed step`);
   }
   const differential = jobs.find(job => job.name === DIFFERENTIAL);
   const resultsFile = 'fuzz-differential/results.json';

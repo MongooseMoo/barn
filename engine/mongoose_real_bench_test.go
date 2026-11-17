@@ -74,6 +74,7 @@ import (
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/admission"
+	"github.com/MongooseMoo/barn/internal/leakcheck"
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/internal/mooprof"
 	"github.com/MongooseMoo/barn/logging"
@@ -1204,13 +1205,10 @@ func holders(s *Runtime, store *dbstore.Store) string {
 // readHeapSample reads the Go runtime only, so it can run during a measure
 // window without adding a task to the workload. resident is left zero.
 func readHeapSample() memSample {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	live := []rtmetrics.Sample{{Name: "/gc/heap/live:bytes"}}
-	rtmetrics.Read(live)
+	m := leakcheck.ReadHeap()
 	return memSample{
-		heapAlloc: m.HeapAlloc, heapInuse: m.HeapInuse, heapSys: m.HeapSys, sys: m.Sys,
-		retained: m.Sys - m.HeapReleased, nextGC: m.NextGC, live: live[0].Value.Uint64(),
+		heapAlloc: m.Alloc, heapInuse: m.Inuse, heapSys: m.Sys, sys: m.TotalSys,
+		retained: m.Retained, nextGC: m.NextGC, live: m.Live,
 	}
 }
 

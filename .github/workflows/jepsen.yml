@@ -126,6 +126,7 @@ jobs:
           run() {
             uv run --project moo-conformance-tests --frozen python scripts/jepsen_checkpoint.py \
               --barn bin/barn \
+              --leak-check \
               --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
               --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
               --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" "$@"
@@ -230,6 +231,7 @@ jobs:
           run() {
             uv run --project moo-conformance-tests --frozen python scripts/jepsen_checkpoint.py \
               --barn bin/barn-elle \
+              --leak-check \
               --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
               --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
               --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" \

@@ -262,13 +262,15 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertIn("group: nightly-fuzz-controller-${{ github.event_name }}", controller)
         self.assertIn("    if: github.event_name == 'schedule' && vars.FUZZ_CONTINUOUS_ENABLED == 'true'", controller)
 
-    def accept(self, jobs, lanes, outcome="success", campaign="native-and-toast"):
+    def accept(self, jobs, lanes, outcome="success", campaign="native-and-toast", memories=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for target, census in lanes.items():
                 lane = root / ".fuzz/retained/vm" / target
                 lane.mkdir(parents=True)
                 (lane / "census.json").write_text(json.dumps({"target": target, **census}))
+                if memories and target in memories:
+                    (lane / "memory.json").write_text(json.dumps(memories[target]))
             if outcome is not None:
                 (root / "fuzz-differential").mkdir()
                 (root / "fuzz-differential/results.json").write_text(json.dumps({"summary": {"outcome": outcome}}))
@@ -285,6 +287,23 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
                 report = json.loads(result["info"][-1])
                 self.assertEqual(report["campaign"], "native-only")
                 self.assertEqual(report["differential"], "not-run-native-only")
+
+    def test_memory_findings_require_completed_replay_and_other_steps_to_succeed(self):
+        target = "FuzzSourceExecution"
+        census = {target: {"completed_executions": 10, "campaign": "clean"}}
+        for verdict, failed, record in (("healthy", None, "healthy"),
+                                         ("finding", "Check source corpus resource lifetimes", "leak")):
+            memories = {target: {"verdict": verdict, "records": [{"verdict": record}]}}
+            jobs = [job(target, "failure" if failed else "success", failed), job("ToastDifferential")]
+            self.assertNotIn("error", self.accept(jobs, census, memories=memories))
+            self.assertIn("error", self.accept(jobs, census))
+        jobs = [job(target, "failure", "Check source corpus resource lifetimes"), job("ToastDifferential")]
+        for memory in ({"verdict": "incomplete", "records": [{"verdict": "inconclusive"}]},
+                       {"verdict": "finding", "records": []}):
+            self.assertIn("error", self.accept(jobs, census, memories={target: memory}))
+        failed_report = job(target, "failure", "Report memory replay findings")
+        self.assertIn("error", self.accept([failed_report, job("ToastDifferential")], census,
+                         memories={target: {"verdict": "finding", "records": [{"verdict": "leak"}]}}))
 
     def test_native_only_rejects_missing_work_evidence_and_unexpected_comparison(self):
         good = {"FuzzA": {"completed_executions": 7, "campaign": "clean"}}
