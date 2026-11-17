@@ -73,3 +73,39 @@ func TestPCREIssue843VariableLookbehindRejectedQuickly(t *testing.T) {
 		}
 	}
 }
+
+// Issue #876: FuzzStringBuiltins ran pcre_replace with (\b{1737337})\1.
+// regexp2 accepted the count and expanded it, taking about 6 s per call.
+// PCRE2 10.42 caps a {} quantifier count at 65535, so Toast raises E_INVARG.
+// Toast-green in moo-conformance-tests builtins/pcre_quantifier_limit.yaml.
+func TestPCREQuantifierCountLimit(t *testing.T) {
+	ctx := newTestExecution()
+	for _, tc := range []struct {
+		pattern string
+		ok      bool
+	}{
+		{`a{65535}b`, true},
+		{`a{0,65535}b`, true},
+		{`a{0000065535}b`, true},
+		{`a{9999999x}`, true}, // not a quantifier: literal text
+		{`[a{99999}]`, true},  // inside a class
+		{`a{65536}b`, false},
+		{`a{0,65536}b`, false},
+		{`a{65536,}b`, false},
+		{`a{99999999999999999999999}b`, false},
+		{`(?:x{2}){1,70000}`, false},
+	} {
+		res := admitTestBuiltin("pcre_match", ctx, []types.Value{types.NewStr("ab"), types.NewStr(tc.pattern)})
+		if got := res.Error != types.E_INVARG; got != tc.ok {
+			t.Errorf("pcre_match(%q): got %v, want accepted=%v", tc.pattern, res, tc.ok)
+		}
+	}
+	start := time.Now()
+	res := admitTestBuiltin("pcre_replace", ctx, []types.Value{types.NewStr("0<0000<0"), types.NewStr(`s/(\b{1737337})\1/x/`)})
+	if res.Error != types.E_INVARG {
+		t.Errorf("pcre_replace: got %v, want E_INVARG", res)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("pcre_replace took %v", elapsed)
+	}
+}

@@ -11,6 +11,14 @@ import (
 // lookbehind branch that does not match a fixed number of characters.
 var errPCREVariableLookbehind = errors.New("lookbehind assertion is not fixed length")
 
+// errPCREQuantifierTooBig is PCRE2's compile failure for a {} quantifier
+// count above pcreMaxQuantifier.
+var errPCREQuantifierTooBig = errors.New("number too big in {} quantifier")
+
+// pcreMaxQuantifier is PCRE2 10.42's MAX_REPEAT_COUNT. regexp2 accepts larger
+// counts and expands them, so (\b{1737337}) took seconds per call (#876).
+const pcreMaxQuantifier = 65535
+
 // pcreMaxLookbehind is PCRE2 10.42's LOOKBEHIND_MAX: a longer fixed-length
 // branch fails with "lookbehind is too complicated".
 const pcreMaxLookbehind = 65535
@@ -22,7 +30,8 @@ const pcreMaxLookbehind = 65535
 // any lookbehind, re-running an unbounded one backwards from every subject
 // position, so Barn accepted patterns Toast rejects with E_INVARG and could
 // spend seconds per call on them. Constructs this scanner does not recognize
-// are left for regexp2 to judge.
+// are left for regexp2 to judge. The same pass rejects a {} quantifier count
+// above PCRE2's limit, which Toast also reports as a compile error.
 func checkPCRELookbehinds(pattern string) error {
 	// The first pass only records capture group widths, so a back reference
 	// inside a lookbehind can use the width of a group defined after it.
@@ -348,6 +357,9 @@ func (s *pcreWidthScanner) braceQuantifier() (lo, hi int, ok bool) {
 	if !allDigits(loText) || (comma && hiText != "" && !allDigits(hiText)) {
 		return 0, 0, false
 	}
+	if s.check && (pcreCountTooBig(loText) || pcreCountTooBig(hiText)) {
+		s.err = errPCREQuantifierTooBig
+	}
 	lo, err := strconv.Atoi(loText)
 	if err != nil {
 		lo = -2 // too large to be one fixed count
@@ -363,6 +375,19 @@ func (s *pcreWidthScanner) braceQuantifier() (lo, hi int, ok bool) {
 	}
 	s.i += end + 1
 	return lo, hi, true
+}
+
+// pcreCountTooBig reports whether a run of decimal digits exceeds
+// pcreMaxQuantifier, without overflowing on long runs or leading zeros.
+func pcreCountTooBig(digits string) bool {
+	n := 0
+	for i := 0; i < len(digits); i++ {
+		n = n*10 + int(digits[i]-'0')
+		if n > pcreMaxQuantifier {
+			return true
+		}
+	}
+	return false
 }
 
 func allDigits(text string) bool {
