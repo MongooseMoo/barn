@@ -50,7 +50,11 @@ The nonwizard read also checks the explicit readable/unreadable permission resul
 generate programs whose tasks reach `suspend()` at the bottom of a chosen stack
 of up to six nested contexts: a verb call, `eval()`, a fork body, try/except,
 try/finally, a loop over a list, a range or a map, a while loop, a scatter
-whose optional default is running, and a list expression under construction.
+whose optional default is running, a list expression under construction, a
+`finally` handler body (entered by falling through, by `return`, by an error an
+outer `except` catches, or by `break`), and the `accept`, `exitfunc` and
+`enterfunc` verbs that `move()` calls. `eval()` is also reached through
+`call_function("eval", ...)`. The programs run as a wizard.
 Each layer marks the value passing back out through it, and the same
 checkpoint/reload comparison applies. `moo-fuzz-source --generator
 suspended-stack` renders its choice bytes.
