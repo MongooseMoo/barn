@@ -213,6 +213,9 @@ func convertNativeSnapshot(snapshot *task.VMSnapshot, store *dbstore.Store, sess
 		if index == 0 {
 			vector = snapshot.NativeRootVector
 		}
+		if previousCall == compiler.NativeResumeEval {
+			saved = withoutEvalReturnContinuation(saved)
+		}
 		frame, call, err := session.Registry().Compiler().ConvertNativeFrame(saved, vector, index == len(snapshot.Frames)-1)
 		if err != nil {
 			return nil, fmt.Errorf("native frame %d: %w", index, err)
@@ -237,6 +240,26 @@ func convertNativeSnapshot(snapshot *task.VMSnapshot, store *dbstore.Store, sess
 	return converted, nil
 }
 
+// Toast's bf_eval pushes the eval activation and then returns a call package,
+// so the OP_BI_FUNC_CALL handler records builtin eval with pc 2 on that new
+// activation rather than on its caller. When the frame returns, Toast calls
+// bf_eval(next=2), which wraps the value in {1, value}. Barn models the same
+// continuation as IsEvalFrame, set from the caller's eval() call site, so
+// the callee's own mark is dropped here. Any other builtin state, or an eval
+// mark at another pc or with saved data, is left for ConvertNativeFrame to
+// refuse.
+func withoutEvalReturnContinuation(saved task.VMFrameSnapshot) task.VMFrameSnapshot {
+	builtin := saved.Native.Builtin
+	if saved.BuiltinPC != 2 || builtin == nil || builtin.Name != "eval" || builtin.State != "" || builtin.Inner != nil {
+		return saved
+	}
+	native := *saved.Native
+	native.Builtin = nil
+	saved.Native = &native
+	saved.BuiltinPC = 0
+	return saved
+}
+
 // ExportNativeSnapshot is convertNativeSnapshot's inverse: it returns snapshot
 // with every frame as Toast holds it at the same call, so Toast can load and
 // resume it, or an error when any frame has no Toast form. Programmers are
@@ -258,6 +281,15 @@ func ExportNativeSnapshot(snapshot *task.VMSnapshot, callStack []types.Activatio
 		}
 		if index < len(callStack) {
 			frame.Native.Programmer = callStack[index].Programmer
+		}
+		if saved.IsEvalFrame {
+			// Toast holds eval()'s return continuation on the eval activation
+			// (see withoutEvalReturnContinuation); without it Toast would hand
+			// the caller the bare value instead of {1, value}.
+			native := *frame.Native
+			native.Builtin = &task.NativeBuiltinSnapshot{Name: "eval"}
+			frame.Native = &native
+			frame.BuiltinPC = 2
 		}
 		exported.Frames[index] = frame
 	}
