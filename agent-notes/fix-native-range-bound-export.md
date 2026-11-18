@@ -73,8 +73,9 @@ scripts are untracked scratch: `.tmp/range-bound/run_producer.sh`,
 `.tmp/range-bound/toast_capture.sh`.
 
 - Stock WSL Toast (`/root/src/toaststunt/build-release/moo`, binary SHA-256
-  61dd1799d82f75e33cb9c42fe48bd1966199ad83fda2f6298e3a7f872cc613dd, source
-  03af4fa; wrapper copies `{db}` before exec): `2 passed, 1 warning in 41.12s`.
+  61dd1799d82f75e33cb9c42fe48bd1966199ad83fda2f6298e3a7f872cc613dd, built from
+  the ref the fixture's `.md` names; wrapper copies `{db}` before exec):
+  `2 passed, 1 warning in 41.12s`.
 - Barn without the fix (`bin/range-bound-barn-before`): `2 passed in 34.87s`,
   and the Barn log has, for both tasks at each checkpoint,
   `Toast could not load this checkpoint: task kept in Barn's frame form ...
