@@ -399,6 +399,16 @@ func (vm *VM) executeRange() error {
 	}
 }
 
+// firstIndex is ^ for a string or list: 1, or 0 when it is empty, as Toast's
+// EOP_FIRST pushes. On an empty value ""[^..$] is then [0..0], which raises
+// E_RANGE.
+func firstIndex(coll types.Value) int64 {
+	if coll.Len() > 0 {
+		return 1
+	}
+	return 0
+}
+
 // executeIndexMarker resolves ^/$ markers against a collection. Map markers
 // expose keys in both index and range expressions.
 func (vm *VM) executeIndexMarker() error {
@@ -417,7 +427,7 @@ func (vm *VM) executeIndexMarker() error {
 			return newMooError(types.E_TYPE, "invalid range marker context")
 		}
 		if marker == bytecode.RangeMarkerFirst {
-			vm.Push(types.NewInt(1))
+			vm.Push(types.NewInt(firstIndex(coll)))
 		} else if coll.Type() == types.TYPE_STR {
 			vm.Push(types.NewInt(int64(coll.StrCharLen())))
 		} else {
@@ -430,7 +440,7 @@ func (vm *VM) executeIndexMarker() error {
 	case types.TYPE_LIST:
 		switch marker {
 		case bytecode.IndexMarkerFirst:
-			vm.Push(types.NewInt(1))
+			vm.Push(types.NewInt(firstIndex(coll)))
 		case bytecode.IndexMarkerLast:
 			vm.Push(types.NewInt(int64(coll.Len())))
 		default:
@@ -441,7 +451,7 @@ func (vm *VM) executeIndexMarker() error {
 	case types.TYPE_STR:
 		switch marker {
 		case bytecode.IndexMarkerFirst:
-			vm.Push(types.NewInt(1))
+			vm.Push(types.NewInt(firstIndex(coll)))
 		case bytecode.IndexMarkerLast:
 			vm.Push(types.NewInt(int64(coll.StrCharLen())))
 		default:

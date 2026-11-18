@@ -1159,6 +1159,41 @@ func TestBytecodeMapRangeBoundariesSelectAllKeys(t *testing.T) {
 	}
 }
 
+// Toast's ^ is 0 on an empty string or list, so a range starting at ^ raises
+// E_RANGE there while an explicit [1..0] or [1..$] is empty (issue #883).
+// Expected values are the WSL Toast oracle's.
+func TestBytecodeFirstBoundaryOnEmptySequence(t *testing.T) {
+	for _, code := range []string{
+		`return ""[^..$];`,
+		`return {}[^..$];`,
+		`x = ""; return x[^..$];`,
+		`return ""[^..0];`,
+		`return ""[$..^];`,
+	} {
+		t.Run(code, func(t *testing.T) {
+			requireError(t, runBytecodeProgram(t, code, nil, nil), types.E_RANGE)
+		})
+	}
+	for code, want := range map[string]string{
+		`return ""[1..0];`:                 `""`,
+		`return ""[1..$];`:                 `""`,
+		`return {}[1..$];`:                 `{}`,
+		`return {}[^ + 1..$];`:             `{}`,
+		`return "abc"[^..$];`:              `"abc"`,
+		`x = ""; x[^..$] = "b"; return x;`: `"b"`,
+		`x = {}; x[^..$] = {1}; return x;`: `{1}`,
+		`x = {}; x[^..$] = {}; return x;`:  `{}`,
+		`return {1, 2, 3}[^..^];`:          `{1}`,
+	} {
+		t.Run(code, func(t *testing.T) {
+			result := runBytecodeProgram(t, code, nil, nil)
+			if result.Flow != types.FlowReturn || result.Val.String() != want {
+				t.Fatalf("result = flow %v, value %v, error %v; want %s", result.Flow, result.Val, result.Error, want)
+			}
+		})
+	}
+}
+
 func TestBytecodeMapRangeIntegerEndpointsAreKeys(t *testing.T) {
 	for _, test := range []struct {
 		name, program, want string
