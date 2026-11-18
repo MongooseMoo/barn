@@ -15,8 +15,9 @@ Built and committed locally on `ci/native-checkpoint-census`; not pushed, no pul
 request, never run on GitHub.
 
 - `.github/workflows/native-checkpoint-census.yml`: the workflow (push to
-  `master`, hourly schedule, manual dispatch, pull requests that touch it, its
-  script, the census test or `goodput-series.yml`).
+  `master`, manual dispatch, pull requests that touch it, its script, the
+  census test or `goodput-series.yml`). No schedule: the census gives the same
+  answer for the same commit and dump, so a timed run adds nothing.
 - `scripts/native-checkpoint-census.sh`: runs the census and prints the safe
   summary.
 - No Go file and no test expectation changed.
@@ -138,9 +139,6 @@ line formats, with every stand-in for database text marked:
   exercised only on the stand-in output described above.
 - Whether an `if: always()` step runs after a `timeout-minutes` kill on these
   runners was not tested.
-- The hourly schedule is copied from the goodput workflow as the brief asked;
-  the census is deterministic per commit and fixture, so the scheduled runs
-  repeat the same answer between merges.
 
 ## Next step
 
