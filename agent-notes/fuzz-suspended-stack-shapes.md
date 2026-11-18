@@ -33,6 +33,37 @@ layer transforming it observably. A fuzz target in `vm` feeds it through
 - Not run locally: the rest of the suite, `scripts/test_fuzz_compute.py`,
   `scripts/fuzz_differential.py`, anything on Toast.
 
+- Second round (lead's order, from the native-continuation-refusals
+  inventory rows 1-3, 8, 12-16): adding kinds `in-finally` (four ways the
+  handler was entered), `move-accept`, `move-exitfunc`, `move-enterfunc`, and
+  eval through `call_function("eval", ...)`. Done, second commit:
+  - `SuspendedStackKinds` now has 15 names; the four new ones are appended, so
+    kind bytes 0-10 keep their meaning. The variant choice is now one of four
+    (`SuspendedStackVariants`): values 0 and 1 mean what they did.
+  - `in-finally` variant 0 fall-through, 1 `return` in a verb's try (inner
+    value leaves by property `p<k>`), 2 `raise(E_PERM, ...)` caught by an
+    except around the try/finally, 3 `break` out of an enclosing `for`.
+  - `move-accept`, `move-exitfunc`, `move-enterfunc`: the setup creates what
+    `t<k>`, destination `c<k>` and, for exitfunc, old location `a<k>`, with the
+    hook verbs on them (flags `rxd`, args `this none this`). Result is
+    `{move()'s value, {k, inner value, args[1] == what}, what.location ==
+    where}` plus, for exitfunc, a flag that `where:enterfunc` then ran.
+  - variant 2 of eval, scatter and expression calls
+    `call_function("eval", source)`. The fuzz registry runs it: the pinned
+    result `{1, {1, 0}}` came back through it.
+  - Programmer: the task runs as a wizard (the driver's `wizard=true` lane; the
+    setup's `add_property(#0, ...)` needs it anyway). Toast's `do_move`
+    (`objects.cc`, case 2) ignores accept's value for a wizard programmer;
+    every accept verb returns 1 regardless, so the move also proceeds for a
+    non-wizard.
+  - Every new kind and every in-finally variant has a one-layer seed and a
+    pinned result; a third mixed seed nests them. Barn's own checkpoint and
+    reload agreed for all of them: no difference found.
+  - Results: `gofmt -l` clean, `go vet` clean, both tests pass (15 subtests),
+    45 s fuzz smoke: 580 executions, 4 new interesting (total 45), PASS.
+  - Not included, as ordered: create, recreate and recycle hooks; also the
+    uncaught-error finally entry (it aborts the task).
+
 ## Decisions and why
 
 - Choice layout: stack count (1-3), then per stack: depth (1-6), two bytes per
@@ -91,6 +122,11 @@ layer transforming it observably. A fuzz target in `vm` feeds it through
   while and scatter with `?optional = default` and `@rest`; no program was run
   on Toast.
 - The expected values in `TestSuspendedStackLayersMarkResult` are Barn's.
+- The move hooks' names, argument and return handling were read from Toast's
+  `do_move` and Barn's `vm/move_lifecycle.go`; none was run on Toast.
+- Barn can checkpoint and reload its own tasks in every new state, but the
+  inventory says its importer refuses the Toast-written form of the same
+  states. This lane does not exercise that importer.
 - The setup adds `suspended_stack` to #0, so a second run on the same database
   fails at `add_property`; a consumer needs a fresh database per program.
 

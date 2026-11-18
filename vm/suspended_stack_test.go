@@ -8,11 +8,19 @@ import (
 )
 
 // suspendedStackSeeds returns, for each context kind, one-layer stacks of it
-// with either variant and either form of the bottom suspension, named by kind.
+// with each variant the kind reads and both forms of the bottom suspension,
+// named by kind.
 func suspendedStackSeeds() map[string][][]byte {
 	seeds := map[string][][]byte{}
 	for kind, name := range fuzzseed.SuspendedStackKinds {
-		for _, tail := range [][2]byte{{0, 0}, {1, 1}} {
+		tails := [][2]byte{{0, 0}, {1, 1}}
+		switch name {
+		case "eval", "scatter", "expression": // call_function("eval", ...)
+			tails = append(tails, [2]byte{2, 0})
+		case "in-finally": // the handler entered by a raise and by a break
+			tails = append(tails, [2]byte{2, 0}, [2]byte{3, 1})
+		}
+		for _, tail := range tails {
 			// One stack, one layer: kind, variant, bottom form.
 			seeds[name] = append(seeds[name], []byte{0, 0, byte(kind), tail[0], tail[1]})
 		}
@@ -31,6 +39,15 @@ var suspendedStackMixedSeeds = [][]byte{
 	},
 	// eval() in eval() in a verb in a fork in eval() in a fork.
 	{0, 5, 2, 0, 1, 0, 2, 0, 0, 0, 1, 0, 1, 0, 1},
+	// A finally handler entered by a raise, in call_function("eval", ...), in
+	// accept, in a handler entered by a break, in exitfunc, in a handler
+	// entered by a return; then a handler entered by falling through, in
+	// enterfunc.
+	{
+		1,
+		5, 11, 1, 13, 0, 11, 3, 12, 0, 1, 2, 11, 2, 1,
+		1, 14, 0, 11, 0, 0,
+	},
 }
 
 // FuzzSuspendedStackCheckpoint requires a program suspended at the bottom of a
@@ -56,26 +73,43 @@ func FuzzSuspendedStackCheckpoint(f *testing.F) {
 // Each layer's mark on the value must be in the checkpointed run's results:
 // a generator whose layers left no trace would compare equal and check nothing.
 func TestSuspendedStackLayersMarkResult(t *testing.T) {
-	// The root task's result for each kind's two seeds. The second seed's
-	// bottom value is {0, 0} and its scatter and expression calls use eval().
-	want := map[string][2]string{
-		"verb":       {"return {{1, 0}}", "return {{1, {0, 0}}}"},
-		"eval":       {"return {{1, {1, 0}}}", "return {{1, {1, {0, 0}}}}"},
-		"fork":       {"return {1}", "return {1}"},
-		"except":     {`return {{E_RANGE, "1", 0}}`, `return {{E_RANGE, "1", {0, 0}}}`},
-		"finally":    {"return {{1, 0}}", "return {{1, {0, 0}}}"},
-		"for-list":   {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
-		"for-range":  {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
-		"for-map":    {"return {{{1, -1}, 0, {3, 1}}}", "return {{{1, -1}, {0, 0}, {3, 1}}}"},
-		"while":      {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
-		"scatter":    {"return {{1, {1, 0}, {}}}", "return {{1, {1, {1, {0, 0}}}, {}}}"},
-		"expression": {"return {{1, {1, 0}, 2}}", "return {{1, {1, {1, {0, 0}}}, 2}}"},
+	// The root task's result for each of the kind's seeds. The second seed's
+	// bottom value is {0, 0} and its scatter and expression calls use eval();
+	// a third calls eval() through call_function.
+	want := map[string][]string{
+		"verb": {"return {{1, 0}}", "return {{1, {0, 0}}}"},
+		"eval": {"return {{1, {1, 0}}}", "return {{1, {1, {0, 0}}}}", "return {{1, {1, 0}}}"},
+		// The handler was entered by falling through (the statement after
+		// endtry ran), by a return (the verb's {args[1], 1} arrived, not its
+		// later return 0), by a raise (the outer except got code, message and
+		// value), by a break (one iteration counted, not two or three).
+		"in-finally": {
+			"return {{1, 0}}", "return {{{1, 1}, {0, 0}}}",
+			`return {{E_PERM, "1", 1, 0}}`, "return {{1, {0, 0}}}",
+		},
+		// move()'s 0, {layer, inner value, the hook's argument was what},
+		// what ended in where, and for exitfunc where:enterfunc then ran.
+		"move-accept":    {"return {{0, {1, 0, 1}, 1}}", "return {{0, {1, {0, 0}, 1}, 1}}"},
+		"move-exitfunc":  {"return {{0, {1, 0, 1}, 1, 1}}", "return {{0, {1, {0, 0}, 1}, 1, 1}}"},
+		"move-enterfunc": {"return {{0, {1, 0, 1}, 1}}", "return {{0, {1, {0, 0}, 1}, 1}}"},
+		"fork":           {"return {1}", "return {1}"},
+		"except":         {`return {{E_RANGE, "1", 0}}`, `return {{E_RANGE, "1", {0, 0}}}`},
+		"finally":        {"return {{1, 0}}", "return {{1, {0, 0}}}"},
+		"for-list":       {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
+		"for-range":      {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
+		"for-map":        {"return {{{1, -1}, 0, {3, 1}}}", "return {{{1, -1}, {0, 0}, {3, 1}}}"},
+		"while":          {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
+		"scatter":        {"return {{1, {1, 0}, {}}}", "return {{1, {1, {1, {0, 0}}}, {}}}", "return {{1, {1, {1, 0}}, {}}}"},
+		"expression":     {"return {{1, {1, 0}, 2}}", "return {{1, {1, {1, {0, 0}}}, 2}}", "return {{1, {1, {1, 0}}, 2}}"},
 	}
 	// The fork layer's child stores its value in f1, the property defined last.
 	wantForked := [2]string{"{1, 0}", "{1, {0, 0}}"}
 	registry := newCheckpointResumeRegistry(t)
 	seeds := suspendedStackSeeds()
 	for _, kind := range fuzzseed.SuspendedStackKinds {
+		if len(want[kind]) != len(seeds[kind]) {
+			t.Fatalf("%s: %d pinned results for %d seeds", kind, len(want[kind]), len(seeds[kind]))
+		}
 		for i, seed := range seeds[kind] {
 			source := fuzzseed.SuspendedStack(seed)
 			program, diagnostics := registry.Compiler().CompileMOO(strings.Split(source, "\n"))
