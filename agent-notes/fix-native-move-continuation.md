@@ -133,6 +133,37 @@ The database each Toast restart booted from. Described in
 - With the fix: both tests pass, 6 subtests.
 - `gofmt -l` on the three Go files: clean. `go vet ./vm ./engine`: clean.
 
+### Added acceptance condition: hook frame as a middle frame
+
+The lead added: the export must work when the move hook frame is a middle
+frame at any depth, because PR 891's `fuzzseed.SuspendedStack` kinds
+`move-accept`, `move-exitfunc`, `move-enterfunc` suspend several frames above
+the hook, and PR 892's fuzz lanes fail on any `ExportNativeSnapshot` error.
+
+`TestBarnMoveHookMiddleFrameCheckpointsAsToastContinuation` (same test file):
+a Barn-started task `program -> start (move) -> hook -> deep (for loop, try
+body) -> pause (suspend)`, for each hook. The checkpoint must hold all five
+frames in Toast's form, with builtin `move`, pc 2/3/4 and `bf_move data: what
+= 3, where = 5, position = 0` on frame 2 only; the written file is reloaded,
+imported and run to the end (hook log, finally count, final location, move's
+0 result). It passed with no production change beyond the one already made:
+3 subtests PASS. My first draft of it failed because `start` was `#0.log =
+{@#0.log, move(...)}`, which reads the log before the hooks append to it; that
+was the test's error.
+
+PR 891 was still OPEN (not merged) when I checked, twice, so I did not merge
+master or run `TestSuspendedStackKindsReachCheckpoint`. The combined check
+with 891 and 892 has not been run.
+
+### Lead's correction on CI
+
+CI's "Run local conformance regressions" step selects four explicit files and
+nothing under `server/`; a separate cross-engine job will run the `server/`
+producers, and CI is not to be changed here. The producers pass on unfixed
+Barn in a Barn-only run (results table above), so the red-before evidence is
+the Go tests on the Toast-written fixtures plus the `Toast could not load this
+checkpoint` log records before the fix (6) and their absence after (0).
+
 ## Decisions and why
 
 - The move mark is accepted when the frame below is paused at any builtin
