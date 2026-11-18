@@ -19,4 +19,4 @@ The object has before=1, after=0, result=0, finished=0. Resuming must produce
 before=1, after=1, result={1, 73}, finished=1.
 
 Only the test-owned public Test.db objects and producer code are present. No
-Mongoose or ChatMUD database or player data is included.
+Mongoose production checkpoint or player data is included.
