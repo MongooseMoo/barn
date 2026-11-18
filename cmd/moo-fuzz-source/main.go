@@ -10,6 +10,9 @@
 // With --corpus, stdin instead lists Go fuzz corpus files of a structured
 // target, one path per line, and each file gives one JSON line:
 // {"path", "choices" (hex), "source"} or {"path", "error"}.
+//
+// --generator names the generator the choices belong to: structured (the
+// default, fuzzseed.Source) or suspended-stack (fuzzseed.SuspendedStack).
 package main
 
 import (
@@ -35,6 +38,7 @@ func main() {
 
 func newRootCommand() *cobra.Command {
 	var corpus bool
+	var generator string
 	root := cli.NewRoot("moo-fuzz-source", "Print the MOO program a structured fuzz target generates")
 	root.Long = `Print the MOO program that the structured fuzz targets generate from the choice
 bytes read on stdin. It prints one example program; it is not a grammar of the
@@ -42,21 +46,31 @@ MOO language. Exits 1 when the generated program has no MOO spelling.
 
 With --corpus, stdin lists Go fuzz corpus files of a structured target, one path
 per line, and each file gives one JSON line: {"path", "choices" (hex),
-"source"} or {"path", "error"}.`
+"source"} or {"path", "error"}.
+
+--generator names the generator the choices belong to: structured, the
+FuzzStructured* targets' (the default), or suspended-stack,
+FuzzSuspendedStackCheckpoint's.`
 	root.Example = `  moo-fuzz-source < choices.bin
   head -c 200 /dev/urandom | moo-fuzz-source
-  ls testdata/fuzz/FuzzStructured/* | moo-fuzz-source --corpus`
+  ls testdata/fuzz/FuzzStructured/* | moo-fuzz-source --corpus
+  moo-fuzz-source --generator suspended-stack < choices.bin`
 	root.Args = cobra.NoArgs
 	root.Flags().BoolVar(&corpus, "corpus", false, "Read corpus file paths on stdin and print one JSON line per file")
+	root.Flags().StringVar(&generator, "generator", "structured", "Generator the choices belong to: structured or suspended-stack")
 	root.RunE = cli.RunE(func(cmd *cobra.Command, _ []string) error {
+		render, ok := generators[generator]
+		if !ok {
+			return cli.UsageErrorf("unknown generator %q: want structured or suspended-stack", generator)
+		}
 		if corpus {
-			return renderCorpus(os.Stdin, cmd.OutOrStdout())
+			return renderCorpus(os.Stdin, cmd.OutOrStdout(), render)
 		}
 		choices, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return err
 		}
-		source, err := fuzzseed.Source(choices)
+		source, err := render(choices)
 		if err != nil {
 			return err
 		}
@@ -66,6 +80,12 @@ per line, and each file gives one JSON line: {"path", "choices" (hex),
 	return root
 }
 
+// generators maps a --generator name to the renderer of its choice bytes.
+var generators = map[string]func([]byte) (string, error){
+	"structured":      fuzzseed.Source,
+	"suspended-stack": func(choices []byte) (string, error) { return fuzzseed.SuspendedStack(choices), nil },
+}
+
 type corpusRecord struct {
 	Path    string `json:"path"`
 	Choices string `json:"choices,omitempty"`
@@ -73,7 +93,7 @@ type corpusRecord struct {
 	Error   string `json:"error,omitempty"`
 }
 
-func renderCorpus(paths io.Reader, out io.Writer) error {
+func renderCorpus(paths io.Reader, out io.Writer, render func([]byte) (string, error)) error {
 	encoder := json.NewEncoder(out)
 	scanner := bufio.NewScanner(paths)
 	for scanner.Scan() {
@@ -85,7 +105,7 @@ func renderCorpus(paths io.Reader, out io.Writer) error {
 		choices, err := readChoices(path)
 		if err == nil {
 			record.Choices = hex.EncodeToString(choices)
-			record.Source, err = fuzzseed.Source(choices)
+			record.Source, err = render(choices)
 		}
 		if err != nil {
 			record.Error = err.Error()
