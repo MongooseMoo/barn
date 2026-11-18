@@ -356,11 +356,64 @@ func describeTaskResult(result types.Result) string {
 const checkpointValueBudget = 64 << 20
 
 // checkpointSuspendedVM writes the suspended machine and store to a
-// checkpoint, loads it, and restores the task on the loaded store the way
-// engine.Runtime.loadSuspendedTask does. The restored VM keeps the task's
-// state and tick count: a snapshot carries no ticks, and the fuzz driver's
-// budget spans the whole task.
+// checkpoint the way engine.Runtime.TaskSnapshots does, with the task's frames
+// exported to Toast's form, loads it, and restores the task on the loaded
+// store the way engine.Runtime.loadSuspendedTask does, through the import of
+// Toast's frames. A task ExportNativeSnapshot refuses fails the case: the
+// runtime keeps such a task in Barn's frame form, and Toast cannot load the
+// checkpoint that holds it. The restored VM keeps the task's state and tick
+// count: a snapshot carries no ticks, and the fuzz driver's budget spans the
+// whole task.
 func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store, forks []sourceFuzzFork) (*VM, *dbstore.Store, []sourceFuzzFork) {
+	t.Helper()
+	snapshot := suspendedSnapshot(machine)
+	snapshot.CallStack = machine.Task.GetCallStack()
+	if len(snapshot.CallStack) != len(snapshot.VM.Frames) {
+		t.Fatalf("task has %d activations for %d VM frames; the driver must push each task's root activation", len(snapshot.CallStack), len(snapshot.VM.Frames))
+	}
+	exported, err := ExportNativeSnapshot(snapshot.VM, snapshot.CallStack, machine.Builtins.Registry().Compiler())
+	if err != nil {
+		t.Fatalf("ExportNativeSnapshot: %v", err)
+	}
+	snapshot.VM = exported
+	restored, reloadedStore, restoredForks, reloaded := reloadCheckpoint(t, machine, store, forks, snapshot)
+	for index, frame := range reloaded.Frames {
+		if frame.Native == nil {
+			t.Fatalf("reloaded frame %d is not in Toast's form", index)
+		}
+	}
+	return restored, reloadedStore, restoredForks
+}
+
+// checkpointSuspendedVMInBarnForm is checkpointSuspendedVM with the task
+// written in Barn's own frame form, which the runtime keeps for a task
+// ExportNativeSnapshot refuses.
+func checkpointSuspendedVMInBarnForm(t *testing.T, machine *VM, store *dbstore.Store, forks []sourceFuzzFork) (*VM, *dbstore.Store, []sourceFuzzFork) {
+	t.Helper()
+	restored, reloadedStore, restoredForks, _ := reloadCheckpoint(t, machine, store, forks, suspendedSnapshot(machine))
+	return restored, reloadedStore, restoredForks
+}
+
+// suspendedSnapshot is the suspended machine's task as a checkpoint holds it,
+// in Barn's frame form and without its activations.
+func suspendedSnapshot(machine *VM) task.Snapshot {
+	return task.Snapshot{
+		ID:            machine.Task.ID,
+		Owner:         machine.Task.Owner,
+		State:         task.TaskSuspended,
+		WakeValue:     types.NewInt(0),
+		TaskLocal:     types.NewEmptyMap(),
+		Programmer:    machine.Context.Programmer,
+		This:          machine.Context.ThisObj,
+		ReadingPlayer: types.ObjNothing,
+		VM:            machine.PersistenceVMSnapshot(),
+	}
+}
+
+// reloadCheckpoint writes snapshot, the queued forks and store to a
+// checkpoint, loads it, and restores the task and the forks on the loaded
+// store. It also returns the task's VM snapshot as the reader produced it.
+func reloadCheckpoint(t *testing.T, machine *VM, store *dbstore.Store, forks []sourceFuzzFork, snapshot task.Snapshot) (*VM, *dbstore.Store, []sourceFuzzFork, *task.VMSnapshot) {
 	t.Helper()
 	queued := make([]task.Snapshot, len(forks))
 	for i, fork := range forks {
@@ -373,17 +426,7 @@ func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store, fork
 		state.VerbName = fork.info.Verb
 		queued[i] = state.PersistenceSnapshotLocked()
 	}
-	suspended := []task.Snapshot{{
-		ID:            machine.Task.ID,
-		Owner:         machine.Task.Owner,
-		State:         task.TaskSuspended,
-		WakeValue:     types.NewInt(0),
-		TaskLocal:     types.NewEmptyMap(),
-		Programmer:    machine.Context.Programmer,
-		This:          machine.Context.ThisObj,
-		ReadingPlayer: types.ObjNothing,
-		VM:            machine.PersistenceVMSnapshot(),
-	}}
+	suspended := []task.Snapshot{snapshot}
 	if size := persistedValueBytes(queued, suspended); size > checkpointValueBudget {
 		t.Skipf("the checkpoint would write %d bytes of task values, over the %d-byte budget", size, checkpointValueBudget)
 	}
@@ -430,7 +473,8 @@ func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store, fork
 	context.ThisObj = machine.Context.ThisObj
 	context.Verb = machine.Context.Verb
 	context.IsWizard = machine.Context.IsWizard
-	restored, err := RestoreVMSnapshot(reloaded.SuspendedTasks[0].Snapshot.VM, reloadedStore, machine.Builtins, context)
+	saved := reloaded.SuspendedTasks[0].Snapshot.VM
+	restored, err := RestoreVMSnapshot(saved, reloadedStore, machine.Builtins, context)
 	if err != nil {
 		t.Fatalf("RestoreVMSnapshot after checkpoint reload: %v", err)
 	}
@@ -440,7 +484,34 @@ func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store, fork
 	if frame := restored.CurrentFrame(); frame == nil {
 		t.Fatal("restored suspended VM has no active frame")
 	}
-	return restored, reloadedStore, restoredForks
+	return restored, reloadedStore, restoredForks, saved
+}
+
+// A task suspended inside eval() is exported with Toast's eval() return
+// continuation (builtin eval, pc 2) on the eval activation, as in the Toast
+// checkpoint engine/testdata/toast-suspended-eval.db, and the import of that
+// form hands eval()'s caller {1, value}.
+func TestCheckpointExportsSuspendedEvalWithToastContinuation(t *testing.T) {
+	registry := newCheckpointResumeRegistry(t)
+	program, diagnostics := registry.Compiler().CompileMOO([]string{`return eval("suspend(); return 73;");`})
+	if len(diagnostics) != 0 {
+		t.Fatal(diagnostics)
+	}
+	checkpoint := func(t *testing.T, machine *VM, store *dbstore.Store, queued []sourceFuzzFork) (*VM, *dbstore.Store, []sourceFuzzFork) {
+		exported, err := ExportNativeSnapshot(machine.PersistenceVMSnapshot(), machine.Task.GetCallStack(), registry.Compiler())
+		if err != nil {
+			t.Fatalf("ExportNativeSnapshot: %v", err)
+		}
+		top := exported.Frames[len(exported.Frames)-1]
+		if len(exported.Frames) != 2 || top.Native == nil || top.Native.Builtin == nil || top.Native.Builtin.Name != "eval" || top.BuiltinPC != 2 {
+			t.Fatalf("exported %d frames, top frame %+v; want 2 frames, the top with builtin eval at pc 2", len(exported.Frames), top)
+		}
+		return checkpointSuspendedVM(t, machine, store, queued)
+	}
+	results, _, checkpoints := runCheckpointResumeCase(t, registry, program, checkpoint, sourceFuzzTicks, true)
+	if checkpoints != 1 || len(results) != 1 || results[0].Flow != types.FlowReturn || results[0].Val.String() != "{1, 73}" {
+		t.Fatalf("%d checkpoints, results %v; want 1 checkpoint and one task returning {1, 73}", checkpoints, results)
+	}
 }
 
 // A checkpoint writes every variable of the suspended task and of each queued

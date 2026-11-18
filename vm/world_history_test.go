@@ -127,11 +127,14 @@ func TestWorldCheckpointDetectsChangedVerbCode(t *testing.T) {
 			t.Fatal(diagnostics)
 		}
 		// Use the live setup object's identity captured in the suspended frame.
+		// The reloaded frame does not hold it: ancestor is not read again, and
+		// Toast unbinds a variable at its last push before the program ends
+		// (code_gen.cc stmt_to_code), so the exported frame leaves it unbound.
 		probe := newSourceFuzzVM(reloaded, machine.Builtins, 99, 30000)
 		probe.Context.IsWizard = true
 		probe.Context.Programmer = 0
 		frame := probe.PrepareVerbFrame(program, 0, 0, 0, "", 0, nil)
-		original := restored.CurrentFrame()
+		original := machine.CurrentFrame()
 		for i, name := range original.Program.VarNames {
 			if name == "ancestor" {
 				SetLocalByName(frame, program, name, original.Locals[i])

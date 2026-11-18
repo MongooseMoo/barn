@@ -119,6 +119,14 @@ func (tasks *sourceFuzzTasks) runAll(t *testing.T, program *bytecode.Program) []
 	if tasks.wizard || tasks.player != 0 {
 		runAs(machine, tasks.player, tasks.wizard)
 	}
+	// The runtime pushes each task's root activation before its first slice;
+	// this is the one engine.prepareIntrinsicEval pushes for a program run
+	// outside any verb.
+	machine.Task.PushFrame(types.ActivationFrame{
+		This: types.ObjNothing, ThisValue: types.None, Player: machine.Context.Player,
+		Programmer: machine.Context.Programmer, Caller: types.ObjNothing, Verb: "",
+		VerbLoc: types.ObjNothing, LineNumber: 1, IsEvalFrame: true,
+	})
 	result, machine := tasks.run(t, machine, machine.Run(program))
 	results := []types.Result{result}
 	spent := machine.Ticks
@@ -138,6 +146,12 @@ func (tasks *sourceFuzzTasks) runAll(t *testing.T, program *bytecode.Program) []
 		child.Context.Player = fork.info.Player
 		child.Context.ThisObj = fork.info.ThisObj
 		child.Context.IsWizard = tasks.wizard
+		// The fork body's activation, as engine.Runtime.CreateForkedTask pushes it.
+		child.Task.PushFrame(types.ActivationFrame{
+			This: fork.info.ThisObj, ThisValue: fork.info.ThisValue, Player: fork.info.Player,
+			Programmer: fork.programmer, Caller: fork.info.Caller, Verb: fork.info.Verb,
+			VerbLoc: fork.info.VerbLoc, LineNumber: 1,
+		})
 		result, child = tasks.run(t, child, child.ExecuteLoop())
 		results = append(results, result)
 		spent += child.Ticks
