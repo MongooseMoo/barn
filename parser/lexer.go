@@ -3,6 +3,7 @@ package parser
 import (
 	"errors"
 	"github.com/MongooseMoo/barn/ir"
+	"strings"
 	"unicode"
 )
 
@@ -487,7 +488,9 @@ func (l *Lexer) readIdentifier() Token {
 	}
 
 	tok.Value = l.input[start:l.position]
-	tok.Type = LookupKeyword(tok.Value)
+	// Keywords match in any letter case, as in Toast's keyword table
+	// (`IF', `Return' and `ANY' are keywords, never variables).
+	tok.Type = LookupKeyword(strings.ToLower(tok.Value))
 
 	return tok
 }

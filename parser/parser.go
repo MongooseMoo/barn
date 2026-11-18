@@ -779,7 +779,7 @@ func (p *Parser) parseArgument() (ir.Expr, error) {
 // ANY, or a nonempty argument list whose elements may be any expression or
 // splice (Toast parser.y `codes: tANY | ne_arglist`).
 func (p *Parser) parseCatchCodes() ([]ir.Expr, bool, error) {
-	if p.current.Type == TOKEN_ANY || (p.current.Type == TOKEN_IDENTIFIER && p.current.Value == "ANY") {
+	if p.current.Type == TOKEN_ANY {
 		p.nextToken()
 		return nil, true, nil
 	}
