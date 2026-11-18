@@ -1,0 +1,46 @@
+name: suspended_eval_checkpoint
+description: A task suspended inside code run by eval() resumes after restart, and eval() returns {1, value} to its caller.
+requires:
+  builtins: [create, recycle, add_property, delete_property, add_verb, set_verb_code, eval, suspend, dump_database]
+  config: [managed_server]
+tests:
+  - name: suspended_eval_checkpoint_roundtrip
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_suspended_eval_checkpoint", o, {player, ""});
+          for name in ({"before", "after", "result", "finished"}) add_property(o, name, 0, {player, ""}); endfor
+          add_verb(o, {player, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {"this.result = eval(\"o = #1.conformance_suspended_eval_checkpoint; o.before = o.before + 1; suspend(20); o.after = o.after + 1; return 73;\");", "this.finished = this.finished + 1;"});
+          if (errors) raise(E_INVARG, "start compile failed", errors); endif
+          fork (0) o:start(); endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_suspended_eval_checkpoint;
+          return {o.before, o.after, o.finished};
+        expect:
+          value: [1, 0, 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_suspended_eval_checkpoint;
+          return {o.before, o.after, o.result, o.finished};
+        expect:
+          value: [1, 1, [1, 73], 1]
+    cleanup:
+      - run: |
+          o = #1.conformance_suspended_eval_checkpoint;
+          delete_property(#1, "conformance_suspended_eval_checkpoint");
+          recycle(o);
+          return 0;
