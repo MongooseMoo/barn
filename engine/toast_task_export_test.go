@@ -103,6 +103,25 @@ var toastExportShapes = []toastExportShape{
 		want:    "{1, 2, 3}",
 	},
 	{
+		name:    "builtin in a range loop's upper bound",
+		program: "for n in [1..suspend(100)]\nendfor\n#0.log = {@#0.log, 1};",
+		want:    "{1}",
+	},
+	{
+		// The inner bound runs once per outer pass; only the first pass waits.
+		name:    "builtin in a nested range loop's upper bound",
+		program: "for n in [1..2]\nfor k in [3..suspend(100 * (2 - n))]\nendfor\n#0.log = {@#0.log, n};\nendfor",
+		want:    "{1, 2}",
+	},
+	{
+		name: "verb call in a range loop's upper bound below a computed lower bound",
+		verbs: map[string]string{
+			"limit": "if (#0.n == 0)\n#0.n = 1;\nsuspend(100);\nendif\nreturn args[1];",
+		},
+		program: "for a in [1..2]\nfor b in [10 * a..#0:limit(10 * a + 1)]\n#0.log = {@#0.log, {a, b}};\nendfor\nendfor",
+		want:    "{{1, 10}, {1, 11}, {2, 20}, {2, 21}}",
+	},
+	{
 		name:    "builtin inside a string loop",
 		program: "for c in (\"ab\")\nif (c == \"a\")\nsuspend(100);\nendif\n#0.log = {@#0.log, c};\nendfor",
 		want:    "{\"a\", \"b\"}",

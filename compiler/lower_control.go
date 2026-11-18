@@ -170,6 +170,9 @@ func (c *lowerer) compileRangeLoop(n *ir.RangeLoopStmt) error {
 	if err := c.compileNode(n.Start); err != nil {
 		return err
 	}
+	if c.importLayout != nil {
+		c.importLayout.markRangeStart(c, n)
+	}
 	if err := c.compileNode(n.End); err != nil {
 		return err
 	}

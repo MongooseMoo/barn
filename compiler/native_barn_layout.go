@@ -77,6 +77,16 @@ func (s *barnImportLayout) markListPrefix(c *lowerer, list *ir.ListExpr) {
 	}
 }
 
+// markRangeStart names the operand on top of the stack as loop's evaluated
+// lower bound. Toast holds it as the loop's next value while it evaluates the
+// upper bound (code_gen.cc STMT_RANGE; nativeVector.stmt names it the same).
+func (s *barnImportLayout) markRangeStart(c *lowerer, loop *ir.RangeLoopStmt) {
+	s.flush(c)
+	if len(s.stack) != 0 {
+		s.stack[len(s.stack)-1] = barnImportValue{origin: NativeValueOrigin{Kind: NativeRangeNext, Node: loop}}
+	}
+}
+
 // leadingSplice reports whether node is a list whose first element is @expr.
 func leadingSplice(node ir.Node) bool {
 	list, ok := node.(*ir.ListExpr)
