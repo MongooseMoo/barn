@@ -515,8 +515,22 @@ func serverVersion(ctx *Execution, args []types.Value, build buildinfo.Info) typ
 	optionInfo := types.NewList([]types.Value{
 		versionPair("OUTBOUND_NETWORK", types.NewStr(boolOptionState(options.OutboundNetwork))),
 		versionPair("PROMOTE_NUMBERS", types.NewStr(boolOptionState(options.PromoteNumbers))),
+		versionPair("MAX_QUEUED_OUTPUT", types.NewInt(defaultMaxQueuedOutput)),
 		// Barn integers are always 64-bit; Toast reports an undefined option as #-1.
 		versionPair("ONLY_32_BITS", types.NewObj(-1)),
+		// ToastStunt's compiled defaults from options.h, in Toast's order. Toast
+		// declares the seconds limits as integers.
+		versionPair("DEFAULT_MAX_STACK_DEPTH", types.NewInt(defaultMaxStackDepth)),
+		versionPair("DEFAULT_FG_TICKS", types.NewInt(defaultFgTicks)),
+		versionPair("DEFAULT_BG_TICKS", types.NewInt(defaultBgTicks)),
+		versionPair("DEFAULT_FG_SECONDS", types.NewInt(int64(defaultFgSeconds))),
+		versionPair("DEFAULT_BG_SECONDS", types.NewInt(int64(defaultBgSeconds))),
+		versionPair("DEFAULT_MAX_STRING_CONCAT", types.NewInt(defaultMaxStringConcat)),
+		versionPair("MIN_STRING_CONCAT_LIMIT", types.NewInt(minStringConcatLimit)),
+		versionPair("DEFAULT_MAX_LIST_VALUE_BYTES", types.NewInt(defaultMaxListValueBytes)),
+		versionPair("MIN_LIST_VALUE_BYTES_LIMIT", types.NewInt(minListValueBytesLimit)),
+		versionPair("DEFAULT_MAX_MAP_VALUE_BYTES", types.NewInt(defaultMaxMapValueBytes)),
+		versionPair("MIN_MAP_VALUE_BYTES_LIMIT", types.NewInt(minMapValueBytesLimit)),
 		versionPair("RUNTIME", types.NewStr(runtime.Version())),
 		versionPair("ARCHITECTURE", types.NewStr(runtime.GOARCH)),
 	})
