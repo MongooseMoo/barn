@@ -518,8 +518,9 @@ func serverVersion(ctx *Execution, args []types.Value, build buildinfo.Info) typ
 		versionPair("MAX_QUEUED_OUTPUT", types.NewInt(defaultMaxQueuedOutput)),
 		// Barn integers are always 64-bit; Toast reports an undefined option as #-1.
 		versionPair("ONLY_32_BITS", types.NewObj(-1)),
-		// ToastStunt's compiled defaults from options.h, in Toast's order. Toast
-		// declares the seconds limits as integers.
+		// Barn's own compiled defaults, declared under ToastStunt's options.h
+		// names and in Toast's order. Toast declares the seconds limits as
+		// integers.
 		versionPair("DEFAULT_MAX_STACK_DEPTH", types.NewInt(defaultMaxStackDepth)),
 		versionPair("DEFAULT_FG_TICKS", types.NewInt(defaultFgTicks)),
 		versionPair("DEFAULT_BG_TICKS", types.NewInt(defaultBgTicks)),

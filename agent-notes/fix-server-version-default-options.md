@@ -1,9 +1,9 @@
 # fix/server-version-default-options
 
 ## Goal
-Make `server_version()`'s `options` group declare ToastStunt's compiled limit
-defaults, so MOO code that reads them (for example
-`server_version("options/DEFAULT_MAX_MAP_VALUE_BYTES")`) behaves as on stock
+Make `server_version()`'s `options` group declare Barn's own compiled limit
+defaults under ToastStunt's names, so MOO code that reads them (for example
+`server_version("options/DEFAULT_MAX_MAP_VALUE_BYTES")`) works as on stock
 Toast. Issue #887.
 
 ## State
@@ -18,8 +18,9 @@ passes on stock Toast and on this branch, and failed on master.
   doesn't have.
 - `DEFAULT_FG_SECONDS`/`DEFAULT_BG_SECONDS` are integers because Toast emits
   them with `_DINT1`.
-- Values come from Barn's own constants, so the report can't drift from what
-  Barn enforces.
+- Values come from Barn's own constants, never copied from Toast, so the report
+  can't drift from what Barn enforces. The test checks names, types and
+  default >= MIN_*, not Toast's numbers.
 
 ## Surprises
 None.
