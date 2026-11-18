@@ -51,7 +51,8 @@ move (`objects.cc:153-155`).
 Identities: stock Toast HEAD `03af4fa2b53b418999f03566b646ee42bc7ea647` (the
 manifest's `implementation_ref`); binary `/root/src/toaststunt/build-release/moo`
 SHA-256 `61dd1799d82f75e33cb9c42fe48bd1966199ad83fda2f6298e3a7f872cc613dd`;
-conformance checkout `C:/Users/Q/code/moo-conformance-tests` at `dcda6c19`;
+conformance checkout `C:/Users/Q/code/moo-conformance-tests` (the workstation's
+main checkout as of 2026-11-18);
 Test.db SHA-256
 `1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e`.
 
@@ -238,8 +239,8 @@ checkpoint` log records before the fix (6) and their absence after (0).
   position 0.
 - The full Go suite, staticcheck, golangci-lint and the full conformance suite
   were not run locally; CI runs them.
-- The conformance checkout used is the workstation's main checkout at
-  `dcda6c19`, not necessarily the ref CI resolves from `main`.
+- The conformance checkout used is the workstation's main checkout as of
+  2026-11-18, not necessarily the ref CI resolves from `main`.
 
 ## Next step
 
