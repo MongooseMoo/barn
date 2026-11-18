@@ -1,0 +1,69 @@
+name: server_version_default_options
+description: >
+  server_version() declares ToastStunt's compiled limit defaults in its options
+  group, under Toast's names and with Toast's integer values.
+requires:
+  builtins: [server_version]
+tests:
+  - name: max_queued_output
+    code: server_version("options/MAX_QUEUED_OUTPUT")
+    expect:
+      value: 65536
+  - name: default_max_stack_depth
+    code: server_version("options/DEFAULT_MAX_STACK_DEPTH")
+    expect:
+      value: 50
+  - name: default_fg_ticks
+    code: server_version("options/DEFAULT_FG_TICKS")
+    expect:
+      value: 60000
+  - name: default_bg_ticks
+    code: server_version("options/DEFAULT_BG_TICKS")
+    expect:
+      value: 30000
+  - name: default_fg_seconds
+    code: server_version("options/DEFAULT_FG_SECONDS")
+    expect:
+      value: 5
+  - name: default_bg_seconds
+    code: server_version("options/DEFAULT_BG_SECONDS")
+    expect:
+      value: 3
+  - name: default_max_string_concat
+    code: server_version("options/DEFAULT_MAX_STRING_CONCAT")
+    expect:
+      value: 64537861
+  - name: min_string_concat_limit
+    code: server_version("options/MIN_STRING_CONCAT_LIMIT")
+    expect:
+      value: 1021
+  - name: default_max_list_value_bytes
+    code: server_version("options/DEFAULT_MAX_LIST_VALUE_BYTES")
+    expect:
+      value: 64537861
+  - name: min_list_value_bytes_limit
+    code: server_version("options/MIN_LIST_VALUE_BYTES_LIMIT")
+    expect:
+      value: 1021
+  - name: default_max_map_value_bytes
+    code: server_version("options/DEFAULT_MAX_MAP_VALUE_BYTES")
+    expect:
+      value: 64537861
+  - name: min_map_value_bytes_limit
+    code: server_version("options/MIN_MAP_VALUE_BYTES_LIMIT")
+    expect:
+      value: 1021
+  - name: defaults_appear_in_full_options_group
+    statement: |
+      names = {};
+      for entry in (server_version(1)[8][2])
+        names = {@names, entry[1]};
+      endfor
+      for name in ({"DEFAULT_MAX_STACK_DEPTH", "DEFAULT_FG_TICKS", "DEFAULT_BG_TICKS", "DEFAULT_MAX_STRING_CONCAT", "DEFAULT_MAX_LIST_VALUE_BYTES", "DEFAULT_MAX_MAP_VALUE_BYTES"})
+        if (!(name in names))
+          return name;
+        endif
+      endfor
+      return 1;
+    expect:
+      value: 1
