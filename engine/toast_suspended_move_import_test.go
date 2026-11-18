@@ -11,6 +11,7 @@ import (
 
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -207,6 +208,99 @@ func TestToastSuspendedMoveExportsToastContinuation(t *testing.T) {
 				t.Fatal(err)
 			}
 			fixture.resume(t, reloaded, reloadedStore)
+		})
+	}
+}
+
+// A task Barn started, suspended two verb calls above each move() hook, so the
+// hook's frame is a middle frame: the checkpoint holds every frame in Toast's
+// form with move's continuation on the hook frame, and the task finishes the
+// move from the reloaded file.
+func TestBarnMoveHookMiddleFrameCheckpointsAsToastContinuation(t *testing.T) {
+	for stage, hook := range []string{"accept", "exitfunc", "enterfunc"} {
+		t.Run(hook, func(t *testing.T) {
+			verbs := map[string]string{
+				"start": "r = move(#3, #5);\n#0.log = {@#0.log, r};",
+				"deep":  "for x in ({1})\ntry\nr = #0:pause();\nfinally\n#0.n = #0.n + r;\nendtry\nendfor\nreturn r;",
+				"pause": "suspend(100);\nreturn 1;",
+			}
+			store := newToastExportStore(t, verbs)
+			for id := types.ObjID(3); id <= 5; id++ {
+				addServerVerbTestObject(t, store, id, 0)
+			}
+			if code := store.DirectTxn().MoveObject(3, 4, 0); code != types.E_NONE {
+				t.Fatalf("place #3 in #4: %s", code)
+			}
+			for name, object := range map[string]types.ObjID{"accept": 5, "exitfunc": 4, "enterfunc": 5} {
+				source := "#0.log = {@#0.log, verb};\nreturn 1;"
+				if name == hook {
+					source = "#0.log = {@#0.log, verb};\nr = #0:deep();\n#0.log = {@#0.log, verb + \" resumed\"};\nreturn r;"
+				}
+				store.AddVerb(object, dbstore.NewVerb([]string{name}, 2,
+					dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+					dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+					strings.Split(source, "\n")))
+			}
+			rt := newTestRuntimeWithBuiltins(t, store)
+			suspended := pauseBarnTask(t, rt, "#0:start();")
+			rt.Stop()
+			// The frames are the program, start (paused at move()), the hook,
+			// deep and pause.
+			if len(suspended) != 1 || len(suspended[0].VM.Frames) != 5 {
+				t.Fatalf("checkpoint holds %d tasks, want one of 5 frames", len(suspended))
+			}
+			for index, frame := range suspended[0].VM.Frames {
+				if frame.Native == nil {
+					t.Fatalf("frame %d was not written in Toast's form", index)
+				}
+				want := (*task.NativeBuiltinSnapshot)(nil)
+				if index == 2 {
+					want = &task.NativeBuiltinSnapshot{Name: "move", State: "bf_move data: what = 3, where = 5, position = 0"}
+				}
+				if !reflect.DeepEqual(frame.Native.Builtin, want) || (want != nil && (frame.Verb != hook || frame.BuiltinPC != stage+2)) {
+					t.Fatalf("frame %d (%s) builtin pc %d state %+v, want %+v", index, frame.Verb, frame.BuiltinPC, frame.Native.Builtin, want)
+				}
+			}
+			path := filepath.Join(t.TempDir(), "barn.db")
+			if err := dbformat.WriteCheckpoint(path, store, nil, suspended, nil); err != nil {
+				t.Fatal(err)
+			}
+			reloaded, err := dbformat.LoadDatabase(path + ".new")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(reloaded.SuspendedTasks) != 1 {
+				t.Fatalf("reloaded suspended tasks = %d, want 1", len(reloaded.SuspendedTasks))
+			}
+			resumedStore, err := reloaded.NewStoreFromDatabase()
+			if err != nil {
+				t.Fatal(err)
+			}
+			resumed := newTestRuntimeWithBuiltins(t, resumedStore)
+			defer resumed.Stop()
+			saved := reloaded.SuspendedTasks[0]
+			saved.Snapshot.StartTime = time.Now().Add(-time.Second)
+			if err := resumed.LoadSuspendedTasks(reloaded.SuspendedTasks); err != nil {
+				t.Fatal(err)
+			}
+			restored := resumed.GetTask(saved.Snapshot.ID)
+			if restored == nil {
+				t.Fatal("Toast-form task was not restored")
+			}
+			driveNativeImportedContinuation(t, resumed, restored)
+			entries := []string{}
+			for _, name := range []string{"accept", "exitfunc", "enterfunc"} {
+				entries = append(entries, fmt.Sprintf("%q", name))
+				if name == hook {
+					entries = append(entries, fmt.Sprintf("%q", name+" resumed"))
+				}
+			}
+			log, _ := resumedStore.DirectTxn().PropertyValue(0, "log")
+			count, _ := resumedStore.DirectTxn().PropertyValue(0, "n")
+			location, _ := resumedStore.DirectTxn().Location(3)
+			if want := "{" + strings.Join(entries, ", ") + ", 0}"; log.String() != want || count.String() != "1" || location != 5 {
+				t.Fatalf("#0.log = %s, #0.n = %s, #3 in #%d; want %s, 1, #5", log, count, location, want)
+			}
 		})
 	}
 }
