@@ -1,0 +1,69 @@
+name: Native checkpoint census
+
+# Loads the dump of the live world that goodput-series.yml measures and checks
+# that Barn restores every task the checkpoint holds, queued and suspended
+# (engine/toast_suspended_import_test.go,
+# TestToastNativeCheckpointRestorationCensus). The run fails when any task is
+# not restored.
+#
+# The dump holds real players' data and this repository's logs are public.
+# scripts/native-checkpoint-census.sh keeps the test's output in the runner's
+# temporary directory and prints only the counts and Barn's own fixed reasons.
+#
+# This is its own workflow, not a job in goodput-series.yml: that series reads
+# only its workflow's successful runs, so a failing census there would drop the
+# run's goodput point.
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/native-checkpoint-census.yml
+      - .github/workflows/goodput-series.yml
+      - scripts/native-checkpoint-census.sh
+      - engine/toast_suspended_import_test.go
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    name: Restore every task in the Mongoose checkpoint
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+
+      # The pin is goodput-series.yml's, read from it so the two cannot drift.
+      # The copy keeps the load, which first finishes any interrupted checkpoint
+      # at its path, away from the file every runner reads.
+      - name: Copy the database and check it is the pinned one
+        run: |
+          set -euo pipefail
+          pin() { awk -v key="$1:" '$1 == key { print $2 }' .github/workflows/goodput-series.yml; }
+          mkdir -p "$RUNNER_TEMP/census"
+          cp "$(pin FIXTURE)" "$RUNNER_TEMP/census/mongoose.db"
+          echo "$(pin FIXTURE_SHA256)  $RUNNER_TEMP/census/mongoose.db" | sha256sum --check --quiet
+
+      - name: Build the census
+        run: go test -c -o "$RUNNER_TEMP/census/engine.test" ./engine
+
+      - name: Run the census
+        run: >-
+          bash scripts/native-checkpoint-census.sh "$RUNNER_TEMP/census/engine.test"
+          "$RUNNER_TEMP/census/mongoose.db" "$RUNNER_TEMP/census"
+
+      - name: Remove the database copy and the census output
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/census"
