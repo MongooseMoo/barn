@@ -634,6 +634,11 @@ func (c *lowerer) compileCatch(n *ir.CatchExpr) error {
 	// Patch handler IP to point here
 	handlerIP := c.currentOffset()
 	c.patchWide(handlerIPPatch, handlerIP)
+	// The handler starts at the catch's entry depth, without the guarded
+	// expression's result: the error unwinds the stack to it.
+	if c.importLayout != nil {
+		c.importLayout.resetBranch(c)
+	}
 
 	// Handler body
 	if n.Default != nil {
