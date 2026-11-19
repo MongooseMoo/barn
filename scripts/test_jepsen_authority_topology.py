@@ -429,7 +429,7 @@ class ElleAndOracleTests(unittest.TestCase):
             self.assertEqual(jc.elle_anomalies(root), ["G-single-item", "G2-item"])
 
     def test_isolation_controls_pass_only_on_their_elle_witness(self):
-        for control in ("relationship-reads", "verb-memo", "hot-memo-guard"):
+        for control in ("relationship-reads", "verb-memo"):
             with self.subTest(control=control):
                 spec = jc.CONTROLS[control]
                 self.assertNotIn("stage", spec)
@@ -438,6 +438,34 @@ class ElleAndOracleTests(unittest.TestCase):
                 self.assertTrue(jc.control_result(control, hit)["passed"])
                 self.assertFalse(jc.control_result(control, miss)["passed"])
                 self.assertFalse(jc.control_result(control, {})["passed"])
+
+    def test_hot_memo_guard_passes_on_a_g2_cycle_only_after_the_fault_fired(self):
+        def results(witness, fired):
+            findings = [{"class": jc.CORRECTNESS, "message": "m", "witness": witness}] if witness else []
+            return {"findings": findings, "fault_fired": {"hot-memo-guard": fired} if fired else {}}
+
+        for witness in ("elle:G-single-item", "elle:G-nonadjacent-item", "elle:G2-item"):
+            with self.subTest(witness=witness):
+                row = jc.control_result("hot-memo-guard", results(witness, 3))
+                self.assertEqual((row["outcome"], row["passed"], row["fault_fired"]), ("passed", True, 3))
+        for witness in (None, "elle:G1c", "mixed-pair"):
+            with self.subTest(witness=witness):
+                row = jc.control_result("hot-memo-guard", results(witness, 1))
+                self.assertEqual((row["outcome"], row["passed"]), ("missed", False))
+        # A G2 cycle with no recorded firing is not evidence about this fault.
+        row = jc.control_result("hot-memo-guard", results("elle:G2-item", 0))
+        self.assertEqual((row["outcome"], row["passed"], row["fault_fired"]), ("incomplete", False, 0))
+
+    def test_log_findings_counts_fault_firings_without_a_finding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            logs = root / "gen-000" / "logs"
+            logs.mkdir(parents=True)
+            fired = json.dumps({"level": "WARN", "msg": jc.FAULT_FIRED_MESSAGE, "fault": "hot-memo-guard"})
+            (logs / "latest.jsonl").write_text(fired + "\n" + fired + "\n", encoding="utf-8")
+            (root / "gen-000" / "server.log").write_text("", encoding="utf-8")
+            counts, findings, firings = jc.log_findings(root, [{"event": "admit", "generation": 0}])
+            self.assertEqual((counts, findings, firings), ({0: 2}, [], {"hot-memo-guard": 2}))
 
 
 if __name__ == "__main__":

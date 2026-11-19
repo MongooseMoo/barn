@@ -299,7 +299,9 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	// shape has changed since the snapshot it was made on; next's own commit
 	// covers changes after its own.
 	// max_object() and the like answer from the watermarks without a read mark.
-	if (tx.usedVerbMemo && s.dispatch.shapeChangeTS.Load() > tx.readTS && !isolationprobe.Fault("hot-memo-guard")) ||
+	verbMemoStale := tx.usedVerbMemo && s.dispatch.shapeChangeTS.Load() > tx.readTS
+	memoGuardBypassed := verbMemoStale && isolationprobe.Fault("hot-memo-guard")
+	if (verbMemoStale && !memoGuardBypassed) ||
 		(tx.usedPropMemo && s.props.shapeChangeTS.Load() > tx.readTS) ||
 		next.maxObjID != tx.maxObjID || next.highWaterID != tx.highWaterID {
 		next.Release()
@@ -395,6 +397,10 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 		for key, site := range tx.diag.writeSites {
 			lazySet(&next.diag.writeSites, key, site)
 		}
+	}
+	if memoGuardBypassed {
+		// The fault let through a renewal the guard would have refused.
+		isolationprobe.Fired("hot-memo-guard")
 	}
 	tx.Release()
 	return next

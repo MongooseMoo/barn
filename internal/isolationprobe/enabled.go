@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"slices"
 	"strconv"
@@ -125,6 +126,18 @@ func Note(path string) {
 	counters.Lock()
 	counters.values[path]++
 	counters.Unlock()
+}
+
+// FaultFiredMessage is the runtime log message Fired writes. A negative control
+// counts these records (scripts/jepsen_checkpoint.py FAULT_FIRED_MESSAGE) as
+// its evidence that the planted fault changed an outcome.
+const FaultFiredMessage = "isolation fault fired"
+
+// Fired records that the named fault let through something the protection it
+// removes would have refused: one runtime log record and one Note count.
+func Fired(name string) {
+	Note("fired/" + name)
+	slog.Warn(FaultFiredMessage, slog.String("fault", name))
 }
 
 func Reset() {
