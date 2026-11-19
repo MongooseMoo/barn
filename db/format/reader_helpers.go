@@ -207,14 +207,7 @@ func (r *slotResolver) layoutFor(obj *store.ObjectBuilder) *store.SlotLayout {
 		parent := r.database.ancestor(parents[0])
 		if parent != nil && parent != obj && !r.visiting[parent.ID()] {
 			r.visiting[obj.ID()] = true
-			var layout *store.SlotLayout
-			if r.database.Objects[parent.ID()] == parent {
-				layout = r.layoutOf(parent)
-			} else {
-				// Anonymous ids share numbers with the numbered space, so an
-				// anonymous parent's layout is not remembered by id.
-				layout = r.layoutFor(parent)
-			}
+			layout := r.layoutOf(parent)
 			delete(r.visiting, obj.ID())
 			if layout.Slots() == obj.LoadedSlotCount() {
 				return layout
@@ -247,17 +240,15 @@ func (database *Database) rawPropertyNames(obj *store.ObjectBuilder) []string {
 }
 
 // ancestor returns the object a parent id names during name resolution, the
-// way the loaded store resolves it (store.Store.liveObjectLocked, which also
-// names the slots a checkpoint writes): a valid numbered object, otherwise a
-// valid anonymous object loaded under that id. Resolving numbered objects
-// alone would name an anonymous parent's slots with placeholders on load
-// while the next checkpoint writes them under the parent's names as well,
-// adding slots on every round trip.
+// way the loaded store resolves it (store.Store.parentObjectLocked, which also
+// names the slots a checkpoint writes): a valid numbered object only. Parents
+// are never anonymous (Toast db_file.cc links an anonymous object only to
+// valid numbered parents), so an anonymous object loaded under the same id is
+// not an ancestor. Naming slots from it would put its definitions first on
+// load while the next checkpoint writes the slots in the store's order,
+// moving values between slots on every round trip.
 func (database *Database) ancestor(id types.ObjID) *store.ObjectBuilder {
 	if obj := database.Objects[id]; validLoadedObject(obj) {
-		return obj
-	}
-	if obj := database.loadedAnonymous[id]; validLoadedObject(obj) {
 		return obj
 	}
 	return nil
