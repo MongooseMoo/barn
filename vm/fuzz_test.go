@@ -170,6 +170,10 @@ func runAs(machine *VM, player types.ObjID, wizard bool) {
 	machine.Task.Programmer = player
 }
 
+// sourceFuzzTaskBudget is each fuzz-driven task's wall-clock budget. Only a
+// test of what a starved host does to a lane changes it.
+var sourceFuzzTaskBudget = 100 * time.Millisecond
+
 func attachSourceFuzzTask(machine *VM, id int64) {
 	context := task.NewContext()
 	context.TicksRemaining = machine.TickLimit
@@ -177,7 +181,7 @@ func attachSourceFuzzTask(machine *VM, id int64) {
 	machine.Task = task.NewState(id, context.Player, machine.TickLimit, 1)
 	// The seconds budget is checked at tick checkpoints against a running
 	// deadline, as engine/task_runtime.go sets before a slice.
-	machine.Task.SetExecutionDeadline(time.Now().Add(100 * time.Millisecond))
+	machine.Task.SetExecutionDeadline(time.Now().Add(sourceFuzzTaskBudget))
 }
 
 // run drives one task to its end the way the runtime does: a fork yield

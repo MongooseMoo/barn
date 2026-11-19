@@ -27,9 +27,14 @@ func FuzzWorldCheckpointEffects(f *testing.F) {
 
 // Every case must execute valid setup, finish each task and reach a checkpoint.
 // Agreement between two rejected setups would not exercise this property.
+// The one exception is a task stopped by the seconds budget: that is the
+// host's wall-clock timing, not the program, so the case is skipped.
 func worldCheckpointDifference(t *testing.T, source string, checkpoint checkpointFunc) string {
 	t.Helper()
 	difference, skip := checkpointResumeDifference(t, source, checkpoint, 30000, true)
+	if skip == secondsBudgetSkip {
+		t.Skipf("%s\n%s", skip, source)
+	}
 	if skip != "" {
 		t.Fatalf("world history did not evaluate its property: %s\n%s", skip, source)
 	}
