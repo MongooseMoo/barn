@@ -173,7 +173,17 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 		var err error
 		if conn.IsLoggedIn() && p.runtime.Session().ConnectionOptionTruthy(conn.ID, "binary") {
 			if binaryTransport, ok := conn.transport.(BinaryTransport); ok {
-				line, err = binaryTransport.ReadChunk()
+				// Toast tests h->binary on bytes already read (network.cc
+				// pull_input). A read that has passed its deadline check can
+				// still return bytes sent after binary was turned off, so wait
+				// for bytes and choose the mode again before consuming them.
+				err = binaryTransport.WaitInput()
+				if err == nil && !p.runtime.Session().ConnectionOptionTruthy(conn.ID, "binary") {
+					continue
+				}
+				if err == nil {
+					line, err = binaryTransport.ReadChunk()
+				}
 			} else {
 				line, err = conn.ReadLine()
 			}

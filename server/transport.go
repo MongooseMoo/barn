@@ -49,6 +49,8 @@ type Transport interface {
 }
 
 type BinaryTransport interface {
+	// WaitInput blocks until input bytes are buffered, without consuming them.
+	WaitInput() error
 	ReadChunk() (string, error)
 }
 
@@ -226,8 +228,13 @@ func formatTelnetCommand(command []byte) string {
 	return builtins.EncodeRawToBinary(command)
 }
 
+func (t *TCPTransport) WaitInput() error {
+	_, err := t.reader.Peek(1)
+	return err
+}
+
 func (t *TCPTransport) ReadChunk() (string, error) {
-	if _, err := t.reader.Peek(1); err != nil {
+	if err := t.WaitInput(); err != nil {
 		return "", err
 	}
 	n := t.reader.Buffered()
