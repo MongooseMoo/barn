@@ -197,6 +197,31 @@ func (p *Program) LineForIP(ip int) int {
 	return 0
 }
 
+// WithFirstLine returns p numbered from source line first instead of 1: each
+// line entry moves by first-1, as Toast's find_line_number counts from a
+// program's first_lineno (decompile.cc). A queued forked task's saved code is
+// its fork body alone, and the checkpoint header holds the line the body began
+// on in its verb (tasks.cc read_task_queue sets first_lineno from it), so a
+// restored fork reports its verb's line numbers. A first line below 2 leaves p
+// numbered from 1. Origin.FirstLine records the shift, so the program can be
+// rebuilt. p is not changed; programs are shared through the compiler's cache.
+func (p *Program) WithFirstLine(first int) *Program {
+	if p == nil || first <= 1 {
+		return p
+	}
+	shifted := *p
+	shifted.Origin.FirstLine = first
+	shifted.LineInfo = make([]LineEntry, len(p.LineInfo))
+	for i, entry := range p.LineInfo {
+		shifted.LineInfo[i] = LineEntry{StartIP: entry.StartIP, Line: entry.Line + first - 1}
+	}
+	if p.ForkBodies != nil {
+		// Bodies cached on p carry p's line numbers.
+		shifted.ForkBodies = &ForkBodies{}
+	}
+	return &shifted
+}
+
 // LoopType represents the type of loop
 type LoopType int
 

@@ -186,6 +186,32 @@ func unrepeatableCall(name string, argc int) string {
 	return ""
 }
 
+// Issue #908: a queued fork restored from a checkpoint numbered its saved
+// body from 1, so its traceback named line 2 where the uninterrupted run named
+// verb line 4. Toast numbers it from the header's first line (tasks.cc
+// read_task_queue sets first_lineno). In Barn's own frame form the restored
+// fork keeps that numbering through a later checkpoint of its own suspension.
+func TestCheckpointRestoredForkKeepsVerbLineNumbers(t *testing.T) {
+	queued := "x = 1;\nfork (0)\n  x = 2;\n  x = x + \"a\";\nendfork\nsuspend();\nreturn x;"
+	resuspended := "x = 1;\nfork (0)\n  x = 2;\n  suspend();\n  x = x + \"a\";\nendfork\nsuspend();\nreturn x;"
+	for _, test := range []struct {
+		name       string
+		source     string
+		checkpoint checkpointFunc
+	}{
+		{"toast form", queued, checkpointSuspendedVM},
+		{"barn form", queued, checkpointSuspendedVMInBarnForm},
+		{"barn form resuspended", resuspended, checkpointSuspendedVMInBarnForm},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			difference, skip := checkpointResumeDifference(t, test.source, test.checkpoint, sourceFuzzTicks, false)
+			if difference != "" || skip != "" {
+				t.Fatalf("difference %q, skip %q; want neither", difference, skip)
+			}
+		})
+	}
+}
+
 // Issue #847: a generated program returned ftime() after a suspend, and the
 // two runs' clock readings were reported as a checkpoint difference. A call
 // that reads the clock or draws random numbers now skips the case.
@@ -384,6 +410,11 @@ func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store, fork
 	if err != nil {
 		t.Fatalf("ExportNativeSnapshot: %v", err)
 	}
+	for _, frame := range snapshot.VM.Frames {
+		if frame.Program.Origin.FirstLine > 1 {
+			t.Skipf("a restored queued fork, numbered from verb line %d, is suspended; Toast writes an activation's program without its first line (execute.cc write_activ, tasks.cc read_task_queue alone sets first_lineno), so after this checkpoint its line numbers count from 1 and need not match the uninterrupted run", frame.Program.Origin.FirstLine)
+		}
+	}
 	snapshot.VM = exported
 	restored, reloadedStore, restoredForks, reloaded := reloadCheckpoint(t, machine, store, forks, snapshot)
 	for index, frame := range reloaded.Frames {
@@ -459,6 +490,7 @@ func reloadCheckpoint(t *testing.T, machine *VM, store *dbstore.Store, forks []s
 		if len(diagnostics) != 0 {
 			t.Fatalf("queued child %d does not compile: %v", saved.ID, diagnostics)
 		}
+		program = program.WithFirstLine(saved.FirstLine)
 		if saved.ID != forks[i].id {
 			t.Fatalf("queued child %d changed ID/order to %d", forks[i].id, saved.ID)
 		}

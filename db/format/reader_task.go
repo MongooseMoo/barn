@@ -90,13 +90,12 @@ func (database *Database) readQueuedTask(r *bufio.Reader) (*QueuedTask, error) {
 		return nil, fmt.Errorf("read queued task header: %w", err)
 	}
 
-	var unused, firstLine int
+	var unused int
 	task := &QueuedTask{Variables: make(map[string]types.Value)}
-	if _, err := fmt.Sscanf(header, "%d %d %d %d", &unused, &firstLine, &task.StartTime, &task.ID); err != nil {
+	if _, err := fmt.Sscanf(header, "%d %d %d %d", &unused, &task.FirstLine, &task.StartTime, &task.ID); err != nil {
 		return nil, fmt.Errorf("parse queued task header %q: %w", strings.TrimSpace(header), err)
 	}
 	_ = unused
-	_ = firstLine
 
 	if err := database.readQueuedTaskActivation(r, task); err != nil {
 		return nil, err
@@ -125,9 +124,14 @@ func (database *Database) readQueuedTask(r *bufio.Reader) (*QueuedTask, error) {
 
 // persistenceSnapshot re-expresses a parsed queued task as the snapshot the
 // writer serializes, without compiling it (engine/task_load.go owns execution
-// restoration). The reader keeps neither the header's first line nor the
-// variables' declaration order, so FirstLine is 1 and names are sorted.
+// restoration). The reader does not keep the variables' declaration order,
+// so names are sorted. A header first line below 1, which the writer refuses,
+// is written back as 1.
 func (queued *QueuedTask) persistenceSnapshot() task.Snapshot {
+	firstLine := queued.FirstLine
+	if firstLine < 1 {
+		firstLine = 1
+	}
 	variables := make(map[string]types.Value, len(queued.Variables))
 	names := make([]string, 0, len(queued.Variables))
 	for name, value := range queued.Variables {
@@ -149,7 +153,7 @@ func (queued *QueuedTask) persistenceSnapshot() task.Snapshot {
 			Variables:     variables,
 			VariableNames: names,
 			SourceLines:   slices.Clone(queued.Code),
-			FirstLine:     1,
+			FirstLine:     firstLine,
 		},
 	}
 }

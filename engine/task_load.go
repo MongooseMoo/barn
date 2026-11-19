@@ -154,6 +154,9 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("%s", diagnostics[0].Error())
 	}
+	// The saved code is the fork body alone; number it from the verb line
+	// the body began on, as Toast's read_task_queue sets first_lineno.
+	prog = prog.WithFirstLine(saved.FirstLine)
 
 	ticks, seconds := backgroundTaskLimits(s.session)
 	t := NewTaskFull(saved.ID, saved.Player, prog, ticks, seconds)

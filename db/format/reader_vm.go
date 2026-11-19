@@ -447,10 +447,10 @@ func decodeVMFrameMetadata(metadata types.Value, pc int) (task.VMFrameSnapshot, 
 }
 
 // decodeProgramIdentity reads a v2 frame's program identity (element 2,
-// written by programIdentityValue) and its bound compiler temporaries.
+// written by programIdentityValue, with an optional fourth first line) and its bound compiler temporaries.
 func decodeProgramIdentity(frame *task.VMFrameSnapshot, f frameFields) error {
 	identity := f.get(2)
-	if identity.Type() != types.TYPE_LIST || identity.Len() != 3 || identity.Get(1).Type() != types.TYPE_INT ||
+	if identity.Type() != types.TYPE_LIST || (identity.Len() != 3 && identity.Len() != 4) || identity.Get(1).Type() != types.TYPE_INT ||
 		identity.Get(2).Type() != types.TYPE_LIST || identity.Get(3).Type() != types.TYPE_STR {
 		return fmt.Errorf("suspended activation has invalid program identity")
 	}
@@ -472,6 +472,13 @@ func decodeProgramIdentity(frame *task.VMFrameSnapshot, f frameFields) error {
 		frame.Program.Origin.LanguageVersion = int(version.Int())
 	default:
 		return fmt.Errorf("suspended activation has invalid native origin")
+	}
+	if identity.Len() == 4 {
+		first := identity.Get(4)
+		if first.Type() != types.TYPE_INT || first.Int() < 2 || first.Int() > math.MaxInt32 {
+			return fmt.Errorf("suspended activation has invalid first line")
+		}
+		frame.Program.Origin.FirstLine = int(first.Int())
 	}
 	fingerprint, err := hex.DecodeString(identity.Get(3).Str())
 	if err != nil || len(fingerprint) != len(frame.Rebuild.Fingerprint) {
