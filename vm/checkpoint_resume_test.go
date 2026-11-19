@@ -522,7 +522,7 @@ func reloadCheckpoint(t *testing.T, machine *VM, store *dbstore.Store, forks []s
 		restoredForks[i] = sourceFuzzFork{id: saved.ID, program: program, programmer: saved.Programmer, info: &types.ForkInfo{
 			Variables: variables, SourceLines: saved.Code,
 			ThisObj: saved.This, ThisValue: types.None, Player: saved.Player,
-			Caller: saved.Player, Verb: saved.Verb, VerbLoc: saved.VerbLoc,
+			Caller: saved.Player, Verb: saved.Verb, VerbLoc: saved.VerbLoc, Debug: saved.Debug,
 		}}
 	}
 	reloadedStore, err := reloaded.NewStoreFromDatabase()

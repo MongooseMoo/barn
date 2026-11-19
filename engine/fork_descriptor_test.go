@@ -83,7 +83,7 @@ func TestLoadQueuedForkNumbersLinesFromHeaderFirstLine(t *testing.T) {
 	s := NewRuntime(dbstore.NewStore())
 	defer s.Stop()
 	saved := &dbformat.QueuedTask{
-		ID: 8811, This: 0, Player: 0, Programmer: 0, VerbLoc: 0, Verb: "restored",
+		ID: 8811, This: 0, Player: 0, Programmer: 0, VerbLoc: 0, Verb: "restored", Debug: true,
 		Code: []string{"x = 2;", "return x + \"a\";"}, Variables: map[string]types.Value{}, FirstLine: 7,
 	}
 	if err := s.loadQueuedTask(saved); err != nil {
