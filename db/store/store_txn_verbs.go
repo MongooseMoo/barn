@@ -298,6 +298,14 @@ func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Objec
 	tx.markVerbScan(objID, obj)
 	searchLower := strings.ToLower(verbName)
 	for index, verb := range obj.verbList {
+		// Toast verbcasecmp begins with a pointer check, so the names string
+		// verbs() returned for this verb matches it even when it holds several
+		// names or a "*". Barn strings have no identity; matching the whole
+		// names string exactly is the nearest equivalent.
+		if verbNamesStringEquals(verb.names, verbName) {
+			tx.markVerbRead(objID, verb)
+			return obj, index, nil
+		}
 		for _, alias := range verb.lowerNames {
 			if matchVerbNameLowered(alias, searchLower) {
 				tx.markVerbRead(objID, verb)
@@ -306,6 +314,27 @@ func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Objec
 		}
 	}
 	return nil, -1, fmt.Errorf("verb not found: %s", verbName)
+}
+
+// verbNamesStringEquals reports whether s is exactly names joined by single
+// spaces, the string VerbNames returns for the verb, without allocating it.
+func verbNamesStringEquals(names []string, s string) bool {
+	if len(names) == 0 {
+		return false
+	}
+	for i, name := range names {
+		if i > 0 {
+			if len(s) == 0 || s[0] != ' ' {
+				return false
+			}
+			s = s[1:]
+		}
+		if !strings.HasPrefix(s, name) {
+			return false
+		}
+		s = s[len(name):]
+	}
+	return s == ""
 }
 
 func (tx *StoreTxn) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
