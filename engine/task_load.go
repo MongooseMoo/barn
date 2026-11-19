@@ -187,6 +187,7 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 		Caller:      saved.Player,
 		Verb:        saved.Verb,
 		VerbLoc:     saved.VerbLoc,
+		Debug:       saved.Debug,
 	}
 
 	t.Context.ThisObj = saved.This
@@ -201,6 +202,9 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	machine.TickLimit = ticks
 	configureVMStackLimit(machine, s.session)
 	frame := machine.PrepareVerbFrame(prog, saved.This, saved.Player, saved.Player, saved.Verb, saved.VerbLoc, nil)
+	// The fork runs with the debug flag saved on its activation line, as
+	// Toast's read_activ_as_pi and do_forked_task do.
+	frame.VerbDebug = saved.Debug
 	// A restored fork runs the recompiled isolated body. Its environment must
 	// use that program's names, not the enclosing parent's saved name table.
 	// Native reorder_rt_env leaves unmatched slots uninitialized, including

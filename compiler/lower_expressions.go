@@ -598,7 +598,7 @@ func (c *lowerer) compileCatch(n *ir.CatchExpr) error {
 		errVarIdx = c.declareInternalVariable(c.tempVar("catch_err"))
 	}
 
-	codes, err := c.prepareExceptCodes(n.IsAny, n.Codes)
+	codes, err := c.prepareExceptCodes(n, 0, n.IsAny, n.Codes)
 	if err != nil {
 		return err
 	}

@@ -414,8 +414,9 @@ func (c *lowerer) compileReturn(n *ir.ReturnStmt) error {
 // count first. ANY has no codes, and a list of error literals is encoded
 // inline. Any other list is evaluated here, before the try is entered, as
 // Toast evaluates every arm's codes (code_gen.cc generate_codes), into a
-// compiler temporary that the clause names with ExceptCodesInLocal.
-func (c *lowerer) prepareExceptCodes(isAny bool, codes []ir.Expr) ([]byte, error) {
+// compiler temporary that the clause names with ExceptCodesInLocal. owner and
+// clause name the codes as Toast's operand for them (nativeVector.codes).
+func (c *lowerer) prepareExceptCodes(owner ir.Node, clause int, isAny bool, codes []ir.Expr) ([]byte, error) {
 	if isAny {
 		return []byte{0}, nil
 	}
@@ -433,6 +434,9 @@ func (c *lowerer) prepareExceptCodes(isAny bool, codes []ir.Expr) ([]byte, error
 	}
 	if err := c.compileList(&ir.ListExpr{Pos: codes[0].Position(), Elements: codes}); err != nil {
 		return nil, err
+	}
+	if c.importLayout != nil {
+		c.importLayout.markExceptionCodes(c, owner, clause)
 	}
 	slot := c.declareInternalVariable(c.tempVar("except_codes"))
 	c.emitStoreLocal(slot)
@@ -456,7 +460,7 @@ func (c *lowerer) compileTry(n *ir.TryStmt) error {
 		numHandlers := len(n.Handlers)
 		clauseCodes := make([][]byte, numHandlers)
 		for i, handler := range n.Handlers {
-			codes, err := c.prepareExceptCodes(handler.IsAny, handler.Codes)
+			codes, err := c.prepareExceptCodes(n, i, handler.IsAny, handler.Codes)
 			if err != nil {
 				return err
 			}

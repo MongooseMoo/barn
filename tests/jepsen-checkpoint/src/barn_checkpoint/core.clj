@@ -176,15 +176,19 @@
   checkpoint and recover from its actual artifacts. Transport phase (unless
   phase-transport is 0): clients continue while the nemesis cycles the
   selected transport kinds, each followed by the adapter's bounded recovery
-  check. Closing phase: clients only, on the last generation. Phase 4: a
-  final checkpoint. gen/phases waits for every outstanding operation before
-  the next phase.
+  check. The nemesis begins no fault after phase-transport seconds; clients
+  run transport-tail seconds longer, so a fault begun at the limit still gets
+  client operations after its heal (recovery needs one), instead of the phase
+  ending under it while gen/phases waits for it. Closing phase: clients
+  only, on the last generation. Phase 4: a final checkpoint. gen/phases
+  waits for every outstanding operation before the next phase.
 
   A time limit can expire during the crash or checkpoint-crash that ends a
   cycle; gen/phases then waits for the restart, and without the closing
   phase the restarted generation would reach the final checkpoint with no
   client operation (scripts/jepsen_checkpoint.py obligations)."
-  [{:keys [phase1 phase3 phase-live phase-transport transport-kinds rate families stages stage-seconds]}]
+  [{:keys [phase1 phase3 phase-live phase-transport transport-tail transport-kinds rate families stages
+           stage-seconds]}]
   (if (pos? stages)
     (stage-generator rate families stages stage-seconds)
   (let [pausing   [(gen/sleep 5) (nemesis-op :pause) (gen/sleep 4) (nemesis-op :resume)]
@@ -202,8 +206,8 @@
              (when (pos? phase-live)
                [(gen/time-limit phase-live (gen/clients (txns rate families 2000000) (gen/cycle live)))])
              (when (pos? phase-transport)
-               [(gen/time-limit phase-transport
-                                (gen/clients (txns rate families 5000000) (gen/cycle transport)))])
+               [(gen/clients (gen/time-limit (+ phase-transport transport-tail) (txns rate families 5000000))
+                             (gen/time-limit phase-transport (gen/cycle transport)))])
              [(gen/time-limit closing-seconds (gen/clients (txns rate families 4000000)))
               (gen/nemesis (nemesis-op :checkpoint))])))))
 
@@ -247,6 +251,9 @@
    [nil "--phase3 SECONDS" :default 90 :parse-fn parse-long]
    [nil "--phase-live SECONDS" :default 60 :parse-fn parse-long]
    [nil "--phase-transport SECONDS" :default 0 :parse-fn parse-long]
+   ; Client seconds after the last transport fault may begin, from
+   ; scripts/jepsen_checkpoint.py, which owns the recovery bound (TRANSPORT_TAIL).
+   [nil "--transport-tail SECONDS" :default 0 :parse-fn parse-double]
    ; The transport kinds to cycle, ["pre-send", ...], from
    ; scripts/jepsen_checkpoint.py, which owns TRANSPORT_KINDS.
    [nil "--transport-kinds JSON" :default [] :parse-fn json/read-str]

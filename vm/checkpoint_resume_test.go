@@ -522,7 +522,7 @@ func reloadCheckpoint(t *testing.T, machine *VM, store *dbstore.Store, forks []s
 		restoredForks[i] = sourceFuzzFork{id: saved.ID, program: program, programmer: saved.Programmer, info: &types.ForkInfo{
 			Variables: variables, SourceLines: saved.Code,
 			ThisObj: saved.This, ThisValue: types.None, Player: saved.Player,
-			Caller: saved.Player, Verb: saved.Verb, VerbLoc: saved.VerbLoc,
+			Caller: saved.Player, Verb: saved.Verb, VerbLoc: saved.VerbLoc, Debug: saved.Debug,
 		}}
 	}
 	reloadedStore, err := reloaded.NewStoreFromDatabase()
@@ -707,5 +707,24 @@ func TestCheckpointResumeEquivalenceDetectsDroppedWrite(t *testing.T) {
 	want := "task 1: uninterrupted return 5, checkpointed return 0; persistent state: "
 	if skip != "" || !strings.HasPrefix(difference, want) {
 		t.Fatalf("dropped write: difference\n%s\nskip %q; want difference\n%s", difference, skip, want)
+	}
+}
+
+// A task suspended inside a Barn labeled for loop whose body exits by the
+// label exports to Toast's form and resumes the same. The export once
+// matched an exit name only against the loop's variables (issue #906).
+func TestCheckpointResumesLabeledForLoopExit(t *testing.T) {
+	for name, source := range map[string]string{
+		"range break":         "o = 0;\nfor o z in [1..3]\nsuspend(0);\nbreak o;\nendfor\nreturn z;",
+		"range continue":      "o = 0;\nt = 0;\nfor o z in [1..3]\nsuspend(0);\nt = t + z;\ncontinue o;\nendfor\nreturn t;",
+		"collection break":    "for o v, k in ({4, 5, 6})\nsuspend(0);\nbreak o;\nendfor\nreturn {v, k};",
+		"collection continue": "t = 0;\nfor o v in ({4, 5, 6})\nsuspend(0);\nt = t + v;\ncontinue o;\nendfor\nreturn t;",
+	} {
+		t.Run(name, func(t *testing.T) {
+			difference, skip := checkpointResumeDifference(t, source, checkpointSuspendedVM, sourceFuzzTicks, false)
+			if difference != "" || skip != "" {
+				t.Fatalf("difference %q, skip %q; want neither\nsource:\n%s", difference, skip, source)
+			}
+		})
 	}
 }

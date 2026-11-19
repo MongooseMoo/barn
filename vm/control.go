@@ -42,10 +42,9 @@ func NewForkVM(store *dbstore.Store, session *builtins.Session, taskID int64, fo
 	// Mark as verb-call so syncTaskLineNumbers includes this frame
 	// when syncing line numbers to the task's CallStack.
 	frame.IsVerbCall = true
-	// Inherit verb debug flag from the parent verb
-	if forkVerb, _, vErr := store.DirectTxn().FindVerb(forkInfo.ThisObj, forkInfo.Verb); vErr == nil {
-		frame.VerbDebug = forkVerb.Perms.Has(dbstore.VerbDebug)
-	}
+	// The child runs with the debug flag the forking activation had, as
+	// Toast's do_forked_task runs the activation OP_FORK copied.
+	frame.VerbDebug = forkInfo.Debug
 
 	// Copy inherited variable values from the parent
 	for varName, varVal := range forkInfo.Variables {
@@ -154,6 +153,7 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 		Caller:      callerObj,
 		Verb:        verbStr,
 		VerbLoc:     frame.VerbLoc,
+		Debug:       frame.VerbDebug,
 	}
 	// Store locals snapshot in Variables map for the execution engine.
 	forkInfo.Variables = make(map[string]types.Value, len(frame.Program.VarNames))

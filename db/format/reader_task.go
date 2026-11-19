@@ -154,6 +154,7 @@ func (queued *QueuedTask) persistenceSnapshot() task.Snapshot {
 			VariableNames: names,
 			SourceLines:   slices.Clone(queued.Code),
 			FirstLine:     firstLine,
+			Debug:         queued.Debug,
 		},
 	}
 }
@@ -196,7 +197,7 @@ func (database *Database) readQueuedTaskActivation(r *bufio.Reader, task *Queued
 	task.Player = player
 	task.Programmer = programmer
 	task.VerbLoc = verbLoc
-	_ = debug
+	task.Debug = debug != 0
 
 	for i := 0; i < 4; i++ {
 		if _, err := readLine(r); err != nil {

@@ -48,7 +48,7 @@ var nativeVRNames = []string{"ARGSTR", "DOBJ", "DOBJSTR", "PREPSTR", "IOBJ", "IO
 
 type nativeLoop struct {
 	node                               ir.Node
-	value, index                       string
+	label, value, index                string
 	top, bottom, topStack, bottomStack int
 }
 type nativeGenerator struct {

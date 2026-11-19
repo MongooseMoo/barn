@@ -156,8 +156,11 @@ nonzero `barn.commit_retries` as evidence that conflicts were forced.
 ## Transport lane (plan section 5)
 
 `--phase-transport SECONDS` adds a client phase in which the nemesis cycles
-`--transport-kinds` (default all), two seconds apart. Faults touch only the
-owned test connections and the owned Barn PID:
+`--transport-kinds` (default all), two seconds apart. The nemesis begins no
+fault after the phase's seconds, but clients run `TRANSPORT_TAIL` (21 s: the
+longest wait before a heal plus the recovery bound) longer, so a fault begun
+at the limit still gets client transactions after its heal. Faults touch only
+the owned test connections and the owned Barn PID:
 
 | Kind | Fault | Classification |
 |---|---|---|

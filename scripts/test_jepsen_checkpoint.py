@@ -2259,6 +2259,31 @@ class TransportCheckTests(unittest.TestCase):
             jc.main(common + ["--output", str(root / "b"), "--control", "transport-stall", "--phase-transport", "20"])
         self.assertEqual(seen, [(list(jc.TRANSPORT_KINDS), 0), (["pause"], 20)])
 
+    def test_jepsen_gets_the_transport_tail(self):
+        # Clients run this long after the last transport fault may begin
+        # (tests/jepsen-checkpoint generator): its longest wait before the heal
+        # plus the recovery bound, so a fault begun at the phase limit still
+        # gets client operations after its heal.
+        self.assertEqual(jc.TRANSPORT_TAIL, max(jc.ARM_DEADLINE + jc.ARM_GRACE, jc.PAUSE_HOLD) + jc.RECOVERY_BOUND)
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        (root / "barn").write_bytes(b"")
+        (root / "jepsen.jar").write_bytes(b"")
+        args = SimpleNamespace(barn=root / "barn", db=root / "db", seed=1, stages=[], control=None, tasks=False,
+                               workloads=["smoke"], dwell=0, leak_check=False, java="java",
+                               jepsen_jar=root / "jepsen.jar", phase1=0, phase3=0, phase_live=0, rate=1,
+                               phase_transport=20, transport_kinds=["pause"], stage_seconds=10, concurrency=1,
+                               jepsen_timeout=1)
+        commands = []
+        with patch.object(jc, "Campaign"), patch.object(jc, "AdapterServer") as adapter, \
+             patch.object(jc, "socket_transport_factory"), patch.object(jc, "provenance", return_value={}), \
+             patch.object(jc.subprocess, "run", side_effect=lambda command, **_: commands.append(command)
+                          or SimpleNamespace(returncode=0)):
+            adapter.return_value.server_address = ("127.0.0.1", 1)
+            jc.run_campaign(args, root)
+        command = commands[0]
+        self.assertEqual(command[command.index("--transport-tail") + 1], str(jc.TRANSPORT_TAIL))
+
 
 if __name__ == "__main__":
     unittest.main()
