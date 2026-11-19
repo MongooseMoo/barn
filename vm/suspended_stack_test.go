@@ -48,6 +48,10 @@ var suspendedStackMixedSeeds = [][]byte{
 		5, 11, 1, 13, 0, 11, 3, 12, 0, 1, 2, 11, 2, 1,
 		1, 14, 0, 11, 0, 0,
 	},
+	// Found by the lane: a fork in a fork on the one line of eval()'s source,
+	// whose queued child's saved code was cut at the inner endfork.
+	[]byte("\x00271z0z0"),
+	[]byte("0900y0z0z"),
 }
 
 // FuzzSuspendedStackCheckpoint requires a program suspended at the bottom of a

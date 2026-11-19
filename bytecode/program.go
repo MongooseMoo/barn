@@ -45,6 +45,13 @@ type Program struct {
 	// program built anywhere else has none and extracts on every fork. It is
 	// not part of what the program means.
 	ForkBodies *ForkBodies
+
+	// ForkSources holds, for each fork instruction in code order, its body
+	// as Toast unparses a fork vector: fully parenthesized, not indented. It
+	// is the code a checkpoint saves for a task queued by that fork. The
+	// compiler makes it from the parsed source, and a fork body extracted
+	// from the program shares it; a program built anywhere else has none.
+	ForkSources [][]string
 }
 
 // ForkBodies maps a fork body's range in its parent program to the extracted
@@ -377,6 +384,7 @@ func (p *Program) extractForkBody(bodyIP, bodyLen int) *Program {
 		// Same constants, same classification and the same call-site slots.
 		BuiltinPropertyConstants: p.BuiltinPropertyConstants,
 		CallSites:                p.CallSites,
+		ForkSources:              p.ForkSources,
 	}
 }
 
