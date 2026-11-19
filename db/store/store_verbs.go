@@ -185,6 +185,10 @@ func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Ver
 	// aliases resolve to the first-declared verb.
 	searchLower := strings.ToLower(verbName)
 	for _, verb := range obj.verbList {
+		// The whole names string from verbs() matches, as in findVerbOnObject.
+		if verbNamesStringEquals(verb.names, verbName) {
+			return verb, nil
+		}
 		for _, alias := range verb.lowerNames {
 			if matchVerbNameLowered(alias, searchLower) {
 				return verb, nil
