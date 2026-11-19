@@ -45,6 +45,56 @@ Reading done; nothing built yet. Findings so far:
   restart"), added to the `record` job's `needs`. `actionlint` v1.7.12 on
   `ci.yml`: exit 0, no output.
 
+### First run (one copy, Barn at the PR 899 merge, before merging master in)
+
+Command, inside WSL Debian from the worktree, harness worktree at the PR 227
+merge in `.tmp/moo-conformance-tests`, `UV_PROJECT_ENVIRONMENT` set to a
+Linux-only directory under `~/.cache`:
+
+```
+bash scripts/cross-engine-checkpoint.sh .tmp/bin/barn-head /root/src/toaststunt/build-release/moo .tmp/moo-conformance-tests
+```
+
+Session summary lines (log `.tmp/results/head-1.log`, untracked):
+
+- Barn writes, Toast resumes, suite tests: `1 failed, 57 passed, 11 skipped, 13917 deselected in 562.02s`
+- Barn writes, Toast resumes, Barn checkpoint tests: `4 passed in 79.16s`
+- Toast writes, Barn resumes, suite tests: `3 failed, 55 passed, 11 skipped, 13917 deselected in 539.13s`
+- Toast writes, Barn resumes, Barn checkpoint tests: `4 passed in 83.20s`
+
+### Real failures: suite tests that fail across engines on master Barn
+
+Not skipped, weakened or excluded; the job is red on master until these are
+fixed. Raw assertion lines:
+
+Barn writes, Toast resumes:
+
+1. `server/fork_try_computed_codes_checkpoint_restart.yaml::try_computed_codes_forks_run_after_checkpoint_restart`
+   `Test 'step 'log = #0.computed_codes_fork_l...'' expected value [2, 1, 1, 0], but got [1, 1, 0, 0]`
+
+Toast writes, Barn resumes:
+
+2. `server/error_dump_persistence.yaml::all_named_errors_survive_dump_and_restart`
+   `expected value [[3, ...], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18], [...` `but got [[3, ...], [8030606863672279040, 1, 2, 3, 4, 5, 6, 7, 106734232272904, 9, 10, 11, 12, 13, 14, 15, 106734232272912, 17, 18], ['E_`
+   (the integers read back for E_NONE, E_RECMOVE and E_FILE are wrong).
+3. `server/map_dump_persistence.yaml::ordering_spelling_bytes_and_non_total_topology_round_trip`
+   `expected value [1, ['kEY', 'second'], ['~C8', 'high'], [1 x12], [1 x8], [1 x6]], but got [0, ['kEY', 'second'], ['~C8', 'high'], [1 x12], [1 x8], [1 x6]]`
+4. `server/restart_task_semantics.yaml::indefinitely_suspended_task_across_checkpoint_restart`
+   `Test 'step 'still_queued = 0; for queued i...'' expected value [[], 1], but got [[0], 0]`
+
+Causes not diagnosed. Whether each is Barn's export, Barn's import, or a test
+that assumes one engine is unknown.
+
+### Proof runs (after merging master in; logs in `.tmp/results`, untracked)
+
+- Barn built from the commit before PR 886 (`pre886.log`): the job fails, and
+  the failures include `suspended_eval_checkpoint_roundtrip`, the state PR 886
+  fixed, plus the finally, move and range-bound checkpoint tests whose fixes
+  came after it. The job would have caught 886.
+- Two copies at once on master Barn (`master-a.log`, `master-b.log`): both
+  finish, and both show exactly the four failures above and no others. The
+  copies do not disturb each other.
+
 ### Master's required checks (read with `gh api`, 2026-11-18)
 
 `Build & unit tests`, `MOO conformance suite`, `Serializable histories and
