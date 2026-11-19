@@ -156,3 +156,59 @@ func TestVisitPropertyValuesKeepsValueDependencies(t *testing.T) {
 		t.Fatalf("invalid object: %v", ec)
 	}
 }
+
+// Recycling an object drops, from its children and their descendants, every
+// slot of a property it defined, as Toast's bf_recycle does by reparenting
+// each child through db_change_parents. A stale clear slot made the property
+// read E_PROPNF but still accept a write (issue #951).
+func TestRecycleDropsPropertiesDefinedByRecycledObject(t *testing.T) {
+	s := NewStore()
+	if err := s.Add(NewObject(0, types.ObjNothing)); err != nil {
+		t.Fatal(err)
+	}
+	d := s.DirectTxn()
+	// #0 defines top; #1 (child of #0) defines mid; #2 (child of #1) overrides
+	// both; #3 (child of #1) inherits mid without overriding it.
+	for _, parent := range []types.ObjID{0, 1, 1} {
+		if _, ec := d.CreateObject([]types.ObjID{parent}, types.ObjNothing); ec != types.E_NONE {
+			t.Fatal(ec)
+		}
+	}
+	for id, name := range map[types.ObjID]string{0: "top", 1: "mid"} {
+		if ec := d.DefineProperty(id, name, NewProperty(types.NewInt(0), id, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+			t.Fatal(ec)
+		}
+	}
+	for _, name := range []string{"top", "mid"} {
+		if ec := d.SetPropertyValue(2, name, types.NewInt(7)); ec != types.E_NONE {
+			t.Fatal(ec)
+		}
+	}
+	if err := s.Recycle(1); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []types.ObjID{2, 3} {
+		if ids, _ := d.Parents(id); len(ids) != 1 || ids[0] != 0 {
+			t.Fatalf("#%d parents = %v, want [#0]", id, ids)
+		}
+		if _, ec := d.FindProperty(id, "mid"); ec != types.E_PROPNF {
+			t.Fatalf("#%d.mid read gives %s, want E_PROPNF", id, ec)
+		}
+		tx := s.BeginSnapshot(0)
+		if ec := tx.SetPropertyValue(id, "mid", types.NewInt(9)); ec != types.E_PROPNF {
+			t.Fatalf("#%d.mid write gives %s, want E_PROPNF", id, ec)
+		}
+		tx.Release()
+		if _, ok, _ := d.LocalProperty(id, "mid"); ok {
+			t.Fatalf("#%d keeps a slot of mid after its definer was recycled", id)
+		}
+	}
+	// The override of a property defined by a surviving ancestor stays.
+	if p, ec := d.FindProperty(2, "top"); ec != types.E_NONE || !p.Value.Equal(types.NewInt(7)) || p.Clear {
+		t.Fatalf("#2.top = %v clear=%v (%s), want the kept override 7", p.Value, p.Clear, ec)
+	}
+	if p, ok, ec := d.LocalProperty(3, "top"); ec != types.E_NONE || !ok || !p.Clear {
+		t.Fatalf("#3 local top slot = %v ok=%v clear=%v (%s), want the inherited clear slot", p.Value, ok, p.Clear, ec)
+	}
+}

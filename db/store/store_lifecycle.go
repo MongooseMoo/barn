@@ -116,8 +116,15 @@ func (s *Store) Recycle(id types.ObjID) error {
 			}
 		}
 		child = s.republishForMutation(child)
+		oldChildParents := child.parents
 		child.parents = newChildParents
+		// Toast reparents each child through db_change_parents (bf_recycle,
+		// objects.cc), so the child and its descendants lose the slots of the
+		// properties the recycled object defined. Reseed while obj is still
+		// live so its defined names count as lost ancestry.
+		s.reseedInheritedPropertiesLocked(child, oldChildParents, ts)
 		stampObjectRelationship(child, ts)
+		stampObjectProperties(child, ts)
 
 		for _, newParentID := range objParents {
 			newParent := s.load(newParentID)
