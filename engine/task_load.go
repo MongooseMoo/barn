@@ -103,6 +103,15 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 	// Native import can produce a different root program from the raw saved
 	// frame. Keep the task's program consistent with its installed executable VM.
 	t.Program = machine.Frames[0].Program
+	// It also names the builtin whose continuation called a frame, which
+	// callers() reads from the task's activations.
+	t.Mu.Lock()
+	for index, frame := range machine.Frames {
+		if index < len(t.CallStack) {
+			t.CallStack[index].BuiltinCaller, t.CallStack[index].BuiltinPC = frame.BuiltinCaller, frame.BuiltinPC
+		}
+	}
+	t.Mu.Unlock()
 	t.SetVM(machine)
 
 	if saved.State == task.TaskQueued {
