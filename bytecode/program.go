@@ -52,6 +52,15 @@ type Program struct {
 	// compiler makes it from the parsed source, and a fork body extracted
 	// from the program shares it; a program built anywhere else has none.
 	ForkSources [][]string
+
+	// ForkFirstLines holds, for each fork instruction in code order, the
+	// source line its body's first statement begins on, the line that
+	// ForkSources' first line stands for. An empty statement (`;`) emits no
+	// code and a try with computed except codes evaluates them under the
+	// except line first, so the line of the body's first instruction is not
+	// always it. The compiler makes it with ForkSources; WithFirstLine moves
+	// it with the line table.
+	ForkFirstLines []int
 }
 
 // ForkBodies maps a fork body's range in its parent program to the extracted
@@ -187,6 +196,16 @@ type LineEntry struct {
 	Line    int // Source line number
 }
 
+// ForkFirstLine returns the source line on which the body of the fork that p
+// was extracted from begins, or zero when p is no fork body of a compiled
+// program or the body is empty.
+func (p *Program) ForkFirstLine() int {
+	if p == nil || p.Origin.Fork < 1 || p.Origin.Fork > len(p.ForkFirstLines) {
+		return 0
+	}
+	return p.ForkFirstLines[p.Origin.Fork-1]
+}
+
 // LineForIP returns the source line number for a given IP
 func (p *Program) LineForIP(ip int) int {
 	for i := len(p.LineInfo) - 1; i >= 0; i-- {
@@ -214,6 +233,15 @@ func (p *Program) WithFirstLine(first int) *Program {
 	shifted.LineInfo = make([]LineEntry, len(p.LineInfo))
 	for i, entry := range p.LineInfo {
 		shifted.LineInfo[i] = LineEntry{StartIP: entry.StartIP, Line: entry.Line + first - 1}
+	}
+	if p.ForkFirstLines != nil {
+		shifted.ForkFirstLines = make([]int, len(p.ForkFirstLines))
+		for i, line := range p.ForkFirstLines {
+			if line > 0 {
+				line += first - 1
+			}
+			shifted.ForkFirstLines[i] = line
+		}
 	}
 	if p.ForkBodies != nil {
 		// Bodies cached on p carry p's line numbers.
@@ -410,6 +438,7 @@ func (p *Program) extractForkBody(bodyIP, bodyLen int) *Program {
 		BuiltinPropertyConstants: p.BuiltinPropertyConstants,
 		CallSites:                p.CallSites,
 		ForkSources:              p.ForkSources,
+		ForkFirstLines:           p.ForkFirstLines,
 	}
 }
 

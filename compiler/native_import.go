@@ -87,7 +87,7 @@ func (c *Compiler) compileNativeVector(source []string, languageVersion, vector 
 			return nil, nil, nil, nil, importing.err
 		}
 	}
-	if compiled.ForkSources, err = forkSources(text, program, lower.forks); err != nil {
+	if compiled.ForkSources, compiled.ForkFirstLines, err = forkSources(text, program, lower.forks); err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("unparse native fork body: %w", err)
 	}
 	compiled.Source = append([]string(nil), source...)

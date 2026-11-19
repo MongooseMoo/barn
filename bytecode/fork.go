@@ -47,7 +47,9 @@ func (body *ForkBody) VariableNames() []string {
 	return body.Parent.VarNames
 }
 
-// FirstLine returns the parent source line at the start of the body, or zero
+// FirstLine returns the parent source line on which the body's first
+// statement begins (Program.ForkFirstLines), falling back to the line of the
+// body's first instruction for a program built without it, or zero
 // when the descriptor is invalid or the program has no line information.
 func (body *ForkBody) FirstLine() int {
 	if body == nil {
@@ -55,6 +57,9 @@ func (body *ForkBody) FirstLine() int {
 	}
 	if _, ok := body.Parent.forkBodyEnd(body.Offset, body.Length); !ok {
 		return 0
+	}
+	if line := body.ExtractProgram().ForkFirstLine(); line > 0 {
+		return line
 	}
 	return body.Parent.LineForIP(body.Offset)
 }

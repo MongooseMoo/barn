@@ -343,7 +343,19 @@ func (t *State) PersistenceSnapshotLocked() Snapshot {
 		firstLine := 0
 		if t.Program != nil {
 			variableNames = append(variableNames, t.Program.VarNames...)
-			firstLine = t.Program.LineForIP(0)
+			if t.Program.Origin.Fork == 0 && t.Program.Origin.FirstLine > 1 {
+				// A queued fork restored from a checkpoint runs its
+				// saved code compiled whole, numbered from the line
+				// the body began on (Program.WithFirstLine). Its first
+				// instruction is not on that line when the code starts
+				// with an empty statement, so keep the restored number.
+				firstLine = t.Program.Origin.FirstLine
+			} else {
+				firstLine = t.Program.ForkFirstLine()
+			}
+			if firstLine <= 0 {
+				firstLine = t.Program.LineForIP(0)
+			}
 			if firstLine <= 0 && len(t.Program.LineInfo) == 0 {
 				// An empty fork body compiles to a program with no
 				// statements and so no line entries. Its first line is

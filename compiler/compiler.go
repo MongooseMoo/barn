@@ -147,7 +147,7 @@ func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []D
 	lower := newLowerer(c.builtinIDs)
 	compiled, err := lower.compileProgram(program)
 	if err == nil {
-		compiled.ForkSources, err = forkSources(source, program, lower.forks)
+		compiled.ForkSources, compiled.ForkFirstLines, err = forkSources(source, program, lower.forks)
 	}
 	if err != nil {
 		return nil, []Diagnostic{compileDiagnostic(err)}
@@ -163,9 +163,13 @@ func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []D
 // not indented (db_io.cc dbio_write_forked_program). program is the parse of
 // source and holds every statement in forks. Floats are spelled exactly, as
 // in stored verb code, so the saved body compiles to the same values.
-func forkSources(source string, program *ir.Program, forks []*ir.ForkStmt) ([][]string, error) {
+//
+// It also returns, for each fork, the source line its body's first statement
+// begins on, which an empty statement counts as (zero for an empty body): the
+// line a checkpoint numbers the saved body from.
+func forkSources(source string, program *ir.Program, forks []*ir.ForkStmt) ([][]string, []int, error) {
 	if len(forks) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	options := parser.FormatOptions{
 		FullyParenthesized: true,
@@ -173,14 +177,18 @@ func forkSources(source string, program *ir.Program, forks []*ir.ForkStmt) ([][]
 		ElseIfArms:         parser.ElseIfArms(source, program),
 	}
 	sources := make([][]string, len(forks))
+	firstLines := make([]int, len(forks))
 	for index, fork := range forks {
 		lines, err := parser.FormatUncheckedWith(&ir.Program{Statements: fork.Body}, options)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		sources[index] = lines
+		if len(fork.Body) > 0 {
+			firstLines[index] = fork.Body[0].Position().Line
+		}
 	}
-	return sources, nil
+	return sources, firstLines, nil
 }
 
 // LowerUnknownBuiltinCalls rewrites verb source read from a database the way
