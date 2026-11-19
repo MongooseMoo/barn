@@ -97,6 +97,10 @@ jobs:
         uses: ./.github/actions/elle-cli
       - name: Build Barn
         run: go build -o bin/barn ./cmd/barn/
+      # The generator schedule tests run on a simulated clock: no adapter, no Barn.
+      - name: Test Jepsen generator
+        working-directory: tests/jepsen-checkpoint
+        run: JAVA_CMD="$JAVA_HOME/bin/java" lein test
       - name: Build Jepsen workload
         working-directory: tests/jepsen-checkpoint
         run: JAVA_CMD="$JAVA_HOME/bin/java" lein uberjar

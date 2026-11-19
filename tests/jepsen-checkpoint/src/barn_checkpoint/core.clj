@@ -176,7 +176,8 @@
   checkpoint and recover from its actual artifacts. Transport phase (unless
   phase-transport is 0): clients continue while the nemesis cycles the
   selected transport kinds, each followed by the adapter's bounded recovery
-  check. Closing phase: clients only, on the last generation. Phase 4: a
+  check; no transport op starts after phase-transport seconds, and the clients
+  stop when the last one has returned. Closing phase: clients only, on the last generation. Phase 4: a
   final checkpoint. gen/phases waits for every outstanding operation before
   the next phase.
 
@@ -201,9 +202,13 @@
               (gen/nemesis (nemesis-op :resume))]
              (when (pos? phase-live)
                [(gen/time-limit phase-live (gen/clients (txns rate families 2000000) (gen/cycle live)))])
+             ; The time limit is on the nemesis only: a transport op's recovery
+             ; check needs a client transaction sent after its heal, so the
+             ; clients run until the last transport op has returned.
              (when (pos? phase-transport)
-               [(gen/time-limit phase-transport
-                                (gen/clients (txns rate families 5000000) (gen/cycle transport)))])
+               [(gen/shortest-any
+                  (gen/clients (txns rate families 5000000))
+                  (gen/nemesis (gen/time-limit phase-transport (gen/cycle transport))))])
              [(gen/time-limit closing-seconds (gen/clients (txns rate families 4000000)))
               (gen/nemesis (nemesis-op :checkpoint))])))))
 
