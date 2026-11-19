@@ -2,6 +2,7 @@ package vm
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/fuzzseed"
@@ -361,7 +363,10 @@ const checkpointValueBudget = 64 << 20
 // store the way engine.Runtime.loadSuspendedTask does, through the import of
 // Toast's frames. A task ExportNativeSnapshot refuses fails the case: the
 // runtime keeps such a task in Barn's frame form, and Toast cannot load the
-// checkpoint that holds it. The restored VM keeps the task's state and tick
+// checkpoint that holds it. The one refusal by design is
+// compiler.ErrPathDependentClear (engine TestExportRefusesPathDependentPushClear):
+// that task is written in Barn's frame form, as the runtime writes it, and
+// must still resume the same. The restored VM keeps the task's state and tick
 // count: a snapshot carries no ticks, and the fuzz driver's budget spans the
 // whole task.
 func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store, forks []sourceFuzzFork) (*VM, *dbstore.Store, []sourceFuzzFork) {
@@ -372,6 +377,10 @@ func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store, fork
 		t.Fatalf("task has %d activations for %d VM frames; the driver must push each task's root activation", len(snapshot.CallStack), len(snapshot.VM.Frames))
 	}
 	exported, err := ExportNativeSnapshot(snapshot.VM, snapshot.CallStack, machine.Builtins.Registry().Compiler())
+	if errors.Is(err, compiler.ErrPathDependentClear) {
+		restored, reloadedStore, restoredForks, _ := reloadCheckpoint(t, machine, store, forks, snapshot)
+		return restored, reloadedStore, restoredForks
+	}
 	if err != nil {
 		t.Fatalf("ExportNativeSnapshot: %v", err)
 	}
@@ -509,6 +518,24 @@ func TestCheckpointExportsSuspendedEvalWithToastContinuation(t *testing.T) {
 		return checkpointSuspendedVM(t, machine, store, queued)
 	}
 	results, _, checkpoints := runCheckpointResumeCase(t, registry, program, checkpoint, sourceFuzzTicks, true)
+	if checkpoints != 1 || len(results) != 1 || results[0].Flow != types.FlowReturn || results[0].Val.String() != "{1, 73}" {
+		t.Fatalf("%d checkpoints, results %v; want 1 checkpoint and one task returning {1, 73}", checkpoints, results)
+	}
+}
+
+// call_function("eval", ...) pushes the same eval activation from a call site
+// not named eval. ExportNativeSnapshot marks that activation as eval()'s own,
+// and the import refused the frame it had written ("native builtin
+// continuation requires conversion"), so Barn could not reload its own
+// checkpoint of such a task.
+func TestCheckpointReloadsEvalCalledThroughCallFunction(t *testing.T) {
+	source := `return call_function("eval", "suspend(); return 73;");`
+	registry := newCheckpointResumeRegistry(t)
+	program, diagnostics := registry.Compiler().CompileMOO([]string{source})
+	if len(diagnostics) != 0 {
+		t.Fatal(diagnostics)
+	}
+	results, _, checkpoints := runCheckpointResumeCase(t, registry, program, checkpointSuspendedVM, sourceFuzzTicks, true)
 	if checkpoints != 1 || len(results) != 1 || results[0].Flow != types.FlowReturn || results[0].Val.String() != "{1, 73}" {
 		t.Fatalf("%d checkpoints, results %v; want 1 checkpoint and one task returning {1, 73}", checkpoints, results)
 	}
