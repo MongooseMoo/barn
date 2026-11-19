@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/ir"
@@ -91,10 +92,10 @@ func (c *lowerer) compileAssign(n *ir.AssignExpr) error {
 	return nil
 }
 
-// compileRangeIndex compiles a range index expression against its collection.
-// bytecode.OP_INDEX_MARKER resolves ^ and $ while preserving those semantic operations
-// in the compiled program.
-func (c *lowerer) compileRangeIndex(expr ir.Expr, varIdx int) error {
+// compileRangeIndex compiles a range index expression against its collection,
+// the value of target held in varIdx. bytecode.OP_INDEX_MARKER resolves ^ and
+// $ while preserving those semantic operations in the compiled program.
+func (c *lowerer) compileRangeIndex(expr ir.Expr, varIdx int, target ir.CollectionTarget) error {
 	if !containsIndexBoundary(expr) {
 		return c.compileNode(expr)
 	}
@@ -106,6 +107,7 @@ func (c *lowerer) compileRangeIndex(expr ir.Expr, varIdx int) error {
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(varIdx))
 	c.emitStoreLocal(tempIdx)
+	c.markHeldTarget(tempIdx, target)
 
 	c.indexContextVar = tempIdx
 	c.indexBoundaryContext = indexBoundaryRange
@@ -116,6 +118,17 @@ func (c *lowerer) compileRangeIndex(expr ir.Expr, varIdx int) error {
 	c.indexBoundaryContext = oldBoundaryContext
 
 	return err
+}
+
+// markHeldTarget names the compiler temporary slot as holding target's value,
+// which Toast holds as an operand while it evaluates the indexes after it
+// (nativeVector.target), so a task suspended there converts to and from
+// Toast's frame.
+func (c *lowerer) markHeldTarget(slot int, target ir.CollectionTarget) {
+	if c.importLayout != nil {
+		c.importLayout.flush(c)
+		c.importLayout.locals[slot] = barnImportValue{origin: NativeValueOrigin{Kind: NativeExpression, Node: target}}
+	}
 }
 
 // enterCollectionAssign opens one index or range assignment and returns the
@@ -189,6 +202,7 @@ func (c *lowerer) prepareCollectionBase(target ir.CollectionTarget, keyedBase bo
 	}
 	baseVar := c.collectionAssignTemp("collectionbase", 0)
 	c.emitStoreLocal(baseVar)
+	c.markHeldTarget(baseVar, property)
 	return baseVar, writeback, nil
 }
 
@@ -223,9 +237,12 @@ func (c *lowerer) compileIndexForCollection(expr ir.Expr, collectionVar int) err
 	return c.compileNode(expr)
 }
 
-func (c *lowerer) compileIndexAssign(target *ir.IndexTarget, value ir.Expr) error {
-	defer c.enterCollectionAssign()()
+// collectionIndices returns target's index expressions from the outermost
+// collection inward, the index target each one completes, and the base
+// collection they index.
+func collectionIndices(target *ir.IndexTarget) ([]ir.Expr, []*ir.IndexTarget, ir.CollectionTarget) {
 	var indices []ir.Expr
+	var targets []*ir.IndexTarget
 	var base ir.CollectionTarget = target
 	for {
 		index, ok := base.(*ir.IndexTarget)
@@ -233,11 +250,17 @@ func (c *lowerer) compileIndexAssign(target *ir.IndexTarget, value ir.Expr) erro
 			break
 		}
 		indices = append(indices, index.Index)
+		targets = append(targets, index)
 		base = index.Collection
 	}
-	for left, right := 0, len(indices)-1; left < right; left, right = left+1, right-1 {
-		indices[left], indices[right] = indices[right], indices[left]
-	}
+	slices.Reverse(indices)
+	slices.Reverse(targets)
+	return indices, targets, base
+}
+
+func (c *lowerer) compileIndexAssign(target *ir.IndexTarget, value ir.Expr) error {
+	defer c.enterCollectionAssign()()
+	indices, targets, base := collectionIndices(target)
 
 	// obj.prop[key] = v with a static name and no ^ or $ in key changes one
 	// entry of the property's value; the store can track it per key.
@@ -265,6 +288,7 @@ func (c *lowerer) compileIndexAssign(target *ir.IndexTarget, value ir.Expr) erro
 			c.emit(bytecode.OP_INDEX)
 			intermediateVars[i] = c.collectionAssignTemp("assignintermediate", i)
 			c.emitStoreLocal(intermediateVars[i])
+			c.markHeldTarget(intermediateVars[i], targets[i])
 			collectionVar = intermediateVars[i]
 		}
 	}
@@ -325,12 +349,12 @@ func (c *lowerer) compileRangeAssign(target *ir.RangeTarget, value ir.Expr) erro
 	if err != nil {
 		return err
 	}
-	if err := c.compileRangeIndex(target.Start, baseVar); err != nil {
+	if err := c.compileRangeIndex(target.Start, baseVar, target.Collection); err != nil {
 		return err
 	}
 	startVar := c.collectionAssignTemp("rangestart", 0)
 	c.emitStoreLocal(startVar)
-	if err := c.compileRangeIndex(target.End, baseVar); err != nil {
+	if err := c.compileRangeIndex(target.End, baseVar, target.Collection); err != nil {
 		return err
 	}
 	endVar := c.collectionAssignTemp("rangeend", 0)
@@ -357,19 +381,7 @@ func (c *lowerer) compileRangeAssign(target *ir.RangeTarget, value ir.Expr) erro
 // target components before evaluating value.
 func (c *lowerer) compileNestedRangeAssign(indexTarget *ir.IndexTarget, start, end, value ir.Expr) error {
 	defer c.enterCollectionAssign()()
-	var indices []ir.Expr
-	var base ir.CollectionTarget = indexTarget
-	for {
-		index, ok := base.(*ir.IndexTarget)
-		if !ok {
-			break
-		}
-		indices = append(indices, index.Index)
-		base = index.Collection
-	}
-	for left, right := 0, len(indices)-1; left < right; left, right = left+1, right-1 {
-		indices[left], indices[right] = indices[right], indices[left]
-	}
+	indices, targets, base := collectionIndices(indexTarget)
 
 	baseVar, writeback, err := c.prepareCollectionBase(base, false)
 	if err != nil {
@@ -392,16 +404,17 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *ir.IndexTarget, start, e
 		c.emit(bytecode.OP_INDEX)
 		collectionVars[i] = c.collectionAssignTemp("nestedrangecollection", i)
 		c.emitStoreLocal(collectionVars[i])
+		c.markHeldTarget(collectionVars[i], targets[i])
 		collectionVar = collectionVars[i]
 	}
 	innerVar := collectionVars[len(collectionVars)-1]
 
-	if err := c.compileRangeIndex(start, innerVar); err != nil {
+	if err := c.compileRangeIndex(start, innerVar, indexTarget); err != nil {
 		return err
 	}
 	startVar := c.collectionAssignTemp("nestedrangestart", 0)
 	c.emitStoreLocal(startVar)
-	if err := c.compileRangeIndex(end, innerVar); err != nil {
+	if err := c.compileRangeIndex(end, innerVar, indexTarget); err != nil {
 		return err
 	}
 	endVar := c.collectionAssignTemp("nestedrangeend", 0)

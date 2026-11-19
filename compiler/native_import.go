@@ -229,6 +229,21 @@ func (c *Compiler) ConvertNativeFrame(saved task.VMFrameSnapshot, vector int, to
 			}
 		}
 	}
+	// Toast's OP_PUSH_CLEAR moves an indexed assignment's variable onto the
+	// stack before its indexes (nativeVector.target), so a variable it has
+	// cleared is held only as that operand; Barn reads the variable when it
+	// stores, so the operand is the variable's value.
+	for index, origin := range site.Stack[:len(saved.Stack)] {
+		variable, ok := origin.Node.(*ir.VariableTarget)
+		if !ok || origin.Kind != NativeExpression || !slices.ContainsFunc(site.Cleared, func(name string) bool { return strings.EqualFold(name, variable.Name) }) {
+			continue
+		}
+		for local, name := range compiled.VarNames {
+			if strings.EqualFold(name, variable.Name) {
+				converted.Locals[local] = saved.Stack[index]
+			}
+		}
+	}
 	// Command context is inherited even through a verb which never references
 	// these names, so its values cannot depend on the compiled named slots.
 	for commandIndex, commandName := range task.CommandVariableNames {
