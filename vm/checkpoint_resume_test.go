@@ -459,6 +459,7 @@ func reloadCheckpoint(t *testing.T, machine *VM, store *dbstore.Store, forks []s
 		if len(diagnostics) != 0 {
 			t.Fatalf("queued child %d does not compile: %v", saved.ID, diagnostics)
 		}
+		program = program.WithFirstLine(saved.FirstLine)
 		if saved.ID != forks[i].id {
 			t.Fatalf("queued child %d changed ID/order to %d", forks[i].id, saved.ID)
 		}

@@ -177,7 +177,12 @@ func (vm *VM) sourceLineForFrame(frame *StackFrame, line int) string {
 	if frame == nil || frame.Program == nil || line <= 0 {
 		return ""
 	}
-	if line > len(frame.Program.Source) {
+	// Source is the compiled code, numbered from 1, and line counts from
+	// the program's FirstLine.
+	if first := frame.Program.FirstLine; first > 1 {
+		line -= first - 1
+	}
+	if line <= 0 || line > len(frame.Program.Source) {
 		return ""
 	}
 	return strings.TrimSpace(frame.Program.Source[line-1])

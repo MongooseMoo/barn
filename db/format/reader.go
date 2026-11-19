@@ -128,6 +128,9 @@ type QueuedTask struct {
 	Verb       string
 	Variables  map[string]types.Value
 	Code       []string
+	// FirstLine is the line, in the verb the task was forked from, of
+	// Code's first line: Toast's first_lineno for the loaded program.
+	FirstLine int
 }
 
 // SuspendedTask represents a suspended task

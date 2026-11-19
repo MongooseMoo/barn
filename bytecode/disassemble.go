@@ -11,6 +11,7 @@ func Disassemble(program *Program) []string {
 	if len(program.LineInfo) > 0 && program.LineInfo[0].Line > 0 {
 		firstLine = program.LineInfo[0].Line
 	}
+	firstLine += program.lineOffset()
 	lines := []string{
 		"Language version number: 17",
 		fmt.Sprintf("First line number: %d", firstLine),

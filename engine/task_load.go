@@ -154,6 +154,10 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("%s", diagnostics[0].Error())
 	}
+	// The body keeps the line numbers it had in the verb it was forked from
+	// (Toast tasks.cc read_task_queue: program->first_lineno).
+	prog = prog.WithFirstLine(saved.FirstLine)
+	firstLine := max(saved.FirstLine, 1)
 
 	ticks, seconds := backgroundTaskLimits(s.session)
 	t := NewTaskFull(saved.ID, saved.Player, prog, ticks, seconds)
@@ -221,7 +225,7 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 		Caller:     saved.Player,
 		Verb:       saved.Verb,
 		VerbLoc:    saved.VerbLoc,
-		LineNumber: 1,
+		LineNumber: firstLine,
 	})
 
 	s.QueueTask(t)

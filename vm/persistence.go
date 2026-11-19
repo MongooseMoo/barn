@@ -679,6 +679,9 @@ func cloneProgram(program *bytecode.Program) bytecode.Program {
 		// Immutable once the compiler fills it, like Constants' values.
 		BuiltinPropertyConstants: program.BuiltinPropertyConstants,
 		ForkSources:              program.ForkSources,
+		// Kept in memory only; the checkpoint writer saves LineInfo's own
+		// numbering, as Toast's dbio_write_program does not save first_lineno.
+		FirstLine: program.FirstLine,
 	}
 }
 

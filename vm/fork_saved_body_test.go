@@ -86,3 +86,38 @@ func TestForkSavedCodeIsUnparsedBody(t *testing.T) {
 		t.Fatalf("saved code %q, want %q", got, want)
 	}
 }
+
+// Issue #909: a queued forked task reloaded from a checkpoint reported its
+// lines counted from 1 in its saved body. Toast writes the body's line in the
+// verb it was forked from in the queued task's header and numbers the loaded
+// program from it (tasks.cc write_forked_task, read_task_queue:
+// program->first_lineno), so an error in the reloaded child names the line
+// it would have named had there been no checkpoint.
+func TestReloadedQueuedForkKeepsItsLineNumbers(t *testing.T) {
+	cases := map[string]string{
+		"error": `x = 0;
+fork (0)
+  x = 1;
+  return 1 + "a";
+endfork
+suspend();
+return x;`,
+		"traceback in a nested fork": `fork (0)
+  x = 1;
+  fork (0)
+    x = 2;
+    return {1, 2}[3];
+  endfork
+endfork
+suspend();
+return 0;`,
+	}
+	for name, source := range cases {
+		t.Run(name, func(t *testing.T) {
+			difference, skip := checkpointResumeDifference(t, source, checkpointSuspendedVM, sourceFuzzTicks, false)
+			if skip != "" || difference != "" {
+				t.Fatalf("difference %q, skip %q; want neither\nsource:\n%s", difference, skip, source)
+			}
+		})
+	}
+}

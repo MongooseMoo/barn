@@ -52,6 +52,40 @@ type Program struct {
 	// compiler makes it from the parsed source, and a fork body extracted
 	// from the program shares it; a program built anywhere else has none.
 	ForkSources [][]string
+
+	// FirstLine is Toast's first_lineno: the line number of the code's first
+	// line, when that is not 1. A queued forked task loaded from a checkpoint
+	// compiles its saved body, whose first statement is line 1 of that code,
+	// and the checkpoint names the body's line in the verb it was forked from
+	// (Toast tasks.cc read_task_queue sets program->first_lineno from it).
+	// LineForIP adds it to LineInfo's lines; LineInfo itself, the fingerprint
+	// and a saved frame keep the compiled numbering, so like Toast's
+	// dbio_write_program a checkpoint of a frame running the program does not
+	// keep it. Zero means 1.
+	FirstLine int
+}
+
+// lineOffset is what LineForIP adds to a LineInfo line.
+func (p *Program) lineOffset() int {
+	if p.FirstLine > 1 {
+		return p.FirstLine - 1
+	}
+	return 0
+}
+
+// WithFirstLine returns p numbered from first (Program.FirstLine). p is
+// unchanged: a compiled program is shared, and its extracted fork bodies are
+// numbered from its own first line, so the copy extracts its own.
+func (p *Program) WithFirstLine(first int) *Program {
+	if p == nil || first <= 1 {
+		return p
+	}
+	numbered := *p
+	numbered.FirstLine = first
+	if numbered.ForkBodies != nil {
+		numbered.ForkBodies = &ForkBodies{}
+	}
+	return &numbered
 }
 
 // ForkBodies maps a fork body's range in its parent program to the extracted
@@ -191,7 +225,7 @@ type LineEntry struct {
 func (p *Program) LineForIP(ip int) int {
 	for i := len(p.LineInfo) - 1; i >= 0; i-- {
 		if p.LineInfo[i].StartIP <= ip {
-			return p.LineInfo[i].Line
+			return p.LineInfo[i].Line + p.lineOffset()
 		}
 	}
 	return 0
@@ -385,6 +419,7 @@ func (p *Program) extractForkBody(bodyIP, bodyLen int) *Program {
 		BuiltinPropertyConstants: p.BuiltinPropertyConstants,
 		CallSites:                p.CallSites,
 		ForkSources:              p.ForkSources,
+		FirstLine:                p.FirstLine,
 	}
 }
 
