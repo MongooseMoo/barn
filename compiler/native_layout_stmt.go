@@ -85,7 +85,7 @@ func (s *nativeVector) stmt(stmt ir.Stmt) {
 		}
 		s.labelRef(end)
 		s.controls = append(s.controls, NativeControlOrigin{Kind: NativeCollectionLoop, Node: n, StackBase: base})
-		s.loops = append(s.loops, nativeLoop{node: n, value: n.Value, index: n.Index, top: top, bottom: end, topStack: base + 2, bottomStack: base})
+		s.loops = append(s.loops, nativeLoop{node: n, label: n.Label, value: n.Value, index: n.Index, top: top, bottom: end, topStack: base + 2, bottomStack: base})
 		s.block(n.Body)
 		s.loops = s.loops[:len(s.loops)-1]
 		s.controls = s.controls[:len(s.controls)-1]
@@ -107,7 +107,7 @@ func (s *nativeVector) stmt(stmt ir.Stmt) {
 		s.varRef(n.Value)
 		s.labelRef(end)
 		s.controls = append(s.controls, NativeControlOrigin{Kind: NativeRangeLoop, Node: n, StackBase: base})
-		s.loops = append(s.loops, nativeLoop{node: n, value: n.Value, top: top, bottom: end, topStack: base + 2, bottomStack: base})
+		s.loops = append(s.loops, nativeLoop{node: n, label: n.Label, value: n.Value, top: top, bottom: end, topStack: base + 2, bottomStack: base})
 		s.block(n.Body)
 		s.loops = s.loops[:len(s.loops)-1]
 		s.controls = s.controls[:len(s.controls)-1]
@@ -161,8 +161,13 @@ func (s *nativeVector) exit(node ir.Node, name string, continuing bool) {
 	}
 	for i := len(s.loops) - 1; i >= 0; i-- {
 		loop := s.loops[i]
-		if name != "" && canonicalIdentifier(name) != canonicalIdentifier(loop.value) && canonicalIdentifier(name) != canonicalIdentifier(loop.index) {
-			continue
+		if name != "" {
+			// A Barn labeled for loop answers to its label as well as its
+			// variables, as the lowerer's findLoopByTarget resolves it.
+			target := canonicalIdentifier(name)
+			if target != canonicalIdentifier(loop.label) && target != canonicalIdentifier(loop.value) && target != canonicalIdentifier(loop.index) {
+				continue
+			}
 		}
 		s.ref(nativeStackRef)
 		if continuing {
