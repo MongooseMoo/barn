@@ -96,6 +96,7 @@ jobs:
           - { package: ./builtins, target: FuzzStringBuiltins, minutes: 30 }
           - { package: ./vm, target: FuzzCheckpointResumeEquivalence, minutes: 30 }
           - { package: ./vm, target: FuzzWorldCheckpointEffects, minutes: 30 }
+          - { package: ./vm, target: FuzzSuspendedStackCheckpoint, minutes: 30 }
           - { package: ./task, target: FuzzSuspensionCompletionHistory, minutes: 5 }
           - { package: ./types, target: FuzzMapUpdatesPreserveSnapshotsAndInsertionOrder, minutes: 5 }
           - { package: ./db/store, target: FuzzStoreCommitsMatchSerialReplay, minutes: 30 }
