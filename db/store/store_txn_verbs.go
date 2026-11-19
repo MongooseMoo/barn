@@ -298,6 +298,13 @@ func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Objec
 	tx.markVerbScan(objID, obj)
 	searchLower := strings.ToLower(verbName)
 	for index, verb := range obj.verbList {
+		// Toast verbcasecmp begins with a pointer check, so the names string
+		// verbs() returned for this verb matches it even when it holds several
+		// names or a "*", while a typed literal with the same text does not.
+		if verb.isNamesString(verbName) {
+			tx.markVerbRead(objID, verb)
+			return obj, index, nil
+		}
 		for _, alias := range verb.lowerNames {
 			if matchVerbNameLowered(alias, searchLower) {
 				tx.markVerbRead(objID, verb)
@@ -317,7 +324,7 @@ func (tx *StoreTxn) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
 
 	names := make([]string, 0, len(obj.verbList))
 	for _, verb := range obj.verbList {
-		names = append(names, strings.Join(verb.names, " "))
+		names = append(names, verb.NamesString())
 	}
 	return names, types.E_NONE
 }
