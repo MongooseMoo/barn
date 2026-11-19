@@ -512,12 +512,19 @@ func serverVersion(ctx *Execution, args []types.Value, build buildinfo.Info) typ
 		featureValues = append(featureValues, types.NewStr(feature))
 	}
 	features := types.NewList(featureValues)
+	// Toast declares SAVE_FINISHED_TASKS (the default record limit) only in
+	// builds that have finished_tasks(), and #-1 otherwise.
+	saveFinishedTasks := types.NewObj(-1)
+	if ctx.Registry != nil && ctx.Registry.Has("finished_tasks") {
+		saveFinishedTasks = types.NewInt(DefaultFinishedTasksLimit)
+	}
 	optionInfo := types.NewList([]types.Value{
 		versionPair("OUTBOUND_NETWORK", types.NewStr(boolOptionState(options.OutboundNetwork))),
 		versionPair("PROMOTE_NUMBERS", types.NewStr(boolOptionState(options.PromoteNumbers))),
 		versionPair("MAX_QUEUED_OUTPUT", types.NewInt(defaultMaxQueuedOutput)),
 		// Barn integers are always 64-bit; Toast reports an undefined option as #-1.
 		versionPair("ONLY_32_BITS", types.NewObj(-1)),
+		versionPair("SAVE_FINISHED_TASKS", saveFinishedTasks),
 		// Barn's own compiled defaults, declared under ToastStunt's options.h
 		// names and in Toast's order. Toast declares the seconds limits as
 		// integers.

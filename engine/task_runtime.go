@@ -491,7 +491,8 @@ retryAttempt:
 	anonFloor := s.store.AnonCreationCount()
 
 	var launchErr error
-	lagInfo := lagInvocation{definer: t.VerbLoc, verb: t.VerbName}
+	lagInfo := lagInvocation{definer: t.VerbLoc, verb: t.VerbName, invoked: t.VerbName,
+		this: types.NewObj(t.This), player: ctx.Player, programmer: ctx.Programmer, receiver: t.This}
 	vmStarted := time.Now()
 	bcVM, result, launchErr = s.launchSlice(t, ctx, bcVM, preempt, attempt, sliceEntryTicks, started, execReadyAt, &lagInfo, &gate)
 	vmElapsed := time.Since(vmStarted)
@@ -654,6 +655,10 @@ retryAttempt:
 	// handled independently by the server loop.
 	gate.release(ctx.StoreTxn)
 
+	// Toast appends the finished_tasks() record after every interpreter run,
+	// whatever its outcome.
+	s.recordFinishedTask(t, result, vmElapsed, lagInfo)
+
 	// Check context deadline
 	select {
 	case <-taskCtx.Done():
@@ -758,7 +763,8 @@ func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt f
 			bcVM.Ticks = sliceEntryTicks
 		}
 		gate.attach(bcVM)
-		lagInfo.capture(bcVM.CurrentFrame())
+		lagInfo.capture(bcVM.CurrentFrame(), ctx.Programmer)
+		lagInfo.resumed = bcVM.IsYielded()
 		if bcVM.IsYielded() {
 			// If this task was read()-suspended, deliver the input line
 			if !t.WakeValue.IsNone() {
@@ -855,7 +861,7 @@ func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt f
 			vm.SetLocalByName(frame, prog, "iobj", types.NewObj(t.Iobj))
 
 			// Start execution
-			lagInfo.capture(frame)
+			lagInfo.capture(frame, ctx.Programmer)
 			result = bcVM.ExecuteLoop()
 		} else {
 			// Simple eval task (no verb context)
