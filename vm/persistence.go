@@ -662,6 +662,7 @@ func cloneProgram(program *bytecode.Program) bytecode.Program {
 		Origin:        program.Origin,
 		// Immutable once the compiler fills it, like Constants' values.
 		BuiltinPropertyConstants: program.BuiltinPropertyConstants,
+		ForkSources:              program.ForkSources,
 	}
 }
 

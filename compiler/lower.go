@@ -39,6 +39,7 @@ type lowerer struct {
 	lastLine              int                  // Last emitted line number for LineInfo deduplication
 	err                   error                // First overflow/limit error; checked at Compile boundaries
 	importLayout          *barnImportLayout    // Set only while converting a native checkpoint.
+	forks                 []*ir.ForkStmt       // Fork statements in the order their instructions were emitted
 }
 
 func newLowerer(registry map[string]int) *lowerer {
