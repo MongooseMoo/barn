@@ -78,18 +78,17 @@ connection_name(player, "ip-address") => "192.168.1.1"
 
 ### 2.1 notify
 
-**Signature:** `notify(player, message [, no_flush]) → none`
+**Signature:** `notify(conn, message [, no_flush [, no_newline]]) → INT`
 
-**Description:** Sends message to player's connection.
-
-**Parameters:**
-- `player`: Target player object
-- `message`: Text to send
-- `no_flush`: If true, buffer instead of immediate send
+**Description:** Queues `message` on the connection. Returns 1 when queued (and
+1 when `conn` has no connection); returns 0 only when `no_flush` is true and
+the line would overflow `max_queued_output` behind already-queued output. A
+caller that is neither a wizard nor `conn` gets `E_PERM`. Full semantics:
+[server.md §5.4](server.md#54-notify).
 
 **Examples:**
 ```moo
-notify(player, "Hello, world!");
+notify(player, "Hello, world!")   => 1
 ```
 
 ---
@@ -178,14 +177,12 @@ result = curl("https://api.example.com/post", [
 
 ### 5.1 listen
 
-**Signature:** `listen(object, point [, print_messages]) → none`
+**Signature:** `listen(object, point [, options]) → ANY`
 
-**Description:** Sets up listening point for connections.
-
-**Parameters:**
-- `object`: Handler object
-- `point`: Port number or descriptor
-- `print_messages`: Show connection messages
+**Description:** Sets up a listening point for connections and returns its
+canonical descriptor. `options` is a map (`"print-messages"`, `"ipv6"`,
+`"interface"`, `"tls"`, `"certificate"`, `"key"`; keys matched without regard to
+case). Full semantics: [server.md §6.2](server.md#62-listen).
 
 **Wizard only.**
 
@@ -209,13 +206,15 @@ result = curl("https://api.example.com/post", [
 
 ### 5.4 open_network_connection
 
-**Signature:** `open_network_connection(host, port [, listener]) → OBJ`
+**Signature:** `open_network_connection(host, port [, options]) → OBJ`
 
-**Description:** Opens outbound connection.
+**Description:** Opens an outbound connection and returns its negative
+connection object. `options` is a map (`"ipv6"`, `"listener"`, `"tls"`,
+`"tls_verify"`). Connect failures raise `E_INVARG` with `"Connection failure"`,
+`"getaddrinfo error"` or `"TLS connection failed"`. Full semantics:
+[server.md §6.1](server.md#61-open_network_connection).
 
-**Returns:** Connection object.
-
-**Wizard only (usually).**
+**Wizard only.**
 
 ---
 
@@ -225,7 +224,9 @@ result = curl("https://api.example.com/post", [
 
 **Signature:** `set_connection_option(player, option, value) → none`
 
-**Description:** Sets connection option.
+**Description:** Sets connection option. A caller that is neither a wizard
+nor `player` gets `E_PERM`; the permission check comes before the connection
+lookup, so it applies even when `player` is not connected.
 
 **Options:**
 | Option | Values | Description |

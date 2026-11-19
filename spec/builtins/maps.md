@@ -45,6 +45,29 @@ m["a"] = 99;             // Updates entry
 m[1]                     // E_RANGE (key 1 not found, not E_TYPE)
 ```
 
+### 1.3 First/Last Markers and Ranges
+
+Inside a map's index brackets, `^` is the map's first key and `$` its last
+key in key order (see §5), not positions: after `x = [1 -> 1, 5 -> 5, 8 -> 8]`,
+`x[^..$]` uses `^ == 1` and `$ == 8`.
+
+`map[from..to]` selects by key: both endpoints are keys, and the result is the
+map of every entry whose key lies from `from` through `to` in key order. When
+`from` orders after `to` the result is `[]`; otherwise, if either endpoint is
+not a key of the map, `E_RANGE`. Integer endpoints are keys too, never
+positions.
+
+`map[from..to] = newmap` requires both endpoints to be keys of the map
+(otherwise `E_RANGE`, whatever their order); it removes the entries from `from`
+through `to` and adds the pairs of `newmap`.
+
+```moo
+x = [1 -> "a", 5 -> "b", 8 -> "c"];
+x[5..8]          => [5 -> "b", 8 -> "c"]
+x[8..5]          => []
+x[2..8]          => E_RANGE   (2 is not a key)
+```
+
 ---
 
 ## 2. Basic Operations
@@ -106,23 +129,33 @@ mapvalues(["x" -> 10, "y" -> 20], "y", "x")           => {20, 10}
 
 **Signature:** `mapdelete(map, key) → MAP`
 
-**Description:** Returns new map with key removed.
+**Description:** Returns new map with key removed. If `key` is a LIST, every
+element of it is deleted as a key.
+
+Any key type that can be a map key is accepted, including anonymous objects.
+A LIST or MAP key (or list element, in the multi-key form) raises `E_TYPE`.
 
 **Examples:**
 ```moo
-mapdelete(["a" -> 1, "b" -> 2], "a")   => ["b" -> 2]
-mapdelete(["a" -> 1], "x")             => E_RANGE  (key not found)
+mapdelete(["a" -> 1, "b" -> 2], "a")          => ["b" -> 2]
+mapdelete(["a" -> 1, "b" -> 2], {"a", "b"})   => []
+mapdelete(["a" -> 1], "x")                    => E_RANGE  (key not found)
 ```
 
 **Errors:**
-- E_TYPE: First arg not a map
-- E_RANGE: Key not found in map
+- E_TYPE: First arg not a map; key (or a list element) is a LIST or MAP
+- E_RANGE: Key not found in map. In the multi-key form the error is raised
+  with message `"Key <literal> not found in map"` (the key as `toliteral()`
+  would print it; an anonymous object prints as `*anonymous*`) and the missing
+  key as its value.
 
 ---
 
 ### 2.4 maphaskey (ToastStunt)
 
-**Signature:** `maphaskey(map, key [, case_matters]) → BOOL`
+**Signature:** `maphaskey(map, key [, case_matters]) → INT`
+
+**Flag arguments:** `case_matters` accept an INT or a BOOL and are read by truth value (`function_info()` reports the position as -3); any other type raises `E_TYPE`.
 
 **Description:** Tests if key exists in map.
 
@@ -130,6 +163,8 @@ mapdelete(["a" -> 1], "x")             => E_RANGE  (key not found)
 - `map`: The map to search
 - `key`: The key to look for
 - `case_matters` (optional): If provided and true (non-zero), string key matching is case-sensitive. If false (zero) or omitted, string keys match case-insensitively. Non-string keys always use exact matching.
+
+Any key type that can be a map key is accepted, including anonymous objects.
 
 **Examples:**
 ```moo
@@ -145,7 +180,7 @@ maphaskey(["a" -> 1], "A", 1)  => 0
 ```
 
 **Errors:**
-- E_TYPE: First arg not a map
+- E_TYPE: First arg not a map; `key` is a LIST or MAP
 
 ---
 
@@ -257,14 +292,28 @@ Float keys use **bitwise comparison** (same as `==` operator):
 
 ## 5. Ordering
 
-Map iteration order is **implementation-defined** with these guarantees:
+A map keeps its keys sorted, and iteration (`for`, `mapkeys()`,
+`mapvalues()`, `toliteral()`) visits them in ascending key order, never in
+insertion order. Two maps with the same pairs iterate identically however they
+were built.
 
-1. **Stability within iteration:** Iterating the same map object twice without modification produces the same order
-2. **No insertion-order guarantee:** Order is not based on insertion sequence
-3. **Session non-determinism:** Order may vary between sessions/restarts
-4. **Implementation-specific:** May be based on hash values, comparison ordering (e.g., red-black tree), or other factors
+Keys of different types order by type: INT < OBJ < ERR < FLOAT < BOOL < STR <
+ANON < WAIF. Within a type:
 
-**Portable code must not depend on any specific iteration order.**
+- INT, OBJ: numerically (full 64-bit range)
+- ERR: by error code
+- FLOAT: numerically
+- BOOL: `false` before `true`
+- STR: case-insensitively (keys differing only in case are the same key)
+- ANON, WAIF: by object identity; which of two such keys comes first is
+  unspecified but does not depend on insertion order
+
+```moo
+mapkeys([1 -> "int", "z" -> "str", 3.14 -> "float", "a" -> "str2"])
+=> {1, 3.14, "a", "z"}
+mapkeys([true -> 1, false -> 0])
+=> {false, true}
+```
 
 **Note:** `mapkeys(m)[i]` corresponds to `mapvalues(m)[i]` - these functions use the same iteration order
 

@@ -34,6 +34,8 @@ pcre_match(subject, pattern [, case_matters [, find_all]]) → LIST
 | case_matters | INT | Optional: 0 = case insensitive (default), 1 = case sensitive |
 | find_all | INT | Optional: non-zero = find all matches (default), 0 = find first only |
 
+**Flag arguments:** `case_matters` and `find_all` accept an INT or a BOOL and are read by truth value (`function_info()` reports the position as -3); any other type raises `E_TYPE`.
+
 ### Return Value
 
 Returns a **LIST of MAPS** where each map represents one match occurrence.
@@ -47,7 +49,51 @@ Each capture group value is a MAP with:
 - `"match"` - The matched substring (STR)
 - `"position"` - List {start, end} with 1-indexed positions (LIST)
 
-Returns `{}` if no matches found.
+Returns `{}` if no matches found, including for an empty subject.
+
+### Pattern Syntax
+
+Patterns are compiled by PCRE2 (Toast links PCRE2 10.42), so the full PCRE
+syntax is available, including lookahead `(?=...)`/`(?!...)`, lookbehind
+`(?<=...)`/`(?<!...)` and backreferences `\1`:
+
+```moo
+pcre_match("price: $42 or $7", "(?<=\\$)\\d+", 0, 1)   // two matches: "42", "7"
+pcre_match("foobar foobaz", "foo(?!bar)", 0, 1)[1]["0"]["position"]
+=> {8, 10}
+pcre_match("abcabc xyzxy", "(\\w{3})\\1", 0, 1)[1]["1"]["match"]
+=> "abc"
+```
+
+PCRE2 compile-time rules that make a pattern invalid (`E_INVARG`, from both
+`pcre_match()` and `pcre_replace()`):
+
+- **Lookbehind width:** each top-level branch of a lookbehind must match a
+  fixed number of characters; branches may differ from one another.
+  `(?<=ab|c)d` and `(?<=(?:ab){2})c` compile, as does a fixed-width
+  backreference `(a)(?<=\1)b` and a variable-width lookahead nested inside a
+  lookbehind `(?<=a(?=b+))b`. `(?<=a+)b`, `(?<=a?)b`, `(?<=a{1,3})b`,
+  `(?<=a(b|cd))e`, `(?<!p(..?.)+).`, a variable-width backreference
+  `(a+)(?<=\1)b`, and `(?<=a*)b` are rejected.
+- **`{}` quantifier counts:** a count above 65535 is rejected ("number too big
+  in {} quantifier"): `a{65536}`, `a{0,65536}`, `a{65536,}`. `a{65535}` and
+  `a{0,65535}` compile. A brace that is not a quantifier is literal text, so
+  `a{9999999x}` matches the string `"a{9999999x}"`.
+
+### Match Loop Limit
+
+Each pass of the match loop (one `pcre2_match` call) counts one iteration.
+When a pass finds a match and the count has reached the limit, the call raises
+`E_MAXREC` with message `"Too many iterations of matching loop: N"` (value 0)
+before adding that match, so at most `limit - 1` matches are returned. A pass
+that finds no match ends the loop without error, and with `find_all = 0` the
+loop runs once.
+
+The limit is `$server_options.pcre_match_max_iterations`, read on every call
+(no `load_server_options()` needed). Default 1000. A value below 100 acts as
+100 and a value at or above 100000000 acts as 100000000; the value is read as
+unsigned, so a negative value acts as the maximum. A non-integer value is
+ignored and the default applies.
 
 ### Examples
 
@@ -97,9 +143,9 @@ pcre_match("hello world", "(?P<word>\\w+)")
 
 | Error | Condition |
 |-------|-----------|
-| E_INVARG | Invalid pattern or empty pattern/subject |
-| E_QUOTA | Too many capture groups |
-| E_MAXREC | Exceeded pcre_match_max_iterations |
+| E_INVARG | Empty pattern (plain error), or pattern compile error (raised with the PCRE2 error text) |
+| E_QUOTA | Out of memory compiling the pattern or allocating match data |
+| E_MAXREC | Match loop reached `pcre_match_max_iterations` (see Match Loop Limit) |
 | E_TYPE | Non-string arguments |
 | E_ARGS | Wrong argument count |
 
@@ -107,7 +153,7 @@ pcre_match("hello world", "(?P<word>\\w+)")
 
 - Patterns are cached after first compilation
 - Cache hits tracked by `pcre_cache_stats()`
-- Server option `pcre_match_max_iterations` limits match loop (default 10000, min 100, max 100000000)
+- Server option `pcre_match_max_iterations` limits the match loop (default 1000, min 100, max 100000000; see Match Loop Limit)
 
 ---
 
@@ -142,10 +188,18 @@ Uses Perl s/// syntax: `s/pattern/replacement/flags`
 | i | Case insensitive |
 | (other Perl flags as supported by pcrs library) |
 
-**Backreferences in replacement:**
-- `$0` - Full match
-- `$1`, `$2`, ... - Capture groups
-- `$$` - Literal $
+**Template references in replacement** (expanded by pcrs):
+- `$N` - Capture group N, reading every digit (`$10` is group 10, not group 1 then `0`). `$0` is the whole match. A group number above the pattern's capture count is a compile error (`E_INVARG`).
+- `$&` - The whole match
+- `$+` - The highest-numbered capture group
+- Any other `$` is copied literally: `$_`, `$$`, `${name}` and a trailing `$` all appear as written. Named groups are referenced by their PCRE number, not by name.
+- A template may hold at most 32 references; 33 is a compile error (`E_INVARG`).
+
+```moo
+pcre_replace("abc", "s/b/[$&|$$|${x}|$0]/g")   => "a[b|$$|${x}|b]c"
+pcre_replace("ab", "s/|/<$_>/g")               => "<$_>a<$_>b<$_>"
+pcre_replace("xbcx", "s/(?<n>b)(c)/$2$1$+/")   => "xcbcx"
+```
 
 ### Examples
 
@@ -192,7 +246,7 @@ pcre_replace("path/to/file", "s#/#-#g")
 
 | Error | Condition |
 |-------|-----------|
-| E_INVARG | Invalid command syntax or pattern |
+| E_INVARG | Invalid command syntax, pattern, or template (raised with message `"Compile error:  <pcrs text> (<code>)"`); execution failure (`"Exec error:  ..."`) |
 | E_TYPE | Non-string arguments |
 | E_ARGS | Wrong argument count |
 
@@ -255,6 +309,9 @@ ToastStunt v2.6.1 (March 2020)
 | `(?P<name>...)` | Named capture group |
 | `(?=...)` | Lookahead assertion |
 | `(?!...)` | Negative lookahead |
+| `(?<=...)` | Lookbehind assertion (fixed-width branches only) |
+| `(?<!...)` | Negative lookbehind (fixed-width branches only) |
+| `\1` | Backreference to group 1 |
 | `.` | Any character except newline |
 
 ---

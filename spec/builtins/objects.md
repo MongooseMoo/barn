@@ -10,23 +10,34 @@ Functions for creating, modifying, and querying objects.
 
 ### 1.1 create
 
-**Signature:** `create(parent [, owner [, anonymous]]) → OBJ`
-**Signature:** `create(parents_list [, owner [, anonymous]]) → OBJ`
+**Signature:** `create(parent [, owner] [, anonymous] [, init_args]) → OBJ`
+**Signature:** `create(parents_list [, owner] [, anonymous] [, init_args]) → OBJ`
 
 **Description:** Creates a new object.
 
-**Parameters:**
-- `parent`: Single parent object, or list of parents
-- `owner`: Owner of new object (default: caller)
-- `anonymous`: If true, object is garbage-collected
+**Parameters** (Toast `objects.cc` `bf_create()`): after the first argument,
+up to three optional arguments are told apart by type, each kind at most
+once: an OBJ is the owner, an INT is the anonymous flag, a LIST is the
+argument list for `:initialize`. Any other type, or a second argument of the
+same kind, is `E_TYPE`.
+- `parent`: A numbered object (`#-1` allowed), or a list of numbered
+  objects. An anonymous object is never a parent: `create(anon)` and
+  `create({anon})` are `E_TYPE`.
+- `owner`: Owner of the new object (default: the task's permissions). An
+  owner of `#-1` makes a permanent object its own owner.
+- `anonymous`: If true, the new object is anonymous (garbage-collected)
+- `init_args`: Arguments passed to `:initialize` (default `{}`)
 
 **Behavior:**
 1. **Allocate new object ID**: Sequential allocation from `max_object() + 1`. Recycled object slots are NOT automatically reused (use `recreate()` to explicitly reuse a slot).
 2. Set parent(s)
 3. Set owner
-4. **Copy inherited properties**: All properties from the entire inheritance chain are copied. Clear properties remain clear (inherit dynamically). Non-clear properties are copied as independent values (not references).
+4. **Inherited property slots**: The new object gets one slot for each
+   property its ancestors define. Each slot is clear (holds no value and
+   reads through to the ancestor's value); its owner follows the `c` rule
+   (`spec/builtins/properties.md` §8.3).
 5. **Call `initialize` verb** if defined on the new object or inherited:
-   - Called with no arguments: `new_obj:initialize()`
+   - Called with `init_args` (or no arguments): `new_obj:initialize(@init_args)`
    - Context variables: `this` = new object, `player` = creator, `caller` = creator
    - If `initialize` raises an error, object creation is NOT rolled back
    - The object exists but may be in an invalid state after error
@@ -36,13 +47,18 @@ Functions for creating, modifying, and querying objects.
 obj = create($thing);                    // Single parent
 obj = create($thing, player);            // Specify owner
 obj = create({$thing, $container});      // Multiple parents
-anon = create($thing, $nothing, 1);      // Anonymous object
+anon = create($thing, 1);                // Anonymous object
 ```
 
-**Errors:**
-- E_PERM: Caller can't create children of parent
-- E_INVARG: Invalid parent (recycled, not fertile)
+**Errors (in the order checked):**
+- E_TYPE: First argument is not an OBJ or a list of OBJs (an anonymous
+  object, alone or in the list, is `E_TYPE`); bad optional argument types
+- E_INVARG: Anonymous with owner `#-1`; invalid owner; invalid parent
+- E_PERM: A non-wizard names another owner, or a parent does not allow it:
+  creating a permanent child needs the parent's `f` flag, an anonymous child
+  needs the parent's `a` flag (or ownership of the parent, or wizard)
 - E_QUOTA: Object quota exceeded
+- E_INVARG: The parents' property names conflict
 
 ---
 
@@ -71,15 +87,26 @@ recreate(#100, $thing)   // Reuse object slot #100
 
 **Description:** Destroys an object.
 
-**Behavior (in order):**
-1. **Call `:recycle` verb** if defined on object or inherited (object still in pre-destruction state)
-2. **Move to $nothing**: Remove from location's contents, set location to #-1
-3. **Clear properties**: Remove all property values
-4. **Remove verbs**: Delete all verb definitions
-5. **Clear parent/children links**: Remove from parent's children list
-6. **Mark slot as recycled**: Set RECYCLED (1024) and INVALID (512) flags
+**Behavior (in order,** Toast `objects.cc` `bf_recycle()`**):**
+1. **Call `:recycle` verb** if defined on object or inherited (object still
+   in pre-destruction state). Anonymous objects get `:recycle` too.
+2. If the object is no longer valid when `:recycle` returns, the call is
+   `E_INVARG`.
+3. **Empty contents**: Each object it contains is moved to `#-1` (running
+   the object's `:exitfunc`), then the object itself is moved out of its
+   location.
+4. **Reparent children**: Each child gets the recycled object's parents in
+   place of the recycled object.
+5. **Destroy**: Properties, verbs and the object are discarded; the owner's
+   quota is credited. Values in the object's own slots are released, so an
+   anonymous object held only there is recycled. A slot the object only
+   inherited and never wrote is clear and holds no value, so recycling a
+   child never recycles an anonymous object its parent holds, whether the
+   property was defined before or after the child was created
+   (conformance `builtins/recycle.yaml:recycling_created_child_leaves_parents_anonymous_value`,
+   `recycling_child_leaves_anonymous_value_of_property_added_later`).
 
-**Important:** The `:recycle` verb sees the object in its original state (location, properties, verbs all intact). Changes in steps 2-6 happen AFTER the recycle verb completes.
+**Important:** The `:recycle` verb sees the object in its original state (location, properties, verbs all intact). Changes in steps 3-5 happen AFTER the recycle verb completes.
 
 **Reference handling:** Existing references to the recycled object (in variables, properties, lists) remain as the old object ID. `valid(ref)` returns false. Any operation on the recycled object raises E_INVIND.
 
@@ -90,8 +117,9 @@ valid(old_object)   => 0
 ```
 
 **Errors:**
+- E_TYPE: Argument is not an object
+- E_INVARG: Invalid object, or an anonymous object already recycled
 - E_PERM: Not owner or wizard
-- E_INVARG: Already recycled
 
 ---
 
@@ -113,7 +141,7 @@ valid(old_object)   => 0
 ```moo
 valid(#0)        => true
 valid(#-1)       => false (negative ID - $nothing sentinel)
-valid(#-2)       => false (negative ID - $failed_match sentinel)
+valid(#-2)       => false (negative ID - $ambiguous_match sentinel)
 valid(#99999)    => false (if doesn't exist or exceeds max_object)
 ```
 
@@ -169,7 +197,10 @@ parents(obj_with_two_parents)   => {#parent1, #parent2}
 
 **Signature:** `children(object) → LIST`
 
-**Description:** Returns list of direct children.
+**Description:** Returns list of direct children. Anonymous objects are
+never listed, here or in `descendants()`, whether created under the parent
+or moved there by `chparent()` (conformance
+`builtins/objects.yaml:chparent_anonymous_not_added_to_parent_children`).
 
 **Examples:**
 ```moo
@@ -183,11 +214,16 @@ children($thing)   => {#obj1, #obj2, ...}
 
 ### 3.4 ancestors (ToastStunt)
 
-**Signature:** `ancestors(object) → LIST`
+**Signature:** `ancestors(object [, full]) → LIST`
 
 **Description:** Returns list of all ancestors (parents, grandparents, etc.).
+If `full` is true, `object` itself comes first.
 
-**Order:** Breadth-first, parents before grandparents.
+**Order:** Depth-first pre-order, left to right. Each parent is followed by
+its own ancestors before the next parent, and each ancestor appears once, at
+its first occurrence. This is the order property and command-verb lookup use
+(`spec/objects.md` §3.3; Toast `db_objects.cc` `db2_add_parents` via the
+`DEFUNC` macro).
 
 **Examples:**
 ```moo
@@ -209,12 +245,36 @@ ancestors(obj)   => {$thing, $root}
 
 **Signature:** `chparent(object, new_parent) → none`
 
-**Description:** Changes object's parent (single inheritance).
+**Description:** Changes object's parent (single inheritance). Returns 0.
 
-**Errors:**
-- E_PERM: Not owner/wizard
-- E_INVARG: Would create cycle
-- E_INVARG: New parent not fertile
+**Semantics** (shared with `chparents`, Toast `objects.cc`
+`bf_chparent_chparents()`, `db_properties.cc` property relayout):
+- `object` may be numbered or anonymous. An anonymous object that changes
+  parent is still never listed in any parent's `children()` or
+  `descendants()`.
+- The new parent(s) must be numbered objects (`#-1` allowed); an anonymous
+  object is `E_TYPE`.
+- Property slots of the object and of each descendant: a slot for a
+  property defined by an ancestor common to the old and new parents is kept,
+  with its value (or clear state) and owner, including a value written
+  earlier in the same task. Slots for properties only the old ancestry
+  defined are dropped. Slots for properties only the new ancestry defines
+  are added clear, owned per the `c` rule (`spec/builtins/properties.md`
+  §8.3). A property of the same name from a different definer counts as a
+  different property, so the object gets a clear slot of the new one.
+  (Conformance `builtins/properties.yaml:chparent_keeps_*`,
+  `chparent_same_name_from_other_definer_is_clear`,
+  `chown_flag_chparent_*`.)
+
+**Errors (in the order checked):**
+- E_TYPE: `object` is not an object, or the new parent is not an OBJ (an
+  anonymous object is not a parent)
+- E_INVARG: Invalid object or invalid new parent
+- E_PERM: Caller does not control `object`, or the new parent lacks `f` and
+  is not owned by the caller (wizards bypass)
+- E_RECMOVE: The new parent is `object` or one of its descendants
+- E_INVARG: `object` or a descendant defines a property name that the new
+  parent or its ancestors also define
 
 ---
 
@@ -229,18 +289,23 @@ ancestors(obj)   => {$thing, $root}
 chparents(obj, {$thing, $container});
 ```
 
-**Errors:**
-- E_PERM: Not owner/wizard
-- E_INVARG: Would create cycle
-- E_INVARG: Parent not fertile
+**Errors:** As for `chparent`, applied to each element of `parents_list`:
+E_TYPE for a non-OBJ element (an anonymous object included), E_INVARG for an
+invalid one, E_PERM, E_RECMOVE for a cycle, and E_INVARG for a property
+name conflict.
 
 ---
 
 ### 3.8 isa
 
-**Signature:** `isa(object, parent) → BOOL`
+**Signature:** `isa(object, parent [, return_object]) → BOOL | OBJ`
 
 **Description:** Tests if object inherits from parent (directly or indirectly).
+`parent` may be a list, in which case the first matching parent counts. When
+`return_object` is true, the result is the matching parent, or `#-1` when
+none matches, instead of 1 or 0 (Toast `objects.cc` `bf_isa()`).
+
+Flag arguments are Toast 2.8 `TYPE_FLAG`: an INT or a BOOL is accepted and read for truth; any other type (a FLOAT included) is `E_TYPE`, and `function_info()` reports the argument type as -3 (Toast `functions.cc` lines 268-269, `structures.h` line 123; registration at `objects.cc` lines 1381-1384 at origin/master; conformance `builtins/flag_args_accept_bool.yaml`).
 
 **Examples:**
 ```moo
@@ -315,16 +380,29 @@ obj.contents          // Contained objects (LIST)
 
 ### 5.2 move
 
-**Signature:** `move(what, where) → none`
+**Signature:** `move(what, where [, position]) → 0`
 
-**Description:** Moves object to new location.
+**Description:** Moves object to new location. Returns 0. `what` and `where`
+must be numbered objects (OBJ); `position` (INT, default 0) places `what` at
+that index of the new contents.
 
-**Behavior:**
-1. Remove from old location's contents
-2. Set location to new container
-3. Add to new container's contents
-4. Call `exitfunc` on old location
-5. Call `enterfunc` on new location
+**Behavior** (Toast `objects.cc` `do_move()`):
+1. Check: `what` invalid, `where` invalid and not `#-1`, or `position` < 0
+   is `E_INVARG`; the caller must control `what`, else `E_PERM`.
+2. Unless `where` is `#-1` or already `what`'s location, call
+   `where:accept(what)`; a missing `:accept` counts as refusal. With a
+   nonzero `position`, the caller must also control `where` (`E_PERM`).
+   A refusal is `E_NACC` unless the caller is a wizard.
+3. After `:accept` returns, both objects are checked again. If `what` is no
+   longer valid, `where` (other than `#-1`) is no longer valid (for example
+   `:accept` recycled it), or `what` is already in `where` with `position`
+   0, `move()` returns 0 without moving and without calling `:exitfunc` or
+   `:enterfunc` (conformance `builtins/move_accept_recycles_destination.yaml`).
+4. If `where` is `what` or is inside `what`, `E_RECMOVE`.
+5. Remove from old location's contents, set location, add to new contents.
+6. If the location changed, call `oldloc:exitfunc(what)`.
+7. Then, if both are still valid and `what` is still in `where`, call
+   `where:enterfunc(what)`.
 
 **Examples:**
 ```moo
@@ -334,17 +412,24 @@ move(obj, $nothing);          // Remove from world
 ```
 
 **Errors:**
+- E_TYPE: `what` or `where` is not a numbered object
+- E_INVARG: Invalid `what` or `where`, or negative `position`
 - E_PERM: No permission
-- E_RECMOVE: Moving into self/descendant
-- E_INVIND: Invalid object
+- E_NACC: `where:accept` refused (non-wizard caller)
+- E_RECMOVE: Moving into self or into an object inside `what`
 
 ---
 
 ### 5.3 locations (ToastStunt)
 
-**Signature:** `locations(object) → LIST`
+**Signature:** `locations(object [, stop [, check_parent]]) → LIST`
 
-**Description:** Returns chain of containers.
+**Description:** Returns chain of containers, innermost first. With `stop`,
+the walk ends before the first location equal to `stop`, or (when
+`check_parent` is true) the first location that `isa()` `stop`. An invalid
+`object` is `E_INVIND` (Toast `objects.cc` `bf_locations()`).
+
+Flag arguments are Toast 2.8 `TYPE_FLAG`: an INT or a BOOL is accepted and read for truth; any other type (a FLOAT included) is `E_TYPE`, and `function_info()` reports the argument type as -3 (Toast `functions.cc` lines 268-269, `structures.h` line 123; registration at `objects.cc` lines 1381-1384 at origin/master; conformance `builtins/flag_args_accept_bool.yaml`).
 
 **Examples:**
 ```moo
@@ -363,8 +448,10 @@ locations(ball)   => {#box, #room}
 **Parameters:**
 - `objects`: LIST of objects to filter (must all be valid objects)
 - `parent`: OBJ or LIST of OBJs - filter to objects that `isa()` one of these parents
-- `player_flag`: INT - if true, only return objects with the player flag set
-- `inverse`: INT - if true, invert the parent check (return objects NOT descended from parent)
+- `player_flag`: INT or BOOL - if true, only return objects with the player flag set
+- `inverse`: INT or BOOL - if true, invert the parent check (return objects NOT descended from parent)
+
+Flag arguments are Toast 2.8 `TYPE_FLAG`: an INT or a BOOL is accepted and read for truth; any other type (a FLOAT included) is `E_TYPE`, and `function_info()` reports the argument type as -3 (Toast `functions.cc` lines 268-269, `structures.h` line 123; registration at `objects.cc` lines 1381-1384 at origin/master; conformance `builtins/flag_args_accept_bool.yaml`).
 
 **Behavior by argument count:**
 - 1 arg: returns all valid objects from the list (player flag check enabled)
@@ -438,6 +525,13 @@ occupants({#10, #20}, $thing, 0, 1)      // NOT descended from $thing
 - Includes recycled objects (returns highest ID ever allocated, not highest valid)
 - Example: If #1, #2, #3 exist and #2 is recycled, returns #3
 - New objects created via `create()` get `max_object() + 1`
+- Recycled slots stay counted across a checkpoint and restart: a database
+  stores each recycled slot as `#N recycled` and loading recreates it as an
+  empty slot, so `max_object()` after a restart still covers recycled slots
+  above the highest valid object, and the next `create()` does not reuse
+  them (Toast `db_objects.cc` `db_last_used_objid()`,
+  `dbpriv_new_recycled_object()`; `db_file.cc` reader). Anonymous objects
+  take no object number and never affect `max_object()`.
 
 ---
 
@@ -455,7 +549,8 @@ occupants({#10, #20}, $thing, 0, 1)      // NOT descended from $thing
 
 **Signature:** `recycled_objects() → LIST`
 
-**Description:** Returns list of all recycled object IDs.
+**Description:** Returns, in ascending order, every object number from `#0`
+to `max_object()` that is not a valid object.
 
 **Examples:**
 ```moo
@@ -466,15 +561,23 @@ recycled = recycled_objects();   => {#100, #105, #112}
 
 ### 7.4 next_recycled_object (ToastStunt)
 
-**Signature:** `next_recycled_object([start]) → OBJ`
+**Signature:** `next_recycled_object([start]) → OBJ | INT`
 
-**Description:** Returns next recycled object ID after start (or first if no start).
+**Description:** Returns the first object number at or above `start`
+(default `#0`), up to `max_object()`, that is not a valid object. `start`
+itself is included. Returns the integer 0 if there is none (Toast
+`objects.cc` `bf_next_recycled_object()`).
 
 **Examples:**
 ```moo
 first = next_recycled_object();      => #100
-next = next_recycled_object(#100);   => #105
+next = next_recycled_object(#101);   => #105
 ```
+
+**Errors:**
+- E_INVARG: `start` is negative (any negative object number, not only
+  `#-1`) or greater than `max_object()` (conformance
+  `builtins/next_recycled_object_negative_start.yaml`)
 
 ---
 
@@ -494,18 +597,23 @@ wizard_objects = owned_objects(#2);
 
 ### 7.6 locate_by_name (ToastStunt)
 
-**Signature:** `locate_by_name(name [, exact]) → OBJ`
+**Signature:** `locate_by_name(name [, case_matters]) → LIST`
 
-**Description:** Searches for object by name.
+**Description:** Returns, in ascending order, every valid object whose `name`
+contains `name` as a substring (Toast `objects.cc`
+`locate_by_name_callback()`).
 
 **Parameters:**
 - `name`: String to search for
-- `exact`: If true, require exact match (default: false for substring)
+- `case_matters`: If true, the substring match is case-sensitive (default:
+  false, case-insensitive)
+
+Flag arguments are Toast 2.8 `TYPE_FLAG`: an INT or a BOOL is accepted and read for truth; any other type (a FLOAT included) is `E_TYPE`, and `function_info()` reports the argument type as -3 (Toast `functions.cc` lines 268-269, `structures.h` line 123; registration at `objects.cc` lines 1381-1384 at origin/master; conformance `builtins/flag_args_accept_bool.yaml`).
 
 **Examples:**
 ```moo
-obj = locate_by_name("System");           // Substring search
-obj = locate_by_name("System Object", 1); // Exact match
+objs = locate_by_name("system");          // Case-insensitive substring search
+objs = locate_by_name("System", true);    // Case-sensitive
 ```
 
 **Note:** Uses the background thread system when threading is enabled and may suspend.
@@ -525,7 +633,7 @@ obj = locate_by_name("System Object", 1); // Exact match
 ### 8.1 Creation
 
 ```moo
-anon = create($thing, $nothing, 1);
+anon = create($thing, 1);              // owner #-1 with anonymous is E_INVARG
 ```
 
 ### 8.2 Characteristics
@@ -534,6 +642,19 @@ anon = create($thing, $nothing, 1);
 - Garbage collected when unreferenced
 - Cannot be stored in database
 - Useful for temporary structures
+- Never a parent: `create()`, `chparent()` and `chparents()` reject an
+  anonymous object as a parent with `E_TYPE`, so an anonymous object has no
+  children and never appears in `children()` or `descendants()`
+- May itself change parent with `chparent()`, and is recycled with
+  `recycle()` (which runs its `:recycle`)
+- `add_property()`, `delete_property()`, `set_property_info()`,
+  `add_verb()`, `delete_verb()`, `set_verb_info()`, `set_verb_args()`,
+  `set_verb_code()`, `verb_args()` and `move()` require a numbered object and
+  raise `E_TYPE` for an anonymous one. Reading builtins (`properties()`,
+  `property_info()`, `verbs()`, `verb_info()`, `verb_code()`,
+  `clear_property()`, `is_clear_property()`) accept it.
+- Property definitions added to or deleted from an ancestor reach anonymous
+  descendants as they reach permanent ones
 
 **Note:** There is no `is_anonymous()` function. Check object type with `typeof(obj) == TYPE_ANON` or test if object is less than #0
 
@@ -581,8 +702,10 @@ value = w.name;
 | E_INVIND | Invalid/recycled object |
 | E_PERM | Permission denied |
 | E_INVARG | Invalid argument |
-| E_RECMOVE | Recursive move |
+| E_RECMOVE | Recursive move or recursive parenting |
+| E_NACC | Move refused by `:accept` |
 | E_QUOTA | Quota exceeded |
+| E_TYPE | Anonymous object where a numbered object is required |
 
 ---
 
