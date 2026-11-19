@@ -541,6 +541,23 @@ func TestCheckpointReloadsEvalCalledThroughCallFunction(t *testing.T) {
 	}
 }
 
+// A call with a spliced argument starts Barn's argument list with an empty
+// OP_MAKE_LIST before its first argument, where Toast holds no list yet. The
+// import looked that empty list up among Toast's operands and refused the
+// frame ("native continuation lacks 2 value from *ir.VerbCallExpr").
+func TestCheckpointReloadsSuspendInFirstArgumentBeforeSplice(t *testing.T) {
+	for _, source := range []string{
+		`l = {1, 2}; return l:initialize(suspend(0), @l);`,
+		`l = {1, 2}; return length(suspend(0), @l);`,
+		`l = {1, 2}; return {suspend(0), @l};`,
+	} {
+		difference, skip := checkpointResumeDifference(t, source, checkpointSuspendedVM, sourceFuzzTicks, false)
+		if skip != "" || difference != "" {
+			t.Errorf("%s: difference %q, skip %q; want neither", source, difference, skip)
+		}
+	}
+}
+
 // A checkpoint writes every variable of the suspended task and of each queued
 // fork in full, as Toast's write_forked_task and write_activ do (tasks.cc:1911,
 // execute.cc:3979), while in memory they share one value. This program holds
