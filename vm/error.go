@@ -75,6 +75,14 @@ func (e VMException) Error() string {
 	return e.Code.String()
 }
 
+// unreportedAbort is what a finished finally body re-raises for a
+// task.PendingAbort reason: the task goes on ending, running enclosing
+// finally bodies, with no error for a handler to catch or for
+// #0:handle_uncaught_error to be told about.
+type unreportedAbort struct{}
+
+func (unreportedAbort) Error() string { return "task aborted" }
+
 // Unwinding may replace a lifecycle callback's error while the outward MOO
 // result retains its original code. Only attach guard metadata to a compatible
 // outward code; this does not change the existing code, value or control flow.

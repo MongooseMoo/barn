@@ -689,8 +689,9 @@ retryAttempt:
 	}
 
 	// Intrinsic eval reports exceptions in its result record, without invoking
-	// the database's uncaught-task handler or emitting a second traceback.
-	if result.Flow == types.FlowException && t.IntrinsicEval {
+	// the database's uncaught-task handler or emitting a second traceback. An
+	// unreported abort holds no error to report.
+	if result.Flow == types.FlowException && (t.IntrinsicEval || result.Unreported) {
 		t.SetState(task.TaskKilled)
 		t.ClearCallStack()
 	} else if result.Flow == types.FlowException {

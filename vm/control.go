@@ -403,6 +403,25 @@ type pendingReason struct {
 	TargetIP     int
 	HandlerDepth int
 	Stack        []types.Value
+	// Uncaught marks a PendingError no handler in any frame catches (Toast's
+	// FIN_UNCAUGHT); forgetUncaughtErrors turns it into a PendingAbort when
+	// the task suspends.
+	Uncaught bool
+}
+
+// forgetUncaughtErrors runs when the task suspends. Toast holds an uncaught
+// error outside the task while its finally bodies run, and resuming a
+// suspended task starts with none held (execute.cc run_interpreter), so a
+// finally body that suspends leaves the task ending with nothing to report.
+func (vm *VM) forgetUncaughtErrors() {
+	for _, frame := range vm.Frames {
+		for index := range frame.PendingReasons {
+			if pending := &frame.PendingReasons[index]; pending.Uncaught {
+				visitErrorValue(pending.Error, vm.collectPendingFinalizationsFromValue)
+				*pending = pendingReason{Kind: task.PendingAbort, FinallyIP: pending.FinallyIP}
+			}
+		}
+	}
 }
 
 // executeEndFinally handles OP_END_FINALLY <finally_ip>.
@@ -443,6 +462,8 @@ func (vm *VM) executeEndFinally(wide bool) error {
 		return vm.Return(pending.Value)
 	case task.PendingJump:
 		return vm.unwindJump(pending.TargetIP, pending.HandlerDepth, pending.Stack)
+	case task.PendingAbort:
+		return unreportedAbort{}
 	}
 	return fmt.Errorf("internal error: invalid pending cleanup reason")
 }

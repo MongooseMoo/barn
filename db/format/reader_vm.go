@@ -680,7 +680,7 @@ func decodePendingReasons(frame *task.VMFrameSnapshot, f frameFields, legacyErro
 					return err
 				}
 				kind := task.PendingReasonKind(row.Get(1).Int())
-				if row.Get(1).Int() < int64(task.PendingReturn) || row.Get(1).Int() > int64(task.PendingJump) || (kind == task.PendingError) != pendingError.Present {
+				if row.Get(1).Int() < int64(task.PendingReturn) || row.Get(1).Int() > int64(task.PendingAbort) || (kind == task.PendingError) != pendingError.Present {
 					return fmt.Errorf("invalid pending reason kind or error")
 				}
 				frame.PendingReasons = append(frame.PendingReasons, task.PendingReasonSnapshot{Kind: kind, FinallyIP: int(row.Get(2).Int()), Value: row.Get(3), Error: pendingError, TargetIP: int(row.Get(5).Int()), HandlerDepth: int(row.Get(6).Int()), Stack: append([]types.Value(nil), row.Get(7).Elements()...)})
