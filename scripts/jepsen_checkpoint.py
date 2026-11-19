@@ -900,10 +900,11 @@ TASK_VERBS = {
     "edit_body": ("p", [f"v = suspend({HOLD_SECONDS});", "this:record(args[1], {\"edit\", \"old\", v});"]),
     "cancel_body": ("p", [f"v = suspend({HOLD_SECONDS});", "this:record(args[1], {\"cancel\", \"ran\", v});"]),
     # The task whose saved program the harness invalidates once (invalidate_task_fingerprint).
-    # It suspends inside a finally clause, which Toast's frame form cannot hold, so
-    # Barn writes it in its own form, the only form with a program fingerprint.
-    "invalid_body": ("p", ["try", "  v = 0;", "finally", f"  v = suspend({HOLD_SECONDS});",
-                           "  this:record(args[1], {\"invalid\", v});", "endtry"]),
+    # It suspends in a while condition where the variables Toast holds unbound
+    # depend on the path taken (engine TestExportRefusesPathDependentPushClear),
+    # so Barn writes it in its own form, the only form with a program fingerprint.
+    "invalid_body": ("p", ["n = 1;", "m = n;", f"while ((n = suspend({HOLD_SECONDS})) == 0)", "  break;",
+                           "endwhile", "this:record(args[1], {\"invalid\", n});"]),
     "recycle_body": ("p", ["h = args[2];", f"v = suspend({HOLD_SECONDS});",
                            "this:record(args[1], {\"recycle\", valid(h), typeof(h), h == args[2], v});"]),
     "effect_body": ("wizard", [f"v = suspend({HOLD_SECONDS});",
@@ -1018,7 +1019,7 @@ def invalidate_task_fingerprint(text, tid):
     "<start> <tid> <wake value...>" after "N suspended tasks". A task Toast's
     frame form can hold is written in that form, which saves only source and
     has no fingerprint; tid must be a task Barn writes in its own form
-    (invalid_body suspends in a finally clause for that). There each saved
+    (invalid_body suspends in a path-dependent while condition for that). There each saved
     frame's program identity list ends with its 64-hex-digit fingerprint,
     which precedes that frame's builtin-layout hex (db/format/writer_vm.go
     programIdentityValue). The first 64-hex line in tid's own section is
