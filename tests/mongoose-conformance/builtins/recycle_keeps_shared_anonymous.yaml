@@ -41,6 +41,26 @@ tests:
     expect:
       value: [1, 1]
 
+  - name: anonymous_held_only_by_recycled_object_is_destroyed
+    permission: wizard
+    statement: |
+      k = create($nothing);
+      add_property(k, "hits", 0, {player, "rw"});
+      p = create($nothing);
+      add_property(p, "keeper", k, {player, "r"});
+      add_verb(p, {player, "rxd", "recycle"}, {"this", "none", "this"});
+      set_verb_code(p, "recycle", {"this.keeper.hits = this.keeper.hits + 1;"});
+      h = create($nothing);
+      add_property(h, "ref", create(p, 1), {player, "rw"});
+      recycle(h);
+      suspend(0);
+      result = k.hits;
+      recycle(p);
+      recycle(k);
+      return result;
+    expect:
+      value: 1
+
   - name: anonymous_held_by_local_survives
     permission: wizard
     statement: |
