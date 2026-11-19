@@ -269,9 +269,85 @@ jobs:
             notifications-logs/
           if-no-files-found: warn
 
+  # Every restart test in the conformance job restarts Barn as Barn, and Barn
+  # reads its own checkpoint even when its import and export are wrong in the
+  # same way. Here one engine writes the checkpoint and the other resumes from
+  # it, in both directions.
+  cross-engine:
+    name: Cross-engine checkpoint restart
+    needs: tested
+    if: needs.tested.outputs.hit != 'true'
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 60
+    steps:
+      - name: Check /dev/null is a device
+        run: |
+          if [ ! -c /dev/null ]; then
+            echo "::error::/dev/null on this runner is not a character device: $(stat -c '%F %U:%G %a' /dev/null). Restore it as root with: rm /dev/null && mknod -m 666 /dev/null c 1 3"
+            exit 1
+          fi
+
+      - name: Checkout barn
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          # Persistent runners already retain Go's caches on disk.
+          cache: ${{ runner.environment == 'github-hosted' }}
+
+      - name: Build barn
+        run: go build -o bin/barn ./cmd/barn/
+
+      # The runner user cannot read the workstation's /root Toast build, so the
+      # job builds the oracle the manifest pins: same ref, Release, and
+      # options.h checked against the manifest's config checksum.
+      - name: Read Toast oracle pin
+        id: toast-pin
+        run: |
+          python3 -c 'import json; m = json.load(open("profiles/toast/stock-wsl-testdb.json")); print("ref=" + m["implementation_ref"]); print("options=" + m["config_checksum"])' >> "$GITHUB_OUTPUT"
+
+      - name: Checkout ToastStunt
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: MongooseMoo/toaststunt
+          ref: ${{ steps.toast-pin.outputs.ref }}
+          path: toaststunt
+          persist-credentials: false
+
+      - name: Build Toast oracle
+        env:
+          OPTIONS_SHA256: ${{ steps.toast-pin.outputs.options }}
+        run: |
+          echo "$OPTIONS_SHA256  toaststunt/src/include/options.h" | sha256sum -c -
+          # CMakeLists.txt generates version_options.h in cmake's working
+          # directory, which must be the build directory to be included.
+          mkdir toaststunt/build
+          (cd toaststunt/build && cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build . -j2)
+
+      - name: Checkout moo-conformance-tests
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          repository: MongooseMoo/moo-conformance-tests
+          ref: ${{ needs.tested.outputs.suite }}
+          path: moo-conformance-tests
+          # The suite's ToastCore startup database is a git submodule.
+          submodules: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Restart each engine on the other's checkpoint
+        run: bash scripts/cross-engine-checkpoint.sh bin/barn toaststunt/build/moo moo-conformance-tests
+
   record:
     name: Record pass
-    needs: [tested, go, conformance]
+    needs: [tested, go, conformance, cross-engine]
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
