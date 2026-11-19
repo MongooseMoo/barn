@@ -128,10 +128,14 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 			// resume_task runs it at once. queued_tasks() lists WakeTime.
 			t.StartTime, t.QueueTime = now, now
 		}
-		if saved.StartTime.Unix() < 0 {
-			// Older 64-bit Toast servers wrote an indefinite suspension's
-			// INTNUM_MAX start time through "%d" as -1; Toast's reader treats a
-			// negative start time as indefinite (tasks.cc read_task_queue).
+		if seconds := saved.StartTime.Unix(); seconds < 0 || seconds >= task.IndefiniteSuspendStartTime.Unix() {
+			// Toast writes an indefinite suspension's start time as INTNUM_MAX
+			// (tasks.cc enqueue_suspended_task, write_suspended_task), which a
+			// time.Time cannot compare: time.Unix(MaxInt64, 0) reads as long
+			// past. Barn writes IndefiniteSuspendStartTime for the same state.
+			// Older 64-bit Toast servers wrote INTNUM_MAX through "%d" as -1;
+			// Toast's reader treats a negative start time as indefinite
+			// (tasks.cc read_task_queue).
 			t.WakeTime = time.Time{}
 			t.StartTime = task.IndefiniteSuspendStartTime
 		}
