@@ -82,6 +82,16 @@ func (s *barnImportLayout) markListPrefix(c *lowerer, list *ir.ListExpr) {
 	}
 }
 
+// markExceptionCodes names the operand on top of the stack as the evaluated
+// codes of owner's clause, which Toast holds as that clause's codes operand
+// (nativeVector.codes) while Barn keeps them in a compiler temporary.
+func (s *barnImportLayout) markExceptionCodes(c *lowerer, owner ir.Node, clause int) {
+	s.flush(c)
+	if len(s.stack) != 0 {
+		s.stack[len(s.stack)-1] = barnImportValue{origin: NativeValueOrigin{Kind: NativeExceptionCodes, Node: owner, Aux: clause}}
+	}
+}
+
 // markRangeStart names the operand on top of the stack as loop's evaluated
 // lower bound. Toast holds it as the loop's next value while it evaluates the
 // upper bound (code_gen.cc STMT_RANGE; nativeVector.stmt names it the same).
