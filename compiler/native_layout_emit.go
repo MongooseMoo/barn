@@ -70,6 +70,7 @@ type nativeVector struct {
 	controls                         []NativeControlOrigin
 	loops                            []nativeLoop
 	continuations                    []NativeContinuation
+	exits                            []NativeExit // PC holds the label until finish
 	savedStack                       int
 	tryDepth                         int
 	reduceOps                        []nativeReduceOp
@@ -330,6 +331,10 @@ func (s *nativeVector) finish(vector int) NativeVectorLayout {
 			}
 		}
 		l.Continuations = append(l.Continuations, site)
+	}
+	for _, exit := range s.exits {
+		exit.PC = labelPC(exit.PC)
+		l.Exits = append(l.Exits, exit)
 	}
 	for label := range s.labels {
 		if origin, ok := s.labelOrigins[label]; ok {

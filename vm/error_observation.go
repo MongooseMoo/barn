@@ -31,6 +31,21 @@ func (vm *VM) errorObservation(err error) (caught, observe bool) {
 	return false, true
 }
 
+// uncaught reports whether no except handler still held by any frame catches
+// code, as Toast's find_handler_activ decides between FIN_RAISE and
+// FIN_UNCAUGHT when an error is raised. Handlers the unwind has already
+// passed did not catch it.
+func (vm *VM) uncaught(code types.Value) bool {
+	for _, frame := range vm.Frames {
+		for index := range frame.ExceptStack {
+			if vm.handlerMatches(frame, &frame.ExceptStack[index], code) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // raisedCode is the code an except arm compares against: the error itself,
 // or, for raise() of a non-error value (carried as E_NONE), that value, which
 // is the first element of the exception tuple.

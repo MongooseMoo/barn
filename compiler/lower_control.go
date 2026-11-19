@@ -558,6 +558,7 @@ func (c *lowerer) compileFork(n *ir.ForkStmt) error {
 	c.emitShort(uint16(varIdx))
 	bodyLenPatch := len(c.program.Code)
 	c.emitWide(^uint32(0)) // placeholder for body length
+	c.forks = append(c.forks, n)
 
 	// Compile the fork body (will be skipped at runtime but compiled for future use)
 	bodyStart := c.currentOffset()

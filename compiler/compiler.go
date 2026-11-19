@@ -129,7 +129,8 @@ func (c *Compiler) CompileMOOWithKey(sourceLines []string, key sourcekey.Key) (*
 }
 
 func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []Diagnostic) {
-	program, parseErrors := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgramWithDiagnostics(func(name string, pos ir.Position) error {
+	source := strings.Join(sourceLines, "\n")
+	program, parseErrors := parser.NewParser(source).ParseProgramWithDiagnostics(func(name string, pos ir.Position) error {
 		if _, ok := c.builtinIDs[canonicalIdentifier(name)]; !ok {
 			return &UnknownBuiltinError{Name: name, Position: pos}
 		}
@@ -143,13 +144,43 @@ func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []D
 		return nil, diagnostics
 	}
 
-	compiled, err := newLowerer(c.builtinIDs).compileProgram(program)
+	lower := newLowerer(c.builtinIDs)
+	compiled, err := lower.compileProgram(program)
+	if err == nil {
+		compiled.ForkSources, err = forkSources(source, program, lower.forks)
+	}
 	if err != nil {
 		return nil, []Diagnostic{compileDiagnostic(err)}
 	}
 	compiled.Source = append([]string(nil), sourceLines...)
 	compiled.BuiltinLayout = c.layout
 	return compiled, nil
+}
+
+// forkSources returns, for each fork statement in forks (the order the
+// lowerer emitted their instructions), its body as Toast writes a queued
+// forked task's code: the unparse of the fork vector, fully parenthesized and
+// not indented (db_io.cc dbio_write_forked_program). program is the parse of
+// source and holds every statement in forks. Floats are spelled exactly, as
+// in stored verb code, so the saved body compiles to the same values.
+func forkSources(source string, program *ir.Program, forks []*ir.ForkStmt) ([][]string, error) {
+	if len(forks) == 0 {
+		return nil, nil
+	}
+	options := parser.FormatOptions{
+		FullyParenthesized: true,
+		Unindented:         true,
+		ElseIfArms:         parser.ElseIfArms(source, program),
+	}
+	sources := make([][]string, len(forks))
+	for index, fork := range forks {
+		lines, err := parser.FormatUncheckedWith(&ir.Program{Statements: fork.Body}, options)
+		if err != nil {
+			return nil, err
+		}
+		sources[index] = lines
+	}
+	return sources, nil
 }
 
 // LowerUnknownBuiltinCalls rewrites verb source read from a database the way

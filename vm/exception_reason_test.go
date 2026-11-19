@@ -113,7 +113,10 @@ func TestExceptionReasonNestedBuiltinResultBridge(t *testing.T) {
 }
 
 func TestExceptionReasonPendingFinallyRetryAndCheckpoint(t *testing.T) {
-	machine, result := reasonFrameProgram(t, `try #0:test_return(); finally suspend(); x = 1; endtry`)
+	// An enclosing except keeps the error a handled one. One nothing catches
+	// is dropped when its finally body suspends
+	// (TestUncaughtErrorDroppedWhenFinallySuspends).
+	machine, result := reasonFrameProgram(t, `try try #0:test_return(); finally suspend(); x = 1; endtry except e (E_MAXREC) return e[1]; endtry`)
 	if result.Flow != types.FlowSuspend {
 		t.Fatalf("result = %+v, want suspend in finally", result)
 	}
@@ -132,7 +135,7 @@ func TestExceptionReasonPendingFinallyRetryAndCheckpoint(t *testing.T) {
 	if got := exceptionReason(machine.CurrentFrame().PendingReasons[0].Error); got != types.ExceptionReasonFrameDepth {
 		t.Fatalf("retry restored reason = %s", got)
 	}
-	requireExceptionReason(t, machine.Resume(), types.ExceptionReasonFrameDepth)
+	requireCaughtMaxrec(t, machine.Resume())
 
 	path := filepath.Join(t.TempDir(), "pending-error.db")
 	if err := dbformat.WriteCheckpoint(path, machine.Store, nil, []task.Snapshot{{
@@ -163,7 +166,50 @@ func TestExceptionReasonPendingFinallyRetryAndCheckpoint(t *testing.T) {
 		t.Fatal("restored fixture has no active frame")
 	}
 	restored.Task = machine.Task
-	requireExceptionReason(t, restored.Resume(), types.ExceptionReasonFrameDepth)
+	requireCaughtMaxrec(t, restored.Resume())
+}
+
+// requireCaughtMaxrec checks that the enclosing except arm received the
+// pending error once the finally body ended.
+func requireCaughtMaxrec(t *testing.T, result types.Result) {
+	t.Helper()
+	if result.Flow != types.FlowReturn || !result.Val.Equal(types.NewErr(types.E_MAXREC)) {
+		t.Fatalf("result flow=%v value=%v, want the except arm's return of E_MAXREC", result.Flow, result.Val)
+	}
+}
+
+// Toast holds an error nothing catches outside the task while its finally
+// bodies run and drops it when the task suspends (execute.cc raise_error,
+// run_interpreter). So the suspended frame holds an abort with no error, and
+// resuming runs the rest of the finally body and ends the task with nothing
+// to report, here and after a checkpoint.
+func TestUncaughtErrorDroppedWhenFinallySuspends(t *testing.T) {
+	machine, result := reasonFrameProgram(t, `try #0:test_return(); finally suspend(); x = 1; endtry`)
+	if result.Flow != types.FlowSuspend {
+		t.Fatalf("result = %+v, want suspend in finally", result)
+	}
+	frame := machine.CurrentFrame()
+	if frame == nil || len(frame.PendingReasons) != 1 || frame.PendingReasons[0].Kind != task.PendingAbort || frame.PendingReasons[0].Error != nil {
+		t.Fatalf("suspended frame = %#v, want one abort holding no error", frame)
+	}
+	snapshot := machine.PersistenceVMSnapshot()
+	requireUnreportedAbort(t, machine.Resume())
+
+	ctx := task.NewContext()
+	ctx.Store = machine.Store
+	restored, err := RestoreVMSnapshot(snapshot, machine.Store, machine.Builtins, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored.Task = machine.Task
+	requireUnreportedAbort(t, restored.Resume())
+}
+
+func requireUnreportedAbort(t *testing.T, result types.Result) {
+	t.Helper()
+	if result.Flow != types.FlowException || !result.Unreported || result.Error != types.E_NONE || result.Reason != types.ExceptionReasonUnknown {
+		t.Fatalf("result = %+v, want the task ending with no error to report", result)
+	}
 }
 
 func TestExceptionReasonTypedOnlyAndMoveBridge(t *testing.T) {

@@ -11,7 +11,7 @@ type ForkBody interface {
 // ForkInfo contains the task context and captured environment for a fork.
 type ForkInfo struct {
 	Body        ForkBody         // Live descriptor; nil for source-restored queued tasks
-	SourceLines []string         // Original source lines (for database serialization)
+	SourceLines []string         // The body's code as a checkpoint saves it; shared, never written through
 	Delay       float64          // MOO delay in seconds before execution
 	VarName     string           // Variable to store task ID (empty = anonymous)
 	Variables   map[string]Value // Deep copy of variable environment

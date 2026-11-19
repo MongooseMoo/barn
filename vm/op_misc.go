@@ -116,6 +116,7 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 	// this value already on the stack.
 	if result.Flow == types.FlowSuspend {
 		vm.Push(types.NewInt(0)) // suspend() returns 0 in MOO
+		vm.forgetUncaughtErrors()
 		vm.yielded = true
 		vm.yieldResult = result
 		return nil

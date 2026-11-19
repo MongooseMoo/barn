@@ -130,7 +130,9 @@ func TestFinallyNestedReasonsSurviveCheckpointAndRetry(t *testing.T) {
 }
 
 func TestFinallyNestedPendingRootsCloneAndInvalidState(t *testing.T) {
-	machine := retryTestVM(t, `try return 73; finally try raise(E_TYPE); finally suspend(); endtry endtry`)
+	// The enclosing except keeps the error a handled one; one nothing catches
+	// is dropped when its finally body suspends.
+	machine := retryTestVM(t, `try try return 73; finally try raise(E_TYPE); finally suspend(); endtry endtry except (E_TYPE) endtry`)
 	frame := machine.CurrentFrame()
 	if len(frame.PendingReasons) != 2 {
 		t.Fatalf("reasons: %#v", frame.PendingReasons)

@@ -143,6 +143,13 @@ const (
 	PendingReturn PendingReasonKind = iota + 1
 	PendingError
 	PendingJump
+	// PendingAbort is an error that had no handler when it was raised and
+	// whose finally body then suspended. Toast keeps such an error outside
+	// the task, for #0:handle_uncaught_error, and forgets it when the task
+	// blocks (execute.cc raise_error, run_interpreter), so after the finally
+	// body the task goes on ending: enclosing finally bodies run, nothing
+	// catches it, and nothing is reported.
+	PendingAbort
 )
 
 // PendingReasonSnapshot owns one unwind reason while its cleanup executes.

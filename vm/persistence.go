@@ -213,8 +213,12 @@ func convertNativeSnapshot(snapshot *task.VMSnapshot, store *dbstore.Store, sess
 		if index == 0 {
 			vector = snapshot.NativeRootVector
 		}
-		if previousCall == compiler.NativeResumeEval {
+		var move *task.MoveContinuationSnapshot
+		switch previousCall {
+		case compiler.NativeResumeEval:
 			saved = withoutEvalReturnContinuation(saved)
+		case compiler.NativeResumeBuiltin:
+			saved, move = withoutMoveContinuation(saved)
 		}
 		frame, call, err := session.Registry().Compiler().ConvertNativeFrame(saved, vector, index == len(snapshot.Frames)-1)
 		if err != nil {
@@ -222,6 +226,13 @@ func convertNativeSnapshot(snapshot *task.VMSnapshot, store *dbstore.Store, sess
 		}
 		frame.IsVerbCall = previousCall == compiler.NativeResumeVerb || previousCall == compiler.NativeResumePass
 		frame.IsEvalFrame = previousCall == compiler.NativeResumeEval
+		if move != nil {
+			// The frame as pushMoveLifecycleVerb leaves a hook verb's.
+			frame.IsVerbCall = true
+			frame.DiscardReturn = true
+			frame.MoveContinuation = move
+			frame.BuiltinCaller, frame.BuiltinPC = "move", move.Stage+1
+		}
 		if index != 0 {
 			parent := snapshot.Frames[index-1]
 			frame.SavedThisObj = parent.This
@@ -260,6 +271,43 @@ func withoutEvalReturnContinuation(saved task.VMFrameSnapshot) task.VMFrameSnaps
 	return saved
 }
 
+// Toast's state line for a move() continuation (objects.cc bf_move_write).
+const nativeMoveState = "bf_move data: what = %d, where = %d, position = %d"
+
+// Toast's bf_move calls where:accept, oldloc:exitfunc and where:enterfunc as
+// verb activations and records builtin move on each one, with the pc do_move
+// continues at when that verb returns (2, 3, 4) and its what, where and
+// position (objects.cc do_move). Barn models the same continuation as the
+// hook frame's MoveContinuation, whose Stage is that pc less one. Toast keeps
+// no old location: do_move's oldloc is a local it does not read after
+// exitfunc, as continueMoveLifecycleAfterExit does not. Decentralized is what
+// builtinMove gives a task that has not yet mutated the live store, which a
+// task restored from a checkpoint has not. A move mark with another pc or
+// other state is left for ConvertNativeFrame to refuse.
+func withoutMoveContinuation(saved task.VMFrameSnapshot) (task.VMFrameSnapshot, *task.MoveContinuationSnapshot) {
+	builtin := saved.Native.Builtin
+	if builtin == nil || builtin.Name != "move" || builtin.Inner != nil || saved.BuiltinPC <= moveAwaitAccept || saved.BuiltinPC > moveAwaitEnter+1 {
+		return saved, nil
+	}
+	var what, where, position int64
+	if _, err := fmt.Sscanf(builtin.State, nativeMoveState, &what, &where, &position); err != nil || builtin.State != fmt.Sprintf(nativeMoveState, what, where, position) {
+		return saved, nil
+	}
+	move := &task.MoveContinuationSnapshot{
+		Stage:         saved.BuiltinPC - 1,
+		What:          types.NewObj(types.ObjID(what)),
+		Where:         types.NewObj(types.ObjID(where)),
+		OldLocation:   types.None,
+		Position:      position,
+		Decentralized: true,
+	}
+	native := *saved.Native
+	native.Builtin = nil
+	saved.Native = &native
+	saved.BuiltinPC = 0
+	return saved, move
+}
+
 // ExportNativeSnapshot is convertNativeSnapshot's inverse: it returns snapshot
 // with every frame as Toast holds it at the same call, so Toast can load and
 // resume it, or an error when any frame has no Toast form. Programmers are
@@ -270,6 +318,14 @@ func ExportNativeSnapshot(snapshot *task.VMSnapshot, callStack []types.Activatio
 	}
 	exported := &task.VMSnapshot{MaxStackDepth: snapshot.MaxStackDepth, Frames: make([]task.VMFrameSnapshot, len(snapshot.Frames))}
 	for index, saved := range snapshot.Frames {
+		move := saved.MoveContinuation
+		if move != nil {
+			// Toast's move data holds object numbers (see withoutMoveContinuation).
+			if saved.BuiltinCaller != "move" || saved.BuiltinPC != move.Stage+1 || move.What.Type() != types.TYPE_OBJ || move.Where.Type() != types.TYPE_OBJ {
+				return nil, fmt.Errorf("frame %d (#%d:%s): move continuation has no Toast form", index, saved.VerbLoc, saved.Verb)
+			}
+			saved.MoveContinuation, saved.BuiltinCaller, saved.BuiltinPC = nil, "", 0
+		}
 		frame, vector, err := compile.ExportNativeFrame(saved, index == len(snapshot.Frames)-1)
 		if err != nil {
 			return nil, fmt.Errorf("frame %d (#%d:%s): %w", index, saved.VerbLoc, saved.Verb, err)
@@ -290,6 +346,12 @@ func ExportNativeSnapshot(snapshot *task.VMSnapshot, callStack []types.Activatio
 			native.Builtin = &task.NativeBuiltinSnapshot{Name: "eval"}
 			frame.Native = &native
 			frame.BuiltinPC = 2
+		}
+		if move != nil {
+			native := *frame.Native
+			native.Builtin = &task.NativeBuiltinSnapshot{Name: "move", State: fmt.Sprintf(nativeMoveState, move.What.Obj(), move.Where.Obj(), move.Position)}
+			frame.Native = &native
+			frame.BuiltinPC = move.Stage + 1
 		}
 		exported.Frames[index] = frame
 	}
@@ -456,6 +518,10 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 				if pending.Error.Present || pending.HandlerDepth < 0 || pending.HandlerDepth > len(saved.ExceptStack) || !saved.Program.IsInstructionBoundary(pending.TargetIP) || heights[pending.TargetIP] != len(pending.Stack) {
 					return fmt.Errorf("frame %d: invalid pending loop transfer", frameIndex)
 				}
+			case task.PendingAbort:
+				if pending.Error.Present {
+					return fmt.Errorf("frame %d: abort has pending error", frameIndex)
+				}
 			default:
 				return fmt.Errorf("frame %d: invalid pending cleanup reason kind", frameIndex)
 			}
@@ -596,6 +662,7 @@ func cloneProgram(program *bytecode.Program) bytecode.Program {
 		Origin:        program.Origin,
 		// Immutable once the compiler fills it, like Constants' values.
 		BuiltinPropertyConstants: program.BuiltinPropertyConstants,
+		ForkSources:              program.ForkSources,
 	}
 }
 

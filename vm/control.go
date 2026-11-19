@@ -5,7 +5,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/parser"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"slices"
@@ -143,11 +142,12 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	verbStr := frame.Verb
 	thisValue := frame.ThisValue
 
+	body := &bytecode.ForkBody{Parent: frame.Program, Offset: forkBodyIP, Length: forkBodyLen}
 	forkInfo := &types.ForkInfo{
 		Delay:       delaySeconds,
 		VarName:     varName,
-		Body:        &bytecode.ForkBody{Parent: frame.Program, Offset: forkBodyIP, Length: forkBodyLen},
-		SourceLines: sourceLinesForFork(frame.Program, forkBodyIP, forkBodyLen),
+		Body:        body,
+		SourceLines: body.SourceLines(),
 		ThisObj:     thisObj,
 		ThisValue:   thisValue,
 		Player:      playerObj,
@@ -185,120 +185,6 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	}
 
 	return nil
-}
-
-func sourceLinesForFork(program *bytecode.Program, bodyIP, bodyLen int) []string {
-	if program == nil || len(program.Source) == 0 || bodyLen <= 0 {
-		return nil
-	}
-
-	startLine := program.LineForIP(bodyIP)
-	endLine := program.LineForIP(bodyIP + bodyLen - 1)
-	if startLine <= 0 || endLine <= 0 {
-		return nil
-	}
-	// Line entries inside the body are not in source order: a try whose
-	// except codes are not constant evaluates them first, under entries for
-	// both the try line and the except line at the same IP, so LineForIP of
-	// the first IP names the except line. Span every entry in the body.
-	for _, entry := range program.LineInfo {
-		if entry.StartIP < bodyIP || entry.StartIP >= bodyIP+bodyLen || entry.Line <= 0 {
-			continue
-		}
-		startLine = min(startLine, entry.Line)
-		endLine = max(endLine, entry.Line)
-	}
-	if endLine < startLine {
-		endLine = startLine
-	}
-	if startLine > len(program.Source) {
-		return nil
-	}
-	if endLine > len(program.Source) {
-		endLine = len(program.Source)
-	}
-	if startLine == endLine {
-		if body := oneLineForkBody(program.Source[startLine-1]); body != "" {
-			return []string{body}
-		}
-	}
-
-	// The line table only covers lines that emit code, so a body ending in a
-	// compound statement stops before that statement's closing keyword
-	// (endif, endwhile, endfor, endfork, endtry), which emits none. Take
-	// following lines until the body's blocks balance.
-	for depth := blockDepth(program.Source[startLine-1 : endLine]); depth > 0 && endLine < len(program.Source); {
-		depth += blockDepth(program.Source[endLine : endLine+1])
-		endLine++
-	}
-
-	lines := make([]string, 0, endLine-startLine+1)
-	for i := startLine; i <= endLine; i++ {
-		lines = append(lines, program.Source[i-1])
-	}
-	return lines
-}
-
-// blockDepth returns the number of block statements opened minus the number
-// closed in lines.
-func blockDepth(lines []string) int {
-	lexer := parser.NewLexer(strings.Join(lines, "\n"))
-	depth := 0
-	for {
-		switch lexer.NextToken().Type {
-		case parser.TOKEN_EOF, parser.TOKEN_ILLEGAL:
-			return depth
-		case parser.TOKEN_IF, parser.TOKEN_WHILE, parser.TOKEN_FOR, parser.TOKEN_FORK, parser.TOKEN_TRY:
-			depth++
-		case parser.TOKEN_ENDIF, parser.TOKEN_ENDWHILE, parser.TOKEN_ENDFOR, parser.TOKEN_ENDFORK, parser.TOKEN_ENDTRY:
-			depth--
-		}
-	}
-}
-
-func oneLineForkBody(source string) string {
-	forkIdx := indexASCIIFold(source, "fork")
-	if forkIdx < 0 {
-		return ""
-	}
-	headerEnd := strings.Index(source[forkIdx:], ")")
-	if headerEnd < 0 {
-		return ""
-	}
-	bodyStart := forkIdx + headerEnd + 1
-	endIdx := indexASCIIFold(source[bodyStart:], "endfork")
-	if endIdx < 0 {
-		return ""
-	}
-	body := strings.TrimSpace(source[bodyStart : bodyStart+endIdx])
-	body = strings.TrimPrefix(body, ";")
-	body = strings.TrimSpace(body)
-	return body
-}
-
-// indexASCIIFold returns the byte offset in s of the first ASCII
-// case-insensitive match of the lowercase ASCII pattern, or -1. Unlike
-// strings.ToLower, it never rewrites bytes, so the offset indexes s even when
-// s holds invalid UTF-8.
-func indexASCIIFold(s, lowerPattern string) int {
-	n := len(lowerPattern)
-	for i := 0; i+n <= len(s); i++ {
-		match := true
-		for j := 0; j < n; j++ {
-			c := s[i+j]
-			if 'A' <= c && c <= 'Z' {
-				c += 'a' - 'A'
-			}
-			if c != lowerPattern[j] {
-				match = false
-				break
-			}
-		}
-		if match {
-			return i
-		}
-	}
-	return -1
 }
 
 // singleExceptCodes holds the codes list of a one-code clause, except (E_TYPE),
@@ -403,6 +289,25 @@ type pendingReason struct {
 	TargetIP     int
 	HandlerDepth int
 	Stack        []types.Value
+	// Uncaught marks a PendingError no handler in any frame catches (Toast's
+	// FIN_UNCAUGHT); forgetUncaughtErrors turns it into a PendingAbort when
+	// the task suspends.
+	Uncaught bool
+}
+
+// forgetUncaughtErrors runs when the task suspends. Toast holds an uncaught
+// error outside the task while its finally bodies run, and resuming a
+// suspended task starts with none held (execute.cc run_interpreter), so a
+// finally body that suspends leaves the task ending with nothing to report.
+func (vm *VM) forgetUncaughtErrors() {
+	for _, frame := range vm.Frames {
+		for index := range frame.PendingReasons {
+			if pending := &frame.PendingReasons[index]; pending.Uncaught {
+				visitErrorValue(pending.Error, vm.collectPendingFinalizationsFromValue)
+				*pending = pendingReason{Kind: task.PendingAbort, FinallyIP: pending.FinallyIP}
+			}
+		}
+	}
 }
 
 // executeEndFinally handles OP_END_FINALLY <finally_ip>.
@@ -443,6 +348,8 @@ func (vm *VM) executeEndFinally(wide bool) error {
 		return vm.Return(pending.Value)
 	case task.PendingJump:
 		return vm.unwindJump(pending.TargetIP, pending.HandlerDepth, pending.Stack)
+	case task.PendingAbort:
+		return unreportedAbort{}
 	}
 	return fmt.Errorf("internal error: invalid pending cleanup reason")
 }

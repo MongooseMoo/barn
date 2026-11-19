@@ -31,8 +31,6 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 		return frame, 0, fmt.Errorf("frame is already in Toast's form")
 	case frame.BuiltinPC != 0 || frame.MoveContinuation != nil || frame.RecycleContinuation != nil:
 		return frame, 0, fmt.Errorf("builtin continuation has no Toast form")
-	case len(frame.PendingReasons) != 0:
-		return frame, 0, fmt.Errorf("pending finally reason has no Toast form")
 	case frame.ReturnLocal != 0:
 		return frame, 0, fmt.Errorf("WAIF setter result local has no Toast form")
 	}
@@ -91,12 +89,6 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 	if site == nil || (origin.Native && site.Vector != vector) || (fork != 0 && site.Vector < 0) {
 		return frame, 0, fmt.Errorf("call has no Toast continuation in the frame's vector")
 	}
-	for _, control := range site.Controls {
-		switch control.Kind {
-		case NativeFinallyHandler:
-			return frame, 0, fmt.Errorf("pending finally reason has no Toast form")
-		}
-	}
 	if site.ClearUnknown {
 		return frame, 0, fmt.Errorf("which variables Toast holds unbound at the call depends on the path into its block")
 	}
@@ -124,6 +116,9 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 		if local := slot - gap; local >= 0 && local < len(frame.Locals) {
 			record(value, frame.Locals[local])
 		}
+	}
+	if err := exportFinallyReasons(described, offset, importing, siteVector, site, frame.PendingReasons, values); err != nil {
+		return frame, 0, err
 	}
 
 	stack := make([]types.Value, 0, len(site.Stack)-1)

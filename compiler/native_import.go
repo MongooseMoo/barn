@@ -54,7 +54,8 @@ func (c *Compiler) Rebuild(source []string, origin bytecode.Origin) (*bytecode.P
 // when not nil, observes the lowering to map Toast continuation state; it
 // never changes the code emitted. It also returns the whole source's layout.
 func (c *Compiler) compileNativeVector(source []string, languageVersion, vector int, importing *barnImportLayout) (*bytecode.Program, *NativeProgramLayout, *NativeVectorLayout, *lowerer, error) {
-	program, err := parser.NewParser(strings.Join(source, "\n")).ParseProgram()
+	text := strings.Join(source, "\n")
+	program, err := parser.NewParser(text).ParseProgram()
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("parse native saved source: %w", err)
 	}
@@ -83,6 +84,9 @@ func (c *Compiler) compileNativeVector(source []string, languageVersion, vector 
 		if importing.err != nil {
 			return nil, nil, nil, nil, importing.err
 		}
+	}
+	if compiled.ForkSources, err = forkSources(text, program, lower.forks); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("unparse native fork body: %w", err)
 	}
 	compiled.Source = append([]string(nil), source...)
 	compiled.BuiltinLayout = c.layout
@@ -257,10 +261,9 @@ func (c *Compiler) ConvertNativeFrame(saved task.VMFrameSnapshot, vector int, to
 		}
 		converted.Stack = append(converted.Stack, resolved)
 	}
-	for _, control := range site.Controls {
-		if control.Kind == NativeFinallyHandler {
-			return saved, 0, fmt.Errorf("native pending finally reason requires conversion")
-		}
+	converted.PendingReasons, err = importFinallyReasons(compiled, importing, selected, site, values, converted.Stack)
+	if err != nil {
+		return saved, 0, err
 	}
 	converted.ExceptStack, err = importedHandlers(compiled, barn.Handlers, site.Controls)
 	if err != nil {
