@@ -58,7 +58,10 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		if err != nil {
 			return types.None, err
 		}
-		return types.NewErr(types.ErrorCode(errCode)), nil
+		// Toast writes the whole 64-bit number of its value union but only
+		// ever assigns and reads the 32-bit error code in it, so the upper
+		// half of the stored number is leftover memory.
+		return types.NewErr(types.ErrorCode(int32(errCode))), nil
 
 	case 4: // LIST
 		count, err := readInt(r)
