@@ -143,6 +143,20 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 			kind, value = nativeFinallyType, types.NewInt(int64(wanted.LabelPC))
 		case NativeHandlerLabel:
 			value = types.NewInt(int64(wanted.LabelPC))
+		case NativeExpression:
+			value, err = nativeOperand(wanted, values)
+			if variable, ok := wanted.Node.(*ir.VariableTarget); ok && err != nil {
+				// Toast pushes an indexed assignment's variable before its
+				// indexes (nativeVector.target); Barn reads the variable when
+				// it stores, so the variable's current value is that operand.
+				var bound bool
+				if value, bound = nativeVariable(frame, variable.Name); bound {
+					err = nil
+				}
+			}
+			if err != nil {
+				return frame, 0, err
+			}
 		default:
 			value, err = nativeOperand(wanted, values)
 			if err != nil {
