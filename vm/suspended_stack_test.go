@@ -156,3 +156,25 @@ func TestSuspendedStackKindsReachCheckpoint(t *testing.T) {
 		}
 	}
 }
+
+// A host too starved to finish a task inside its wall-clock budget must make
+// the world-history lane skip the case, not report that the program failed to
+// complete. The input is the one recorded by issue #902, which a loaded fuzz
+// runner stopped at the seconds budget; here every task's deadline has passed
+// before it starts, in both the uninterrupted and the checkpointed run.
+func TestWorldHistoryLaneSkipsSecondsBudget(t *testing.T) {
+	saved := sourceFuzzTaskBudget
+	sourceFuzzTaskBudget = 0
+	defer func() { sourceFuzzTaskBudget = saved }()
+	cases := map[string]string{
+		"issue-902": fuzzseed.SuspendedStack([]byte("\x92\v\xdf \x05\xff\xff\x05\x1c\x1c\x1c\x1c\x1c\x1c\x1c\x1c\x1c\x1c\x1c\x85\x85\"\x1c\x85\x1c\x1c\x1c d\x8d\x85\x85\x1c\x1c\x1c\x1c\x1c\x1c\x8d\xf75\xf1\xa3P\xff")),
+	}
+	for name, source := range cases {
+		t.Run(name, func(t *testing.T) {
+			difference, skip := checkpointResumeDifference(t, source, checkpointSuspendedVM, 30000, true)
+			if skip != secondsBudgetSkip || difference != "" {
+				t.Fatalf("difference %q, skip %q; want skip %q", difference, skip, secondsBudgetSkip)
+			}
+		})
+	}
+}

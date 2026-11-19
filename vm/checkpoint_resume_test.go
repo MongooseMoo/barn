@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
@@ -97,6 +98,10 @@ type checkpointFunc func(t *testing.T, machine *VM, store *dbstore.Store, queued
 // child before its parent continues (engine.Runtime.drainForks), so no
 // checkpoint sees a VM stopped at a fork. Already queued children are written
 // with the suspended parent and reconstructed from the loaded code/environment.
+// secondsBudgetSkip is checkpointResumeDifference's skip reason when a task
+// hit the seconds budget.
+const secondsBudgetSkip = "a task hit the seconds budget, which depends on wall-clock time"
+
 func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpointFunc, ticks int64, wizard bool) (difference, skip string) {
 	t.Helper()
 	registry := newCheckpointResumeRegistry(t)
@@ -106,13 +111,25 @@ func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpoi
 	}
 	plain, plainState, _ := runCheckpointResumeCase(t, registry, program, nil, ticks, wizard)
 	resumed, resumedState, suspends := runCheckpointResumeCase(t, registry, program, checkpoint, ticks, wizard)
-	for lane, results := range [][]types.Result{plain, resumed} {
+	lanes := [][]types.Result{plain, resumed}
+	// The seconds budget is checked first, in every task of both runs: a
+	// starved host can stop any task at its wall-clock deadline (and a later
+	// task can then fail on the state it left), so no outcome in a run with
+	// such a task, the world-history lane's included, says anything about the
+	// program.
+	for _, results := range lanes {
 		for _, result := range results {
-			if wizard && result.Flow != types.FlowReturn {
-				t.Fatalf("world history lane %d did not complete: %s; frames=%v\n%s", lane, describeTaskResult(result), result.CallStack, source)
-			}
 			if result.Flow == types.FlowException && result.Reason == types.ExceptionReasonSecondsBudget {
-				return "", "a task hit the seconds budget, which depends on wall-clock time"
+				return "", secondsBudgetSkip
+			}
+		}
+	}
+	if wizard {
+		for lane, results := range lanes {
+			for _, result := range results {
+				if result.Flow != types.FlowReturn {
+					t.Fatalf("world history lane %d did not complete: %s; frames=%v\n%s", lane, describeTaskResult(result), result.CallStack, source)
+				}
 			}
 		}
 	}
@@ -322,6 +339,10 @@ func runPersistentStateObserver(t *testing.T, store *dbstore.Store, session *bui
 		t.Fatalf("observer does not compile: %v", diagnostics)
 	}
 	machine := newSourceFuzzVM(store, session, 1, defaultTickLimit)
+	// The observer is the harness reading the result, not the program under
+	// test: its ticks bound it, and a starved host must not stop it at the
+	// fuzz tasks' wall-clock deadline.
+	machine.Task.SetExecutionDeadline(time.Time{})
 	machine.Context.IsWizard = true
 	result := machine.RunWithVerbContext(program, types.ObjNothing, machine.Context.Player, types.ObjNothing, "", types.ObjNothing, args)
 	if result.Flow != types.FlowReturn {
