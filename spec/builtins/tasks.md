@@ -152,13 +152,27 @@ endfor
 
 **Signature:** `finished_tasks() → LIST`
 
-**Description:** Returns list of recently completed tasks, if task history is enabled.
+**Description:** Returns a record of each recent interpreter run, oldest first. Wizard only (`E_PERM` otherwise).
 
 **Notes:**
-- Only available when compiled with `SAVE_FINISHED_TASKS`. Otherwise, the builtin does not exist.
-- Server must be configured to track finished tasks. Returns empty list if disabled.
+- In ToastStunt, only available when compiled with `SAVE_FINISHED_TASKS`; stock builds don't have it. Barn provides it by default (the `barn-extensions` capability) and then reports `SAVE_FINISHED_TASKS` as 15 in `server_version("options")`.
+- One record is added per run: a new task, and each resumption after a suspend. Fields describe the activation on top of the stack when the run started.
+- The newest `$server_options.finished_tasks_limit` records are kept (default 15, never fewer than 1).
 
-**Returns:** List of completed task information, similar format to `queued_tasks()`.
+**Returns:** List of maps with these keys:
+
+| Key | Value |
+|---|---|
+| `this` | `this` of the top activation |
+| `player` | player |
+| `programmer` | effective programmer |
+| `receiver` | object the verb was looked up on (`#-1` for an anonymous object) |
+| `object` | object defining the verb |
+| `verb` | verb name as called, or `"n/a"` if empty |
+| `fullverb` | the verb's whole names string, or `"n/a"` if empty |
+| `foreground` | 1 for a new command or server task, 0 for a forked task or a resumption |
+| `suspended` | 1 if the run ended by suspending |
+| `time` | wall seconds the run took (FLOAT) |
 
 ---
 
