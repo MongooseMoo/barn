@@ -223,6 +223,24 @@ func TestUncaughtErrorSuspendedInFinallyEndsUnreported(t *testing.T) {
 	if state := settleNativeImportedContinuation(t, rt, control); state != task.TaskKilled {
 		t.Fatalf("control task ended in state %v, want %v", state, task.TaskKilled)
 	}
+	// reportUncaughtException marks the task killed before it runs
+	// #0:handle_uncaught_error (task_runtime.go), so the killed state does not
+	// mean the handler's write has committed. Wait for it before the
+	// checkpoint below copies the store.
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		if got, code := store.DirectTxn().PropertyValue(0, "log"); code == types.E_NONE && got.String() == `{"control"}` {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(`#0:handle_uncaught_error never logged "control" for the control task`)
+		}
+		if rt.DispatchReady() == 0 {
+			select {
+			case <-rt.ScheduleChanged():
+			case <-time.After(time.Millisecond):
+			}
+		}
+	}
 	suspended := pauseBarnTask(t, rt, "try\nraise(E_PERM, \"suspended\");\nfinally\n#0.n = #0.n + 1;\nsuspend(100);\n#0.n = #0.n + 1;\nendtry\n#0.n = #0.n + 10;")
 	rt.Stop()
 	if len(suspended) != 1 || len(suspended[0].VM.Frames) != 1 {
