@@ -23,7 +23,8 @@ const (
 )
 
 // Rebuild compiles source the way the compile named by origin did: the whole
-// source, or one vector of a Toast checkpoint, then the numbered fork body.
+// source, or one vector of a Toast checkpoint, numbered from its first line,
+// then the numbered fork body.
 // A saved task's frame runs the result instead of stored bytecode.
 func (c *Compiler) Rebuild(source []string, origin bytecode.Origin) (*bytecode.Program, error) {
 	var program *bytecode.Program
@@ -40,6 +41,7 @@ func (c *Compiler) Rebuild(source []string, origin bytecode.Origin) (*bytecode.P
 		}
 		program = compiled
 	}
+	program = program.WithFirstLine(origin.FirstLine)
 	if origin.Fork == 0 {
 		return program, nil
 	}

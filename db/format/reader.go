@@ -128,6 +128,9 @@ type QueuedTask struct {
 	Verb       string
 	Variables  map[string]types.Value
 	Code       []string
+	// FirstLine is the header's first line number: the verb line on which
+	// the fork body in Code began.
+	FirstLine int
 }
 
 // SuspendedTask represents a suspended task

@@ -388,20 +388,25 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 	})
 }
 
-// programIdentityValue is {fork, native, fingerprint}: the program's
-// bytecode.Origin, with native {} or {vector, language version}, and the
-// hex SHA-256 bytecode.Program.Fingerprint.
+// programIdentityValue is {fork, native, fingerprint} or, for a program
+// numbered from a line other than 1, {fork, native, fingerprint, first line}:
+// the program's bytecode.Origin, with native {} or {vector, language
+// version}, and the hex SHA-256 bytecode.Program.Fingerprint.
 func programIdentityValue(program *bytecode.Program) types.Value {
 	native := types.NewList(nil)
 	if program.Origin.Native {
 		native = types.NewList([]types.Value{types.NewInt(int64(program.Origin.NativeVector)), types.NewInt(int64(program.Origin.LanguageVersion))})
 	}
 	fingerprint := program.Fingerprint()
-	return types.NewList([]types.Value{
+	identity := []types.Value{
 		types.NewInt(int64(program.Origin.Fork)),
 		native,
 		types.NewStr(hex.EncodeToString(fingerprint[:])),
-	})
+	}
+	if program.Origin.FirstLine != 0 {
+		identity = append(identity, types.NewInt(int64(program.Origin.FirstLine)))
+	}
+	return types.NewList(identity)
 }
 
 func pendingControlValue(frame task.VMFrameSnapshot) types.Value {

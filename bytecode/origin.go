@@ -24,6 +24,11 @@ type Origin struct {
 	Native          bool
 	NativeVector    int
 	LanguageVersion int
+	// FirstLine, when above 1, is the source line the program's first line
+	// stands for (Program.WithFirstLine): a queued forked task restored from
+	// a checkpoint numbers its saved fork body from the line the body began
+	// on in its verb. Zero numbers from 1.
+	FirstLine int
 }
 
 // ExtractFork extracts fork body index (one-based, code order) of p, or nil
@@ -112,6 +117,11 @@ func (p *Program) Fingerprint() [32]byte {
 		write(entry.StartIP, entry.Line)
 	}
 	write(p.BuiltinLayout[:], p.Origin.Fork, p.Origin.Native, p.Origin.NativeVector, p.Origin.LanguageVersion)
+	if p.Origin.FirstLine != 0 {
+		// Only when set, so every other program keeps the fingerprint
+		// checkpoints already hold.
+		write(p.Origin.FirstLine)
+	}
 	var sum [32]byte
 	hash.Sum(sum[:0])
 	return sum

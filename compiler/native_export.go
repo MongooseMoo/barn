@@ -65,7 +65,10 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 		}
 		described, offset, outer = compiled.ExtractFork(fork), start, importing.forkDepths[fork-1]
 	}
-	same := *described
+	// Toast keeps no first line on an activation (execute.cc write_activ), so
+	// a restored fork body numbered from its verb line is written as its
+	// source; only the line table differs.
+	same := *described.WithFirstLine(origin.FirstLine)
 	same.Origin = origin
 	if same.Fingerprint() != frame.Program.Fingerprint() {
 		return frame, 0, fmt.Errorf("program is not the compile the Toast tables describe")
