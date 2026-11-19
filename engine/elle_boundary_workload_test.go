@@ -85,18 +85,28 @@ func elleRenewalPairs(t *testing.T, rt *Runtime, store *dbstore.Store, id int64)
 	elleDrain(t, rt, []*Task{elleTask(t, rt, id, isolated+missing)})
 	id++
 	memoBefore := isolationprobe.Snapshot()["verb_memo"]
+	firedBefore := isolationprobe.Snapshot()["fired/hot-memo-guard"]
 	renewedBefore, refusedBefore, _ = store.HotReadStats()
 	elleDrain(t, rt, []*Task{
 		elleTask(t, rt, id, missing+`elle_observe("r","hot-memo",v); elle_renew_step(1,0); elle_observe("r","property",#11.data);`),
 		elleTask(t, rt, id+1, fmt.Sprintf(`elle_renew_step(1,1); n=add_verb(#%[1]d,{#0,"rxd","renew_missing"},{"this","none","none"}); set_verb_code(#%[1]d,n,{"return {212};"}); elle_observe("append","hot-memo",212);`, receiver)+elleAppend(0, 213)+`elle_renew_step(1,2);`),
 	})
 	renewed, refused, _ = store.HotReadStats()
+	fired := isolationprobe.Snapshot()["fired/hot-memo-guard"] > firedBefore
 	if isolationprobe.Fault("hot-memo-guard") {
 		if renewed <= renewedBefore {
 			t.Fatal("hot-memo-guard pair did not renew")
 		}
-	} else if isolationprobe.ActiveFault() == "" && refused <= refusedBefore {
-		t.Fatal("stale memo dependency did not refuse renewal")
+		if !fired {
+			t.Fatal("hot-memo-guard renewed past a shape change without recording that it fired")
+		}
+	} else {
+		if fired {
+			t.Fatal("hot-memo-guard recorded a firing while the fault was off")
+		}
+		if isolationprobe.ActiveFault() == "" && refused <= refusedBefore {
+			t.Fatal("stale memo dependency did not refuse renewal")
+		}
 	}
 	if isolationprobe.Snapshot()["verb_memo"] <= memoBefore {
 		t.Fatal("hot memo pair did not use dispatch memo")

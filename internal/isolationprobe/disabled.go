@@ -15,6 +15,7 @@ func SetPause(func(string, []string))       {}
 func Pause(string, ...string)               {}
 func InstallCheckpointStop(io.Writer) error { return nil }
 func Note(string)                           {}
+func Fired(string)                          {}
 func MarkFailed(any)                        {}
 func Failed(any) bool                       { return false }
 func Reset()                                {}

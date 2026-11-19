@@ -178,7 +178,15 @@ CONTROLS = {
     # them with --dwell and a higher rate and concurrency.
     "relationship-reads": {"witness": "elle:G2-item", "family": "topology"},
     "verb-memo": {"witness": "elle:G2-item", "family": "authority"},
-    "hot-memo-guard": {"witness": "elle:G2-item", "family": "authority"},
+    # hot-memo-guard carries a stale dispatch memo into a renewal at the current
+    # clock (store_hot_read.go renewAtCurrentClock), mixing reads from two
+    # snapshots. That can close a cycle with one anti-dependency (G-single, read
+    # skew) or with several (G2-item); both are Adya G2, which serializability
+    # forbids. The control passes only when Barn logged FAULT_FIRED_MESSAGE for
+    # the fault, so the planted bypass changed an outcome, and Elle reported a
+    # G2 cycle. A run where the fault never fired proved nothing: incomplete.
+    "hot-memo-guard": {"witness": "elle:G2-item", "family": "authority", "fired": "hot-memo-guard",
+                       "witnesses": ("elle:G-single-item", "elle:G-nonadjacent-item", "elle:G2-item")},
     # No elle fault (ordinary binary): the transport lane's pause kind never
     # sends SIGCONT, so the owned process stays stopped past RECOVERY_BOUND and
     # transport_checks must reject the recovery from lifecycle/journal rows.
@@ -1010,6 +1018,9 @@ class Receiver:
 
 
 DROPPED_TASK_MESSAGE = "dropped suspended task: saved program does not match its source"
+# internal/isolationprobe FaultFiredMessage: an elle-build fault let through
+# something the protection it removes would have refused. Field "fault" names it.
+FAULT_FIRED_MESSAGE = "isolation fault fired"
 
 
 def invalidate_task_fingerprint(text, tid):
@@ -3807,7 +3818,8 @@ RESTORE_FAILURES = ("failed to restore queued task", "failed to restore suspende
 
 
 def log_findings(inputs, lifecycle):
-    """Scan each launched generation's runtime logs. Returns ({generation: records}, [(class, message)]).
+    """Scan each launched generation's runtime logs. Returns ({generation: records}, [(class, message)],
+    {fault: FAULT_FIRED_MESSAGE records}).
 
     One diagnostic is declared: the task lane's deliberately invalidated task
     (task-invalidate rows) is dropped at load with DROPPED_TASK_MESSAGE naming
@@ -3816,7 +3828,7 @@ def log_findings(inputs, lifecycle):
     task-restore failure a recovery failure, and any other ERROR record is
     unexamined evidence.
     """
-    counts, findings = {}, []
+    counts, findings, fired = {}, [], {}
     invalid = {row["tid"]: row for row in lifecycle if row.get("event") == "task-invalidate"}
     dropped = set()
     for generation in sorted(row["generation"] for row in lifecycle if row.get("event") == "admit"):
@@ -3839,7 +3851,9 @@ def log_findings(inputs, lifecycle):
                 continue
             message = record.get("msg") if isinstance(record, dict) else None
             message = message if isinstance(message, str) else ""
-            if message.startswith("PANIC:") or message in PANIC_MESSAGES:
+            if message == FAULT_FIRED_MESSAGE and isinstance(record.get("fault"), str):
+                fired[record["fault"]] = fired.get(record["fault"], 0) + 1
+            elif message.startswith("PANIC:") or message in PANIC_MESSAGES:
                 findings.append((CORRECTNESS, f"{where}: panic: {line}"))
             elif message in CHECKPOINT_FAILURES:
                 findings.append((RECOVERY, f"{where}: checkpoint failure: {line}"))
@@ -3862,7 +3876,7 @@ def log_findings(inputs, lifecycle):
         if tid not in dropped:
             findings.append((INCOMPLETE, f"invalid-task policy: no generation after {row['generation']} logged "
                                          f"{DROPPED_TASK_MESSAGE!r} for the invalidated task {tid}"))
-    return counts, findings
+    return counts, findings, fired
 
 
 def analyze(inputs, output, jar, java):
@@ -3887,7 +3901,7 @@ def analyze(inputs, output, jar, java):
         find(MEMORY, message)
     for message in results["memory"]["errors"]:
         find(INCOMPLETE, message)
-    results["logs"], log_problems = log_findings(inputs, lifecycle)
+    results["logs"], log_problems, results["fault_fired"] = log_findings(inputs, lifecycle)
     for kind, message in log_problems:
         find(kind, message)
     try:
@@ -4023,10 +4037,18 @@ def control_result(control, results):
     if "stage" in spec:
         stage = next((row for row in results.get("coverage") or [] if row["stage"] == spec["stage"]), {})
         reached = stage.get("reached") == stage.get("requested") and stage.get("killed_exit") == -9
+    elif "fired" in spec:
+        # A live-process fault that records when it takes effect.
+        reached = (results.get("fault_fired") or {}).get(spec["fired"], 0) > 0
     else:
         reached = True  # a live-process fault: no stage step to reach
-    return {"name": control, "stage": spec.get("stage"), "witness": spec["witness"], "observed_witnesses": observed,
-            "stage_reached": reached, "passed": reached and spec["witness"] in observed}
+    accepted = spec.get("witnesses") or (spec["witness"],)
+    caught = any(witness in observed for witness in accepted)
+    outcome = "passed" if reached and caught else ("missed" if reached else "incomplete")
+    return {"name": control, "stage": spec.get("stage"), "witness": spec["witness"],
+            "accepted_witnesses": list(accepted), "observed_witnesses": observed,
+            "fault_fired": (results.get("fault_fired") or {}).get(spec["fired"], 0) if "fired" in spec else None,
+            "stage_reached": reached, "outcome": outcome, "passed": outcome == "passed"}
 
 
 # ---------------------------------------------------------------------------
@@ -4195,9 +4217,15 @@ def main(argv=None):
         # A negative control is expected to fail with its witness; that is its pass.
         results["control"] = control_result(control, results)
         (output / "results.json").write_text(json.dumps(results, indent=2, default=str) + "\n", encoding="utf-8")
-        print(f"control {control}: witness {results['control']['witness']} "
-              f"{'reported' if results['control']['passed'] else 'MISSING'} "
-              f"(observed {results['control']['observed_witnesses']})", flush=True)
+        row = results["control"]
+        if row["outcome"] == "incomplete" and row["fault_fired"] is not None:
+            print(f"control {control}: INCOMPLETE: the fault never fired, so the run proved nothing "
+                  f"(observed {row['observed_witnesses']})", flush=True)
+        else:
+            print(f"control {control}: witness {' or '.join(row['accepted_witnesses'])} "
+                  f"{'reported' if row['passed'] else 'MISSING'} "
+                  f"(observed {row['observed_witnesses']}"
+                  f"{'' if row['fault_fired'] is None else ', fault fired ' + str(row['fault_fired']) + 'x'})", flush=True)
         memory = results.get("memory") or {}
         memory_ok = not (memory.get("leaks") or memory.get("errors"))
         return 0 if results["control"]["passed"] and memory_ok else CONTROL_MISSED_EXIT
