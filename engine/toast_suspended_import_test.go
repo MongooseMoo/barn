@@ -87,12 +87,19 @@ func TestToastSuspendedCallImportResumesExactlyOnce(t *testing.T) {
 
 func driveNativeImportedContinuation(t *testing.T, runtime *Runtime, restored *Task) {
 	t.Helper()
+	if state := settleNativeImportedContinuation(t, runtime, restored); state != task.TaskCompleted {
+		t.Fatalf("native continuation ended in state %v", state)
+	}
+}
+
+// settleNativeImportedContinuation dispatches until restored ends and returns
+// the state it ended in.
+func settleNativeImportedContinuation(t *testing.T, runtime *Runtime, restored *Task) task.TaskState {
+	t.Helper()
+	var state task.TaskState
 	for deadline := time.Now().Add(5 * time.Second); ; {
-		state := restored.GetState()
+		state = restored.GetState()
 		if state == task.TaskCompleted || state == task.TaskKilled {
-			if state != task.TaskCompleted {
-				t.Fatalf("native continuation ended in state %v", state)
-			}
 			break
 		}
 		if time.Now().After(deadline) {
@@ -109,6 +116,7 @@ func driveNativeImportedContinuation(t *testing.T, runtime *Runtime, restored *T
 	for range 3 {
 		runtime.DispatchReady()
 	}
+	return state
 }
 
 func loadNativeImportFixture(t *testing.T, path, expectedHash string) *dbformat.Database {

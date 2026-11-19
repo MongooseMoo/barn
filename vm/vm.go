@@ -953,6 +953,14 @@ func (vm *VM) executeLoop() types.Result {
 		vm.syncContextTicks()
 		err = vm.Execute(op)
 		if err != nil {
+			if _, aborting := err.(unreportedAbort); aborting {
+				// Not an error of this verb, whatever its d flag: the task is
+				// already ending and only enclosing finally bodies remain.
+				if handled, _, _ := vm.handleErrorWithReason(err); !handled {
+					return types.Result{Flow: types.FlowException, Unreported: true}
+				}
+				continue
+			}
 			// Verb debug flag check: when the current frame's VerbDebug is false,
 			// push the error as a value instead of propagating it as an exception.
 			// This applies to ALL errors including explicit raise().
@@ -1528,8 +1536,10 @@ restartUnwind:
 	if errors.As(err, &vmErr) {
 		exceptionValue = vmErr.Value
 	}
+	// An abort has no exception value to build and no handler catches it.
+	_, aborting := err.(unreportedAbort)
 
-	if _, observe := vm.errorObservation(err); observe && (exceptionValue.Type() != types.TYPE_LIST || exceptionValue.Len() != 4) {
+	if _, observe := vm.errorObservation(err); observe && !aborting && (exceptionValue.Type() != types.TYPE_LIST || exceptionValue.Len() != 4) {
 		// Snapshot traceback BEFORE any unwinding.  Sync line numbers first so
 		// the traceback contains accurate call-site lines.
 		vm.syncTaskLineNumbers()
@@ -1590,13 +1600,17 @@ restartUnwind:
 				if exceptionValue.Type() == types.TYPE_LIST && exceptionValue.Len() == 4 {
 					pendingError = VMException{Code: errCode, Value: exceptionValue, Reason: reason}
 				}
-				frame.PendingReasons = append(frame.PendingReasons, pendingReason{Kind: task.PendingError, FinallyIP: handler.HandlerIP, Error: pendingError})
+				pending := pendingReason{Kind: task.PendingError, FinallyIP: handler.HandlerIP, Error: pendingError, Uncaught: vm.uncaught(code)}
+				if aborting {
+					pending = pendingReason{Kind: task.PendingAbort, FinallyIP: handler.HandlerIP}
+				}
+				frame.PendingReasons = append(frame.PendingReasons, pending)
 				vm.SP = handler.StackDepth
 				frame.IP = handler.HandlerIP
 				return true, exceptionValue, reason
 			}
 
-			if vm.handlerMatches(frame, &handler, code) {
+			if !aborting && vm.handlerMatches(frame, &handler, code) {
 				// Found matching except handler - jump to it
 				vm.abandonPendingTo(handler.HandlerIP)
 				base := i

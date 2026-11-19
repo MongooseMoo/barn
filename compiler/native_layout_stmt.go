@@ -116,9 +116,9 @@ func (s *nativeVector) stmt(stmt ir.Stmt) {
 		s.bind(end)
 		s.pop(2)
 	case *ir.BreakStmt:
-		s.exit(n.Label, false)
+		s.exit(n, n.Label, false)
 	case *ir.ContinueStmt:
-		s.exit(n.Label, true)
+		s.exit(n, n.Label, true)
 	case *ir.ForkStmt:
 		s.expr(n.Delay)
 		s.emit(1)
@@ -154,7 +154,7 @@ func (s *nativeVector) stmt(stmt ir.Stmt) {
 	}
 }
 
-func (s *nativeVector) exit(name string, continuing bool) {
+func (s *nativeVector) exit(node ir.Node, name string, continuing bool) {
 	s.emit(2)
 	if name != "" {
 		s.varRef(name)
@@ -167,8 +167,10 @@ func (s *nativeVector) exit(name string, continuing bool) {
 		s.ref(nativeStackRef)
 		if continuing {
 			s.labelRef(loop.top)
+			s.exits = append(s.exits, NativeExit{Node: node, Stack: loop.topStack, PC: loop.top})
 		} else {
 			s.labelRef(loop.bottom)
+			s.exits = append(s.exits, NativeExit{Node: node, Stack: loop.bottomStack, PC: loop.bottom})
 		}
 		return
 	}

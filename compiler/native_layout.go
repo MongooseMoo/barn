@@ -74,6 +74,16 @@ type NativeVectorLayout struct {
 	StackWidth    int
 	Continuations []NativeContinuation
 	Labels        []NativeLabelOrigin
+	Exits         []NativeExit
+}
+
+// NativeExit is the operand pair of one break or continue statement's
+// EOP_EXIT: the stack depth it unwinds to and the pc it jumps to. Toast saves
+// that pair as the value of a finally body the statement entered.
+type NativeExit struct {
+	Node  ir.Node
+	Stack int
+	PC    int
 }
 
 type NativeLabelKind uint8

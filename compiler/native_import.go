@@ -257,10 +257,9 @@ func (c *Compiler) ConvertNativeFrame(saved task.VMFrameSnapshot, vector int, to
 		}
 		converted.Stack = append(converted.Stack, resolved)
 	}
-	for _, control := range site.Controls {
-		if control.Kind == NativeFinallyHandler {
-			return saved, 0, fmt.Errorf("native pending finally reason requires conversion")
-		}
+	converted.PendingReasons, err = importFinallyReasons(compiled, importing, selected, site, values, converted.Stack)
+	if err != nil {
+		return saved, 0, err
 	}
 	converted.ExceptStack, err = importedHandlers(compiled, barn.Handlers, site.Controls)
 	if err != nil {

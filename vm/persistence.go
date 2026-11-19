@@ -518,6 +518,10 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 				if pending.Error.Present || pending.HandlerDepth < 0 || pending.HandlerDepth > len(saved.ExceptStack) || !saved.Program.IsInstructionBoundary(pending.TargetIP) || heights[pending.TargetIP] != len(pending.Stack) {
 					return fmt.Errorf("frame %d: invalid pending loop transfer", frameIndex)
 				}
+			case task.PendingAbort:
+				if pending.Error.Present {
+					return fmt.Errorf("frame %d: abort has pending error", frameIndex)
+				}
 			default:
 				return fmt.Errorf("frame %d: invalid pending cleanup reason kind", frameIndex)
 			}
