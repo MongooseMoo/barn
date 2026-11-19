@@ -46,3 +46,30 @@ func TestRestoreSuspendedTaskFailureNamesTheVerb(t *testing.T) {
 		t.Errorf("warning does not identify the task: %#v", rec)
 	}
 }
+
+// Issue #909: a queued fork's header names the line, in the verb it was
+// forked from, of its saved body's first line, and Toast numbers the loaded
+// program from it (tasks.cc read_task_queue: program->first_lineno).
+func TestLoadQueuedTaskNumbersBodyFromItsFirstLine(t *testing.T) {
+	rt := NewRuntime(protectedRedirectStore(t))
+	defer rt.Stop()
+	rt.LoadQueuedTasks([]*dbformat.QueuedTask{{
+		ID: 9002, StartTime: time.Now().Add(time.Hour).Unix(),
+		Player: 2, Programmer: 2, This: 0, VerbLoc: 0, Verb: "numbered-fork",
+		Code: []string{"x = 1;", "return 1 + \"a\";"}, FirstLine: 12,
+	}})
+	queued := rt.GetTask(9002)
+	if queued == nil || queued.Program == nil {
+		t.Fatal("queued fork was not restored")
+	}
+	program := queued.Program
+	if got := program.LineForIP(0); got != 12 {
+		t.Errorf("first statement is line %d, want 12", got)
+	}
+	if got := program.LineForIP(len(program.Code) - 1); got != 13 {
+		t.Errorf("second statement is line %d, want 13", got)
+	}
+	if stack := queued.GetCallStack(); len(stack) != 1 || stack[0].LineNumber != 12 {
+		t.Errorf("root activation = %+v, want one frame at line 12", stack)
+	}
+}

@@ -177,7 +177,11 @@ func (vm *VM) sourceLineForFrame(frame *StackFrame, line int) string {
 	if frame == nil || frame.Program == nil || line <= 0 {
 		return ""
 	}
-	if line > len(frame.Program.Source) {
+	if first := frame.Program.Origin.FirstLine; first > 1 {
+		// Source is a restored fork body numbered from first.
+		line -= first - 1
+	}
+	if line <= 0 || line > len(frame.Program.Source) {
 		return ""
 	}
 	return strings.TrimSpace(frame.Program.Source[line-1])

@@ -119,6 +119,14 @@ func (tasks *sourceFuzzTasks) runAll(t *testing.T, program *bytecode.Program) []
 	if tasks.wizard || tasks.player != 0 {
 		runAs(machine, tasks.player, tasks.wizard)
 	}
+	// The runtime pushes each task's root activation before its first slice;
+	// this is the one engine.prepareIntrinsicEval pushes for a program run
+	// outside any verb.
+	machine.Task.PushFrame(types.ActivationFrame{
+		This: types.ObjNothing, ThisValue: types.None, Player: machine.Context.Player,
+		Programmer: machine.Context.Programmer, Caller: types.ObjNothing, Verb: "",
+		VerbLoc: types.ObjNothing, LineNumber: 1, IsEvalFrame: true,
+	})
 	result, machine := tasks.run(t, machine, machine.Run(program))
 	results := []types.Result{result}
 	spent := machine.Ticks
@@ -138,6 +146,12 @@ func (tasks *sourceFuzzTasks) runAll(t *testing.T, program *bytecode.Program) []
 		child.Context.Player = fork.info.Player
 		child.Context.ThisObj = fork.info.ThisObj
 		child.Context.IsWizard = tasks.wizard
+		// The fork body's activation, as engine.Runtime.CreateForkedTask pushes it.
+		child.Task.PushFrame(types.ActivationFrame{
+			This: fork.info.ThisObj, ThisValue: fork.info.ThisValue, Player: fork.info.Player,
+			Programmer: fork.programmer, Caller: fork.info.Caller, Verb: fork.info.Verb,
+			VerbLoc: fork.info.VerbLoc, LineNumber: 1,
+		})
 		result, child = tasks.run(t, child, child.ExecuteLoop())
 		results = append(results, result)
 		spent += child.Ticks
@@ -170,6 +184,10 @@ func runAs(machine *VM, player types.ObjID, wizard bool) {
 	machine.Task.Programmer = player
 }
 
+// sourceFuzzTaskBudget is each fuzz-driven task's wall-clock budget. Only a
+// test of what a starved host does to a lane changes it.
+var sourceFuzzTaskBudget = 100 * time.Millisecond
+
 func attachSourceFuzzTask(machine *VM, id int64) {
 	context := task.NewContext()
 	context.TicksRemaining = machine.TickLimit
@@ -177,7 +195,7 @@ func attachSourceFuzzTask(machine *VM, id int64) {
 	machine.Task = task.NewState(id, context.Player, machine.TickLimit, 1)
 	// The seconds budget is checked at tick checkpoints against a running
 	// deadline, as engine/task_runtime.go sets before a slice.
-	machine.Task.SetExecutionDeadline(time.Now().Add(100 * time.Millisecond))
+	machine.Task.SetExecutionDeadline(time.Now().Add(sourceFuzzTaskBudget))
 }
 
 // run drives one task to its end the way the runtime does: a fork yield

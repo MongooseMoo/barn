@@ -644,23 +644,14 @@ func countBackgroundTasksFor(ctx *Execution, tasks TaskLister, player types.ObjI
 	return count
 }
 
+// builtinFinishedTasks mirrors Toast bf_finished_tasks (tasks.cc) under
+// SAVE_FINISHED_TASKS: wizards get the recorded runs, oldest first, as maps
+// (see FinishedTask).
 func builtinFinishedTasks(ctx *Execution, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	mgr := taskManagerOf(ctx)
-	if mgr == nil {
-		return types.Err(types.E_INVARG)
-	}
-	all := mgr.GetAllTasks()
-	result := make([]types.Value, 0)
-	for _, t := range all {
-		st := t.GetState()
-		if st == task.TaskCompleted || st == task.TaskKilled {
-			result = append(result, types.NewInt(t.ID))
-		}
-	}
-	return types.Ok(types.NewList(result))
+	return types.Ok(types.NewList(ctx.Session.finishedTaskValues()))
 }
 
 func builtinThreads(ctx *Execution, args []types.Value) types.Result {

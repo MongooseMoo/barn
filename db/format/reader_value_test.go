@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestReadValueRejectsUntrustedCollectionCounts(t *testing.T) {
@@ -70,6 +72,37 @@ func TestSkipValueAfterTypeMatchesWaifReader(t *testing.T) {
 			}
 			if got, want := skipDB.savedWaifs[0].propsByIndex[lastProp].Int(), int64(123); got != want {
 				t.Fatalf("skipped WAIF property %d = %d, want %d", lastProp, got, want)
+			}
+		})
+	}
+}
+
+// Toast stores an error value as the whole 64-bit number of its value union
+// (db_io.cc dbio_write_var), but an error literal only ever assigns the 32-bit
+// error code (parser.y), so the upper half is leftover memory. Toast reads the
+// code back through the same 32-bit field. These numbers are the ones a Toast
+// checkpoint held for E_NONE, E_RECMOVE and E_FILE.
+func TestReadValueKeepsLow32BitsOfStoredErrorNumber(t *testing.T) {
+	tests := []struct {
+		stored string
+		want   types.ErrorCode
+	}{
+		{stored: "0", want: types.E_NONE},
+		{stored: "18", want: types.E_INTRPT},
+		{stored: "8030606863672279040", want: types.E_NONE},
+		{stored: "106734232272904", want: types.E_RECMOVE},
+		{stored: "106734232272912", want: types.E_FILE},
+		{stored: "-4294967295", want: types.E_TYPE},
+	}
+	for _, test := range tests {
+		t.Run(test.stored, func(t *testing.T) {
+			database := &Database{Version: 17}
+			value, err := database.readValue(bufio.NewReader(strings.NewReader("3\n" + test.stored + "\n")))
+			if err != nil {
+				t.Fatalf("readValue() error = %v", err)
+			}
+			if value.Type() != types.TYPE_ERR || value.ErrCode() != test.want {
+				t.Fatalf("readValue() = %v, want error code %d", value, test.want)
 			}
 		})
 	}

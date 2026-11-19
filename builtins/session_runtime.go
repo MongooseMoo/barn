@@ -39,6 +39,10 @@ type sessionRuntime struct {
 		mu       sync.Mutex
 		byPlayer map[types.ObjID]*httpHeldInput
 	}
+	finishedTasks struct {
+		mu      sync.Mutex
+		entries []FinishedTask
+	}
 }
 
 type serverOptionsState struct {

@@ -1,0 +1,94 @@
+name: verb_descriptor_full_names
+description: >
+  A verb's whole names string, as verbs() returns it, can be passed back as the
+  descriptor to the verb builtins, including for multi-name and starred verbs.
+  ToastStunt matches it because verbs() hands back the verb's own name string.
+  Part of a names string that is neither an alias nor the whole string is still
+  E_VERBNF. Expected values were taken from ToastStunt.
+tests:
+  - name: verb_info_accepts_names_from_verbs
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "rxd", "th*row g*et t*ake"}, {"this", "none", "this"});
+          add_verb({obj}, {player, "rxd", "s es"}, {"this", "none", "this"});
+          add_verb({obj}, {player, "rxd", "th*ing"}, {"this", "none", "this"});
+          result = {};
+          for v in (verbs({obj}))
+            result = {@result, {v, `verb_info({obj}, v)[3] ! ANY'}};
+          endfor
+          return toliteral(result);
+        expect:
+          value: '{{"th*row g*et t*ake", "th*row g*et t*ake"}, {"s es", "s es"}, {"th*ing", "th*ing"}}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: verb_args_and_verb_code_accept_names_from_verbs
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "rxd", "th*row g*et t*ake"}, {"this", "none", "this"});
+          v = verbs({obj})[1];
+          return toliteral({`verb_args({obj}, v) ! ANY', `set_verb_code({obj}, v, {"return 7;"}) ! ANY', `verb_code({obj}, v) ! ANY'});
+        expect:
+          value: '{{"this", "none", "this"}, {}, {"return 7;"}}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: set_verb_info_and_delete_verb_accept_names_from_verbs
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "rxd", "th*row g*et t*ake"}, {"this", "none", "this"});
+          add_verb({obj}, {player, "rxd", "s es"}, {"this", "none", "this"});
+          names = verbs({obj});
+          r1 = `set_verb_info({obj}, names[1], {player, "rd", "hurl"}) ! ANY';
+          r2 = `delete_verb({obj}, names[2]) ! ANY';
+          return toliteral({r1, r2, verbs({obj}), verb_info({obj}, "hurl")[2]});
+        expect:
+          value: '{0, 0, {"hurl"}, "rd"}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: aliases_still_match_and_partial_names_strings_do_not
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "rxd", "th*row g*et t*ake"}, {"this", "none", "this"});
+          add_verb({obj}, {player, "rxd", "s es"}, {"this", "none", "this"});
+          result = {};
+          for v in ({"throw", "th", "take", "es", "g*et", "g*et t*ake", "th*row g*et"})
+            result = {@result, `verb_info({obj}, v)[3] ! ANY'};
+          endfor
+          return toliteral(result);
+        expect:
+          value: '{"th*row g*et t*ake", "th*row g*et t*ake", "th*row g*et t*ake", "s es", E_VERBNF, E_VERBNF, E_VERBNF}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: typed_literal_of_names_string_is_not_the_names_string
+    description: >
+      Toast matches the names string by identity, not text: a literal with the
+      same text is E_VERBNF, while the string verb_info() returns can be passed
+      back.
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "rxd", "th*row g*et t*ake"}, {"this", "none", "this"});
+          add_verb({obj}, {player, "rxd", "s es"}, {"this", "none", "this"});
+          from_info = verb_info({obj}, "throw")[3];
+          return toliteral({`verb_info({obj}, "th*row g*et t*ake") ! ANY', `verb_info({obj}, "s es") ! ANY', `verb_info({obj}, from_info)[3] ! ANY'});
+        expect:
+          value: '{E_VERBNF, E_VERBNF, "th*row g*et t*ake"}'
+    cleanup:
+      - run: recycle({obj})

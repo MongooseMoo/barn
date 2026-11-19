@@ -2,7 +2,7 @@
 
 ## Goal
 
-Issue #885. Barn would not boot a private ChatMUD Toast checkpoint: 8 saved tasks paused inside code run by eval() failed with "native builtin continuation requires conversion". Q asked for the issue to be filed and fixed, using the ChatMUD database only as a private oracle.
+Issue #885. Barn would not boot a Toast checkpoint whose saved tasks were paused inside code run by eval(): "native builtin continuation requires conversion". Q asked for the issue to be filed and fixed.
 
 ## State
 

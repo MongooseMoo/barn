@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -18,6 +19,12 @@ const (
 	nativeCatchType   = 7
 	nativeFinallyType = 8
 )
+
+// ErrPathDependentClear is ExportNativeFrame's refusal of a call reached both
+// with and without a variable unbound by Toast's OP_PUSH_CLEAR
+// (NativeContinuation.ClearUnknown): the frame does not say which path the
+// task took, so the task stays in Barn's frame form.
+var ErrPathDependentClear = errors.New("which variables Toast holds unbound at the call depends on the path into its block")
 
 // ExportNativeFrame is ConvertNativeFrame's inverse over the same tables: it
 // returns frame as Toast holds the same activation paused at the same call,
@@ -58,7 +65,10 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 		}
 		described, offset, outer = compiled.ExtractFork(fork), start, importing.forkDepths[fork-1]
 	}
-	same := *described
+	// Toast keeps no first line on an activation (execute.cc write_activ), so
+	// a restored fork body numbered from its verb line is written as its
+	// source; only the line table differs.
+	same := *described.WithFirstLine(origin.FirstLine)
 	same.Origin = origin
 	if same.Fingerprint() != frame.Program.Fingerprint() {
 		return frame, 0, fmt.Errorf("program is not the compile the Toast tables describe")
@@ -90,7 +100,7 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 		return frame, 0, fmt.Errorf("call has no Toast continuation in the frame's vector")
 	}
 	if site.ClearUnknown {
-		return frame, 0, fmt.Errorf("which variables Toast holds unbound at the call depends on the path into its block")
+		return frame, 0, ErrPathDependentClear
 	}
 
 	// What Barn holds, by the Toast origin it was computed from.

@@ -125,7 +125,7 @@ const (
 const (
 	OP_CALL_BUILTIN OpCode = OP_MAPHASKEY_KEYED + 1 + iota // Call builtin function [func_id, argc]
 	OP_CALL_VERB                                           // Pop obj; call obj:verb [argc]
-	OP_SCATTER                                             // Scatter assignment [pattern]
+	OP_SCATTER                                             // Pop list; bind every scatter target [targets, required, rest position, then per target: local, optional]
 )
 
 // Collection Operations
@@ -200,7 +200,7 @@ const (
 	OP_TICKS               OpCode = OP_CHECK_MAP_LIMIT + 1 + iota // Prefix [ticks:byte]: the next instruction charges ticks&0x7F instead of its default (PrefixTicks)
 	OP_SET_LOCAL                                                  // Pop and store to local [index] without a tick (compiler-internal stores)
 	OP_PUSH_INT                                                   // Push int64 immediate [value:8 bytes big-endian]
-	OP_SCATTER_TAKE                                               // Scatter element [listVar,cursorVar,targetVar,step]: target = list[cursor]; cursor += 1 (step 0) or -= 1 (step 1)
+	OP_SCATTER_TAKE                                               // DEAD: OP_SCATTER binds every target itself (never emitted by compiler)
 	OP_FOR_LIST_CHECK_WIDE                                        // for-in condition [idxVar,lenVar,exitOffset:uint32]: FOR_RANGE_CHECK_WIDE with Toast's EOP_FOR_LIST tick
 )
 
@@ -333,7 +333,7 @@ var OpCodeNames = map[OpCode]string{
 	OP_TICKS:                 "TICKS",
 	OP_SET_LOCAL:             "SET_LOCAL",
 	OP_PUSH_INT:              "PUSH_INT",
-	OP_SCATTER_TAKE:          "SCATTER_TAKE",
+	OP_SCATTER_TAKE:          "DEAD_SCATTER_TAKE",
 	OP_FOR_LIST_CHECK_WIDE:   "FOR_LIST_CHECK_WIDE",
 	OP_CALL_BUILTIN_WIDE:     "CALL_BUILTIN_WIDE",
 	OP_ITER_PREP_COLUMNS:     "ITER_PREP_COLUMNS",
@@ -377,8 +377,14 @@ func instructionOperandCount(op OpCode, remaining []byte) int {
 	case OP_AND_WIDE, OP_OR_WIDE, OP_JUMP_WIDE, OP_JUMP_IF_FALSE_WIDE,
 		OP_JUMP_IF_TRUE_WIDE, OP_LOOP_WIDE, OP_TRY_FINALLY_WIDE, OP_END_FINALLY_WIDE:
 		return 4
-	case OP_SCATTER, OP_FORK, OP_CALL_VERB_WIDE, OP_CALL_BUILTIN_WIDE, OP_FOR_LIST_LOAD_VALUE:
+	case OP_FORK, OP_CALL_VERB_WIDE, OP_CALL_BUILTIN_WIDE, OP_FOR_LIST_LOAD_VALUE:
 		return 3
+	case OP_SCATTER:
+		// targets, required, rest position, then a local and a flag per target.
+		if len(remaining) == 0 {
+			return 3
+		}
+		return 3 + 2*int(remaining[0])
 	case OP_MAPHASKEY_KEYED:
 		return 4
 	case OP_FORK_WIDE, OP_FOR_LIST_LOAD_COLUMNS:
@@ -387,8 +393,7 @@ func instructionOperandCount(op OpCode, remaining []byte) int {
 		return 6
 	case OP_UNWIND_JUMP:
 		return 6
-	case OP_FOR_RANGE_CHECK, OP_FOR_RANGE_NEXT, OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV,
-		OP_SCATTER_TAKE:
+	case OP_FOR_RANGE_CHECK, OP_FOR_RANGE_NEXT, OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV:
 		return 4
 	case OP_FOR_RANGE_CHECK_WIDE, OP_FOR_RANGE_NEXT_WIDE, OP_FOR_LIST_CHECK_WIDE:
 		return 6
@@ -443,8 +448,8 @@ func MakeImmediateOpcode(value int) (OpCode, bool) {
 // budget before the opcode runs (execute.cc; extended opcodes since 2.8,
 // fdfa9ae). Each Barn opcode is charged what the Toast opcodes it implements
 // would charge. Compiler-synthesized helper instructions that have no Toast
-// counterpart are either tick-free opcodes (OP_SET_LOCAL, OP_SCATTER_TAKE,
-// OP_PUSH_INT) or carry an OP_TICKS prefix.
+// counterpart are either tick-free opcodes (OP_SET_LOCAL, OP_PUSH_INT) or
+// carry an OP_TICKS prefix.
 const (
 	tickFree    uint8 = iota // no tick
 	tickOne                  // one tick (a Toast COUNT_TICK or COUNT_EOP_TICK opcode)

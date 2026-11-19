@@ -715,6 +715,32 @@ func TestBytecodeScatterAssignment(t *testing.T) {
 	})
 }
 
+// Toast's EOP_SCATTER (execute.cc) binds every target an element reaches in
+// one instruction, before any default expression runs, and gives the elements
+// beyond the required ones to the optional targets from the left. Barn bound
+// targets one by one around the defaults, those after @rest first: a default
+// read a later target's old value, and an optional target after @rest took an
+// element before one in front of it.
+func TestBytecodeScatterBindsEveryTargetBeforeDefaults(t *testing.T) {
+	cases := []struct{ source, want string }{
+		{`c = 5; {a, ?b = c, @c} = {1}; return {a, b, c};`, "{1, {}, {}}"},
+		{`d = 7; {a, ?b = d, c, d} = {1, 2, 3}; return {a, b, c, d};`, "{1, 3, 2, 3}"},
+		{`a = 0; b = 0; {?a, @r, ?b} = {1}; return {a, r, b};`, "{1, {}, 0}"},
+		{`a = 0; b = 0; c = 0; {?a, ?b, @r, ?c} = {1, 2}; return {a, b, r, c};`, "{1, 2, {}, 0}"},
+		{`{?a = 1, ?b = a + 1, ?c = b + 1} = {5}; return {a, b, c};`, "{5, 6, 7}"},
+		{`{a, ?b = 8, @r, ?c = 9, d} = {1, 2, 3, 4, 5, 6}; return {a, b, r, c, d};`, "{1, 2, {3, 4}, 5, 6}"},
+		{`{a, ?b = 8, @r, ?c = 9, d} = {1, 2, 3}; return {a, b, r, c, d};`, "{1, 2, {}, 9, 3}"},
+		{`{a, ?b = 8, @r, ?c = 9, d} = {1, 2}; return {a, b, r, c, d};`, "{1, 8, {}, 9, 2}"},
+		{`{@r, a} = {1, 2, 3}; return {r, a};`, "{{1, 2}, 3}"},
+		{`return {a, ?b = ({c, ?d = 4} = {3})[1], @r} = {1};`, "{1}"},
+	}
+	for _, tc := range cases {
+		if got := runBytecodeProgram(t, tc.source, nil, nil); got.Flow != types.FlowReturn || got.Val.String() != tc.want {
+			t.Errorf("%s: flow %v value %v, want %s", tc.source, got.Flow, got.Val, tc.want)
+		}
+	}
+}
+
 func newBytecodeVerbStore() *dbstore.Store {
 	store := dbstore.NewStore()
 	rootBuilder := dbstore.NewObjectBuilder(0)

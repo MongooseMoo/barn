@@ -1,0 +1,115 @@
+name: finished_tasks_records
+description: >
+  finished_tasks() returns ToastStunt's SAVE_FINISHED_TASKS records: one map
+  per interpreter run, for a new task and for each resumption, describing the
+  activation on top of the stack when the run started. The list keeps the newest
+  $server_options.finished_tasks_limit records, and never fewer than one.
+  Expected values were taken from ToastStunt built with SAVE_FINISHED_TASKS=15.
+requires:
+  builtins: [finished_tasks]
+setup:
+  permission: wizard
+  code: |
+    add_property($server_options, "finished_tasks_limit", 100, {player, "r"});
+teardown:
+  permission: wizard
+  code: |
+    delete_property($server_options, "finished_tasks_limit");
+tests:
+  - name: declared_default_limit
+    code: server_version("options/SAVE_FINISHED_TASKS")
+    expect:
+      value: 15
+
+  - name: record_keys_and_types
+    permission: wizard
+    statement: |
+      ft = finished_tasks();
+      r = ft[$];
+      return {length(ft) > 0, sort(mapkeys(r)), typeof(r["time"]), typeof(r["foreground"]), typeof(r["suspended"]), typeof(r["fullverb"])};
+    expect:
+      value: [1, ["foreground", "fullverb", "object", "player", "programmer", "receiver", "suspended", "this", "time", "verb"], 9, 0, 0, 2]
+
+  - name: programmer_gets_e_perm
+    permission: programmer
+    code: finished_tasks()
+    expect:
+      error: E_PERM
+
+  - name: resumed_run_describes_suspended_activation
+    permission: wizard
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "rxd", "ft_sl*eeper ft_nap"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "ft_sleeper", {"suspend(0);", "return 7;"});
+        expect:
+          value: []
+      - run: 'return {obj}:ft_nap();'
+        expect:
+          value: 7
+      - run: |
+          hits = {};
+          for r in (finished_tasks())
+            if (r["fullverb"] == "ft_sl*eeper ft_nap")
+              hits = {@hits, {r["verb"], r["this"] == {obj}, r["object"] == {obj}, r["receiver"] == {obj}, r["programmer"] == player, r["player"] == player, r["foreground"], r["suspended"]}};
+            endif
+          endfor
+          return hits;
+        expect:
+          value: [["ft_nap", 1, 1, 1, 1, 1, 0, 0]]
+    cleanup:
+      - run: recycle({obj})
+
+  - name: forked_task_runs_are_background
+    permission: wizard
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "rxd", "ft_forker"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "ft_forker", {"fork (0)", "  suspend(0);", "endfork", "return 3;"});
+        expect:
+          value: []
+      - run: |
+          {obj}:ft_forker();
+          suspend(0);
+          return 1;
+        expect:
+          value: 1
+      - run: |
+          hits = {};
+          for r in (finished_tasks())
+            if (r["fullverb"] == "ft_forker")
+              hits = {@hits, {r["foreground"], r["suspended"]}};
+            endif
+          endfor
+          return hits;
+        expect:
+          value: [[0, 1], [0, 0]]
+    cleanup:
+      - run: recycle({obj})
+
+  - name: limit_trims_to_newest
+    permission: wizard
+    steps:
+      - run: |
+          $server_options.finished_tasks_limit = 2;
+          return 1;
+        expect:
+          value: 1
+      - run: return length(finished_tasks());
+        expect:
+          value: 2
+      - run: |
+          $server_options.finished_tasks_limit = 0;
+          return 1;
+        expect:
+          value: 1
+      - run: return length(finished_tasks());
+        expect:
+          value: 1
+    cleanup:
+      - run: |
+          $server_options.finished_tasks_limit = 100;

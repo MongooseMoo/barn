@@ -124,7 +124,7 @@ func TestTaskRoundTripRetainsQueuedAndSuspendedTasks(t *testing.T) {
 		}
 	}
 	queued, suspended := first.queued[0], first.suspended[0]
-	if queued.StartTime.Unix() != -3 || queued.Fork.FirstLine != 1 ||
+	if queued.StartTime.Unix() != -3 || queued.Fork.FirstLine != 2 ||
 		!queued.Fork.Variables["N"].Identical(types.NewInt(1)) || !queued.Fork.Variables["n"].Identical(types.NewStr("x")) {
 		t.Fatalf("queued task after first reload: start %d, first line %d, variables %v",
 			queued.StartTime.Unix(), queued.Fork.FirstLine, queued.Fork.Variables)
