@@ -662,16 +662,17 @@ func containsTargetIndexBoundary(target ir.Target) bool {
 }
 
 func (c *lowerer) compileDestructuringTarget(target *ir.DestructuringTarget) error {
-	// Scatter assignment: {a, ?b, @rest} = list
+	// Scatter assignment: {a, ?b = default, @rest} = list
 	//
-	// Runtime strategy:
-	// 1. Validate list shape via bytecode.OP_SCATTER.
-	// 2. Track two cursors (left/right) into the list.
-	// 3. Bind suffix targets (after @rest) from the right.
-	// 4. Bind prefix targets from the left.
-	// 5. Bind @rest to the remaining slice between left..right.
+	// OP_SCATTER is Toast's EOP_SCATTER (execute.cc): one instruction and one
+	// tick that checks the list and binds every target an element reaches,
+	// before any default runs. The defaults follow in target order, as in
+	// Toast's code (code_gen.cc EXPR_SCATTER), each run for an optional target
+	// the list was too short to reach. Toast jumps to the first of those and
+	// falls through the rest; here each tests the list's length, which says the
+	// same: optional targets get the elements beyond the required ones from the
+	// left, so the k-th is unreached when the list has fewer than required+k.
 	numRequired := 0
-	numOptional := 0
 	restIndex := -1
 	type compiledBinding struct {
 		name     string
@@ -693,203 +694,74 @@ func (c *lowerer) compileDestructuringTarget(target *ir.DestructuringTarget) err
 			restIndex = i
 			continue
 		}
-		if bindings[i].optional {
-			numOptional++
-		} else {
+		if !bindings[i].optional {
 			numRequired++
 		}
 	}
-	hasRest := restIndex >= 0
+	hasDefault := false
+	slots := make([]int, len(bindings))
+	for i, binding := range bindings {
+		slots[i] = c.declareVariable(binding.name)
+		hasDefault = hasDefault || binding.default_ != nil
+	}
 
-	// Sequential scatters have disjoint temporary lifetimes, so reuse their
-	// slots. A scatter nested in a default expression increments the depth and
-	// keeps distinct slots while the outer scatter's cursors are live.
-	depth := c.scatterDepth
-	c.scatterDepth++
-	defer func() { c.scatterDepth-- }()
-	listVar := c.declareInternalVariable(fmt.Sprintf("__scatter_list_depth_%d__", depth))
-	lenVar := c.declareInternalVariable(fmt.Sprintf("__scatter_len_depth_%d__", depth))
-	leftVar := c.declareInternalVariable(fmt.Sprintf("__scatter_left_depth_%d__", depth))
-	rightVar := c.declareInternalVariable(fmt.Sprintf("__scatter_right_depth_%d__", depth))
-
-	c.emitStoreLocal(listVar)
-
-	// Preserve the original assignment value while validating the stored copy.
-	// OP_SCATTER is Toast's EOP_SCATTER, which binds every target for its one
-	// tick; the bookkeeping below is therefore tick-free, and only an optional
-	// target's default expression and its OP_PUT are charged.
-	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(listVar))
+	// OP_SCATTER pops the copy compileAssign made; the assignment's value stays
+	// on the stack as its result, as Toast keeps the list.
 	c.emit(bytecode.OP_SCATTER)
+	c.emitByte(byte(len(bindings)))
 	c.emitByte(byte(numRequired))
-	c.emitByte(byte(numOptional))
-	if hasRest {
-		c.emitByte(1)
+	if restIndex >= 0 {
+		c.emitByte(byte(restIndex + 1))
 	} else {
-		c.emitByte(0)
+		c.emitByte(byte(len(bindings) + 1))
 	}
-
-	// len = length(list)
-	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(listVar))
-	c.emit(bytecode.OP_LENGTH)
-	c.emitStoreLocal(lenVar)
-
-	// left = 1
-	if op, ok := bytecode.MakeImmediateOpcode(1); ok {
-		c.emit(op)
-	}
-	c.emitStoreLocal(leftVar)
-
-	// right = len
-	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(lenVar))
-	c.emitStoreLocal(rightVar)
-
-	// countRequired returns number of required non-rest targets in [start, end].
-	countRequired := func(start, end int) int {
-		count := 0
-		for i := start; i <= end && i < len(bindings); i++ {
-			if i < 0 {
-				continue
-			}
-			binding := bindings[i]
-			if !binding.rest && !binding.optional {
-				count++
-			}
+	for i, binding := range bindings {
+		c.emitByte(byte(slots[i]))
+		if binding.optional {
+			c.emitByte(1)
+		} else {
+			c.emitByte(0)
 		}
-		return count
 	}
-
-	// emitTake binds target = list[cursor] and steps the cursor toward the
-	// middle: forward from the left (step 0) or backward from the right (1).
-	emitTake := func(targetVar, cursorVar int, step byte) {
-		c.emit(bytecode.OP_SCATTER_TAKE)
-		c.emitByte(byte(listVar))
-		c.emitByte(byte(cursorVar))
-		c.emitByte(byte(targetVar))
-		c.emitByte(step)
-	}
-
-	emitOptionalCondition := func(requiredReserve int) {
-		// (right - left + 1) > requiredReserve
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(rightVar))
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(leftVar))
-		c.emitTicks(0)
-		c.emit(bytecode.OP_SUB)
-		if op, ok := bytecode.MakeImmediateOpcode(1); ok {
-			c.emit(op)
-		}
-		c.emitTicks(0)
-		c.emit(bytecode.OP_ADD)
-		c.emitIntLiteral(int64(requiredReserve))
-		c.emitTicks(0)
-		c.emit(bytecode.OP_GT)
-		c.emitTicks(0)
-	}
-
-	emitOptionalMissingValue := func(binding compiledBinding, targetVar int) error {
-		if binding.default_ != nil {
-			if err := c.compileNode(binding.default_); err != nil {
-				return err
-			}
-			c.emit(bytecode.OP_SET_VAR)
-			c.emitByte(byte(targetVar))
-		}
-		// When no default is specified, leave the variable as-is.
+	if !hasDefault {
 		return nil
 	}
 
-	// Bind suffix targets from the right when @rest is present.
-	if hasRest {
-		for i := len(bindings) - 1; i > restIndex; i-- {
-			binding := bindings[i]
-			if binding.rest {
-				continue
-			}
-			targetVar := c.declareVariable(binding.name)
-			if binding.optional {
-				requiredBefore := countRequired(0, i-1)
-				emitOptionalCondition(requiredBefore)
-				elseJump := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
+	// Sequential scatters have disjoint temporary lifetimes, so reuse the
+	// slot. A scatter nested in a default expression increments the depth and
+	// keeps a distinct slot while the outer scatter's length is live.
+	depth := c.scatterDepth
+	c.scatterDepth++
+	defer func() { c.scatterDepth-- }()
+	lenVar := c.declareInternalVariable(fmt.Sprintf("__scatter_len_depth_%d__", depth))
+	c.emit(bytecode.OP_DUP)
+	c.emit(bytecode.OP_LENGTH)
+	c.emitStoreLocal(lenVar)
 
-				emitTake(targetVar, rightVar, 1)
-				endJump := c.emitJump(bytecode.OP_JUMP)
-
-				c.patchJump(elseJump)
-				if err := emitOptionalMissingValue(binding, targetVar); err != nil {
-					return err
-				}
-				c.patchJump(endJump)
-			} else {
-				emitTake(targetVar, rightVar, 1)
-			}
-		}
-	}
-
-	// Bind prefix targets from the left.
-	prefixEnd := len(bindings) - 1
-	if hasRest {
-		prefixEnd = restIndex - 1
-	}
-	for i := 0; i <= prefixEnd; i++ {
-		binding := bindings[i]
-		if binding.rest {
+	// The length tests are bookkeeping inside EOP_SCATTER's tick; only a
+	// default expression and its OP_PUT are charged.
+	optionals := 0
+	for i, binding := range bindings {
+		if !binding.optional {
 			continue
 		}
-
-		targetVar := c.declareVariable(binding.name)
-		if binding.optional {
-			requiredAfter := countRequired(i+1, prefixEnd)
-			emitOptionalCondition(requiredAfter)
-			elseJump := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
-
-			emitTake(targetVar, leftVar, 0)
-			endJump := c.emitJump(bytecode.OP_JUMP)
-
-			c.patchJump(elseJump)
-			if err := emitOptionalMissingValue(binding, targetVar); err != nil {
-				return err
-			}
-			c.patchJump(endJump)
-		} else {
-			emitTake(targetVar, leftVar, 0)
+		optionals++
+		if binding.default_ == nil {
+			continue // an unreached target without a default keeps its value
 		}
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(lenVar))
+		c.emitIntLiteral(int64(numRequired + optionals))
+		c.emitTicks(0)
+		c.emit(bytecode.OP_LT)
+		c.emitTicks(0)
+		reached := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
+		if err := c.compileNode(binding.default_); err != nil {
+			return err
+		}
+		c.emit(bytecode.OP_SET_VAR)
+		c.emitByte(byte(slots[i]))
+		c.patchJump(reached)
 	}
-
-	// Bind @rest to the remaining middle slice.
-	if hasRest {
-		restBinding := bindings[restIndex]
-		restVar := c.declareVariable(restBinding.name)
-
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(leftVar))
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(rightVar))
-		c.emitTicks(0)
-		c.emit(bytecode.OP_LE)
-		c.emitTicks(0)
-		elseJump := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
-
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(listVar))
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(leftVar))
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(rightVar))
-		c.emitTicks(0)
-		c.emit(bytecode.OP_RANGE)
-		c.emitStoreLocal(restVar)
-		endJump := c.emitJump(bytecode.OP_JUMP)
-
-		c.patchJump(elseJump)
-		c.emit(bytecode.OP_MAKE_LIST)
-		c.emitByte(0)
-		c.emitStoreLocal(restVar)
-		c.patchJump(endJump)
-	}
-
 	return nil
 }

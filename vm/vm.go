@@ -1204,9 +1204,6 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		frame.IP += 8
 		vm.Push(types.NewInt(int64(value)))
 
-	case bytecode.OP_SCATTER_TAKE:
-		return vm.executeScatterTake()
-
 	// Property operations
 	case bytecode.OP_GET_PROP:
 		return vm.executeGetProp()

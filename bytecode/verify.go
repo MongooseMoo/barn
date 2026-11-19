@@ -263,7 +263,7 @@ func InstructionStackEffect(op OpCode, operand []byte) (pops, pushes int, err er
 	case OP_RETURN_NONE, OP_JUMP, OP_JUMP_WIDE, OP_LOOP, OP_LOOP_WIDE, OP_UNWIND_JUMP,
 		OP_FOR_RANGE_CHECK, OP_FOR_RANGE_CHECK_WIDE, OP_FOR_LIST_CHECK_WIDE,
 		OP_FOR_RANGE_NEXT, OP_FOR_RANGE_NEXT_WIDE, OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV,
-		OP_FOR_LIST_LOAD_COLUMNS, OP_FOR_LIST_LOAD_VALUE, OP_SCATTER_TAKE,
+		OP_FOR_LIST_LOAD_COLUMNS, OP_FOR_LIST_LOAD_VALUE,
 		OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE, OP_TRY_EXCEPT_LOCAL_WIDE, OP_END_EXCEPT,
 		OP_TRY_FINALLY, OP_TRY_FINALLY_WIDE, OP_END_FINALLY, OP_END_FINALLY_WIDE, OP_TICKS:
 		return 0, 0, nil
@@ -347,7 +347,7 @@ func decodeInstructions(code []byte) (map[int]bool, []decodedInstruction, error)
 		if op.String() == "UNKNOWN" {
 			return nil, nil, fmt.Errorf("unknown opcode %d at byte %d", op, ip)
 		}
-		if op == OP_CONTINUE || op == OP_CATCH {
+		if op == OP_CONTINUE || op == OP_CATCH || op == OP_SCATTER_TAKE {
 			return nil, nil, fmt.Errorf("dead opcode %s at byte %d", op, ip)
 		}
 		ip++
@@ -430,14 +430,26 @@ func verifyInstruction(program *Program, instruction decodedInstruction, boundar
 		if instruction.next >= len(program.Code) || OpCode(program.Code[instruction.next]) == OP_TICKS {
 			return fmt.Errorf("tick prefix does not precede an instruction")
 		}
-	case OP_SCATTER_TAKE:
-		for _, index := range operand[:3] {
-			if err := local(int(index)); err != nil {
+	case OP_SCATTER:
+		targets, required, rest := int(operand[0]), int(operand[1]), int(operand[2])
+		optionals := 0
+		for position := 1; position <= targets; position++ {
+			if err := local(int(operand[1+2*position])); err != nil {
 				return err
 			}
+			if operand[2+2*position] > 1 {
+				return fmt.Errorf("invalid scatter target kind %d", operand[2+2*position])
+			}
+			if operand[2+2*position] == 1 && position != rest {
+				optionals++
+			}
 		}
-		if operand[3] > 1 {
-			return fmt.Errorf("invalid scatter step %d", operand[3])
+		rests := 0
+		if rest <= targets {
+			rests = 1
+		}
+		if rest < 1 || rest > targets+1 || required+optionals+rests != targets {
+			return fmt.Errorf("scatter of %d targets has %d required, %d optional and rest position %d", targets, required, optionals, rest)
 		}
 	case OP_GET_PROP, OP_SET_PROP:
 		if operand[0] != 0xff {

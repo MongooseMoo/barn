@@ -214,18 +214,27 @@ func convertNativeSnapshot(snapshot *task.VMSnapshot, store *dbstore.Store, sess
 			vector = snapshot.NativeRootVector
 		}
 		var move *task.MoveContinuationSnapshot
+		evalFrame := previousCall == compiler.NativeResumeEval
 		switch previousCall {
 		case compiler.NativeResumeEval:
 			saved = withoutEvalReturnContinuation(saved)
 		case compiler.NativeResumeBuiltin:
 			saved, move = withoutMoveContinuation(saved)
+			if move == nil {
+				// call_function("eval", ...) is a builtin call site whose callee
+				// is an eval activation. ExportNativeSnapshot marks it as it
+				// marks eval()'s own.
+				marked := saved.Native.Builtin != nil
+				saved = withoutEvalReturnContinuation(saved)
+				evalFrame = marked && saved.Native.Builtin == nil
+			}
 		}
 		frame, call, err := session.Registry().Compiler().ConvertNativeFrame(saved, vector, index == len(snapshot.Frames)-1)
 		if err != nil {
 			return nil, fmt.Errorf("native frame %d: %w", index, err)
 		}
 		frame.IsVerbCall = previousCall == compiler.NativeResumeVerb || previousCall == compiler.NativeResumePass
-		frame.IsEvalFrame = previousCall == compiler.NativeResumeEval
+		frame.IsEvalFrame = evalFrame
 		if move != nil {
 			// The frame as pushMoveLifecycleVerb leaves a hook verb's.
 			frame.IsVerbCall = true
@@ -259,6 +268,13 @@ func convertNativeSnapshot(snapshot *task.VMSnapshot, store *dbstore.Store, sess
 // the callee's own mark is dropped here. Any other builtin state, or an eval
 // mark at another pc or with saved data, is left for ConvertNativeFrame to
 // refuse.
+//
+// Under call_function("eval", ...) Toast records call_function with eval's
+// state inside it (execute.cc bf_call_function), which is still refused.
+// ExportNativeSnapshot writes the plain eval mark there too: when the eval
+// activation returns, Toast calls the builtin its mark names with the value
+// (execute.cc run, the bi_func_pc branch of a return), and bf_call_function
+// would only have passed bf_eval's {1, value} through.
 func withoutEvalReturnContinuation(saved task.VMFrameSnapshot) task.VMFrameSnapshot {
 	builtin := saved.Native.Builtin
 	if saved.BuiltinPC != 2 || builtin == nil || builtin.Name != "eval" || builtin.State != "" || builtin.Inner != nil {

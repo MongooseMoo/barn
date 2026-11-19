@@ -97,7 +97,7 @@ earlier releases subtracted it without the test).
 `bytecode.InstructionTicks()` charges each Barn opcode what the Toast opcodes it
 implements would charge (for example a call with arguments also pays for
 Toast's `OP_MAKE_SINGLETON_LIST`). Compiler-synthesized helpers with no Toast
-counterpart are tick-free (`OP_SET_LOCAL`, `OP_SCATTER_TAKE`, `OP_PUSH_INT`) or
+counterpart are tick-free (`OP_SET_LOCAL`, `OP_PUSH_INT`) or
 carry an `OP_TICKS` prefix stating the charge. The conformance suite's
 `vm/tick_accounting.yaml` pins the per-construct values.
 

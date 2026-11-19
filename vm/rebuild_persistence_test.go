@@ -32,7 +32,7 @@ func TestSuspendedTasksRebuiltFromSourceResumeUnchanged(t *testing.T) {
 	for name, source := range sources {
 		t.Run(name, func(t *testing.T) {
 			// eval() needs a programmer; the harness's wizard mode runs as #0.
-			difference, skip := checkpointResumeDifference(t, source, checkpointSuspendedVM, sourceFuzzTicks, name == "eval frame")
+			difference, skip := checkpointResumeDifference(t, source, checkpointSuspendedVMInBarnForm, sourceFuzzTicks, name == "eval frame")
 			if skip != "" || difference != "" {
 				t.Fatalf("difference %q, skip %q; want neither", difference, skip)
 			}
