@@ -508,21 +508,24 @@ func TestToastLoadableCheckpointOmitsBarnFormTasks(t *testing.T) {
 	}
 }
 
-// A queued fork runs with the debug flag its forking verb had: Toast copies
-// the activation into the queued task (execute.cc OP_FORK passes RUN_ACTIV to
-// enqueue_forked_task2), writes that flag last on the activation line
-// (write_activ_as_pi), reads it back (read_activ_as_pi) and runs the loaded
-// fork with it (do_forked_task). With 0 there, an error in the fork body of a
-// `d` verb is a value instead of a raise once Toast loads the file.
-func TestQueuedForkCheckpointsItsVerbDebugFlag(t *testing.T) {
+// While the server runs, a fork runs with the debug flag its forking verb had
+// at the fork statement (execute.cc OP_FORK passes RUN_ACTIV to
+// enqueue_forked_task2). The checkpoint does not hold that flag: Toast's
+// write_activ_as_pi passes the 16-byte Var a.vloc to one integer conversion,
+// so the activation line ends in the definer's type code (1, TYPE_OBJ) and
+// a.debug is never printed. read_activ_as_pi reads that number as the debug
+// flag and do_forked_task runs the loaded fork with it, so a fork loaded from
+// a checkpoint runs with debug on whatever its verb's flag was. A file with 0
+// there (Barn wrote one before it wrote the type code) loads with debug off.
+func TestQueuedForkCheckpointsDefinerTypeWhereToastReadsDebug(t *testing.T) {
+	const line = "\n0 -7 -8 2 -9 2 0 -10 1\n"
 	for _, tc := range []struct {
 		name  string
 		perms dbstore.VerbPerms
 		debug bool
-		line  string
 	}{
-		{"d verb", dbstore.VerbRead | dbstore.VerbExecute | dbstore.VerbDebug, true, "\n0 -7 -8 2 -9 2 0 -10 1\n"},
-		{"verb without d", dbstore.VerbRead | dbstore.VerbExecute, false, "\n0 -7 -8 2 -9 2 0 -10 0\n"},
+		{"d verb", dbstore.VerbRead | dbstore.VerbExecute | dbstore.VerbDebug, true},
+		{"verb without d", dbstore.VerbRead | dbstore.VerbExecute, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := newToastExportStore(t, nil)
@@ -543,9 +546,16 @@ func TestQueuedForkCheckpointsItsVerbDebugFlag(t *testing.T) {
 					break
 				}
 			}
+			var live *Task
+			if len(queued) == 1 {
+				live = rt.GetTask(queued[0].ID)
+			}
 			rt.Stop()
 			if len(queued) != 1 || queued[0].Fork == nil {
 				t.Fatalf("queued forks = %d, want 1", len(queued))
+			}
+			if live == nil || live.ForkInfo == nil || live.ForkInfo.Debug != tc.debug {
+				t.Fatalf("live fork does not hold its verb's debug flag %v", tc.debug)
 			}
 			path := filepath.Join(t.TempDir(), "barn.db")
 			if err := dbformat.WriteCheckpoint(path, store, queued, nil, nil); err != nil {
@@ -557,32 +567,39 @@ func TestQueuedForkCheckpointsItsVerbDebugFlag(t *testing.T) {
 			}
 			tasks := string(written[bytes.LastIndex(written, []byte("1 queued tasks\n")):])
 			tasks = tasks[:strings.Index(tasks, " suspended tasks\n")]
-			if !strings.Contains(tasks, tc.line) {
-				t.Fatalf("queued fork activation does not hold %q:\n%s", tc.line, tasks)
+			if !strings.Contains(tasks, line) {
+				t.Fatalf("queued fork activation does not hold %q:\n%s", line, tasks)
 			}
 
-			// Barn loads the flag, runs the fork with it, and writes it again.
-			reloaded, err := dbformat.LoadDatabase(path + ".new")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(reloaded.QueuedTasks) != 1 || reloaded.QueuedTasks[0].Debug != tc.debug {
-				t.Fatalf("reloaded queued forks = %d, want 1 with debug %v", len(reloaded.QueuedTasks), tc.debug)
-			}
-			resumedStore, err := reloaded.NewStoreFromDatabase()
-			if err != nil {
-				t.Fatal(err)
-			}
-			resumed := newTestRuntimeWithBuiltins(t, resumedStore)
-			defer resumed.Stop()
-			resumed.LoadQueuedTasks(reloaded.QueuedTasks)
-			restored := resumed.GetTask(queued[0].ID)
-			if restored == nil || restored.VM() == nil || restored.VM().CurrentFrame().VerbDebug != tc.debug {
-				t.Fatalf("restored fork does not run with debug %v", tc.debug)
-			}
-			again, _ := resumed.TaskSnapshots()
-			if len(again) != 1 || again[0].Fork == nil || again[0].Fork.Debug != tc.debug {
-				t.Fatalf("re-exported fork does not hold debug %v", tc.debug)
+			// Barn reads the field as the debug flag and runs the fork with it.
+			for _, file := range []struct {
+				field string
+				debug bool
+			}{{"1", true}, {"0", false}} {
+				loadPath := filepath.Join(t.TempDir(), "load.db")
+				content := bytes.Replace(written, []byte(line), []byte("\n0 -7 -8 2 -9 2 0 -10 "+file.field+"\n"), 1)
+				if err := os.WriteFile(loadPath, content, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				reloaded, err := dbformat.LoadDatabase(loadPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(reloaded.QueuedTasks) != 1 || reloaded.QueuedTasks[0].Debug != file.debug {
+					t.Fatalf("field %s: reloaded queued forks = %d, want 1 with debug %v", file.field, len(reloaded.QueuedTasks), file.debug)
+				}
+				resumedStore, err := reloaded.NewStoreFromDatabase()
+				if err != nil {
+					t.Fatal(err)
+				}
+				resumed := newTestRuntimeWithBuiltins(t, resumedStore)
+				resumed.LoadQueuedTasks(reloaded.QueuedTasks)
+				restored := resumed.GetTask(queued[0].ID)
+				ran := restored != nil && restored.VM() != nil && restored.VM().CurrentFrame().VerbDebug == file.debug
+				resumed.Stop()
+				if !ran {
+					t.Fatalf("field %s: restored fork does not run with debug %v", file.field, file.debug)
+				}
 			}
 		})
 	}

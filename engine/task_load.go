@@ -202,8 +202,10 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	machine.TickLimit = ticks
 	configureVMStackLimit(machine, s.session)
 	frame := machine.PrepareVerbFrame(prog, saved.This, saved.Player, saved.Player, saved.Verb, saved.VerbLoc, nil)
-	// The fork runs with the debug flag saved on its activation line, as
-	// Toast's read_activ_as_pi and do_forked_task do.
+	// The fork runs with the debug flag read from its activation line, as
+	// Toast's read_activ_as_pi and do_forked_task do. That number is the
+	// definer's type code in a file Toast or Barn wrote, so the fork runs
+	// with debug on whatever its verb's d flag was.
 	frame.VerbDebug = saved.Debug
 	// A restored fork runs the recompiled isolated body. Its environment must
 	// use that program's names, not the enclosing parent's saved name table.

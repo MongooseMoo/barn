@@ -162,6 +162,14 @@ func (w *Writer) writeInterruptedTasks() error {
 	return nil
 }
 
+// activationDefinerType is the last number on an activation line, for queued
+// forks and suspended frames alike. Toast's write_activ_as_pi (execute.cc)
+// passes the 16-byte Var a.vloc to one integer conversion, so its final %d
+// prints that Var's type code and a.debug is never printed; read_activ_as_pi
+// then reads the number as the activation's debug flag. Barn writes the
+// definer as an object, so the number is that type's code.
+const activationDefinerType = TypeObj
+
 // writeActivationAsPI writes activation in Program Info format
 // Format:
 //
@@ -169,7 +177,7 @@ func (w *Writer) writeInterruptedTasks() error {
 //	temp_this (typed)
 //	temp_vloc (typed)
 //	threaded (raw int)
-//	Header: "{this} {unused1} {unused2} {player} {unused3} {programmer} {vloc} {unused4} {debug}"
+//	Header: "{this} {unused1} {unused2} {player} {unused3} {programmer} {vloc} {unused4} {vloc type}"
 //	"No"
 //	"More"
 //	"Parse"
@@ -222,13 +230,9 @@ func (w *Writer) writeActivationAsPI(t task.Snapshot) error {
 		return err
 	}
 
-	// Header: {this} {unused1} {unused2} {player} {unused3} {programmer} {vloc} {unused4} {debug}
-	debug := 0
-	if t.Fork != nil && t.Fork.Debug {
-		debug = 1
-	}
+	// Header: {this} {unused1} {unused2} {player} {unused3} {programmer} {vloc} {unused4} {vloc type}
 	if _, err := fmt.Fprintf(w.w, "%d -7 -8 %d -9 %d %d -10 %d\n",
-		thisObj, player, programmer, vloc, debug); err != nil {
+		thisObj, player, programmer, vloc, activationDefinerType); err != nil {
 		return err
 	}
 

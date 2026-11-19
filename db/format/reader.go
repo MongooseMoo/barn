@@ -131,7 +131,9 @@ type QueuedTask struct {
 	// FirstLine is the header's first line number: the verb line on which
 	// the fork body in Code began.
 	FirstLine int
-	// Debug is the activation's debug flag: the forking verb's d flag.
+	// Debug is the debug flag the loaded fork runs with: whether the last
+	// number on its activation line is nonzero. Toast and Barn write the
+	// definer's type code there, so it is true for a file either wrote.
 	Debug bool
 }
 

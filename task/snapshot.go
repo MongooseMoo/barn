@@ -60,9 +60,6 @@ type ForkSnapshot struct {
 	VariableNames []string
 	SourceLines   []string
 	FirstLine     int
-	// Debug is the forking verb's d flag, the last field of the queued
-	// task's activation line.
-	Debug bool
 }
 
 // Snapshot is an immutable copy of the task fields the database writer needs.
@@ -379,7 +376,6 @@ func (t *State) PersistenceSnapshotLocked() Snapshot {
 			VariableNames: variableNames,
 			SourceLines:   append([]string(nil), t.ForkInfo.SourceLines...),
 			FirstLine:     firstLine,
-			Debug:         t.ForkInfo.Debug,
 		}
 	}
 	return snapshot
