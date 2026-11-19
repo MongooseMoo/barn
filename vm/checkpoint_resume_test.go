@@ -558,6 +558,23 @@ func TestCheckpointReloadsSuspendInFirstArgumentBeforeSplice(t *testing.T) {
 	}
 }
 
+// Issue #917: a task suspended in a catch expression's handler was refused
+// by ExportNativeSnapshot ("operand stack of 1 does not match its call
+// site"): the import layout still counted the guarded expression's result,
+// which the error had unwound, on the handler's operand stack.
+func TestCheckpointReloadsSuspendInCatchHandler(t *testing.T) {
+	source := "return {1 + `1/0 ! ANY => 5 + suspend(0)', {`1/0 ! E_DIV => suspend(0)'}};"
+	registry := newCheckpointResumeRegistry(t)
+	program, diagnostics := registry.Compiler().CompileMOO([]string{source})
+	if len(diagnostics) != 0 {
+		t.Fatal(diagnostics)
+	}
+	results, _, checkpoints := runCheckpointResumeCase(t, registry, program, checkpointSuspendedVM, sourceFuzzTicks, false)
+	if checkpoints != 2 || len(results) != 1 || results[0].Flow != types.FlowReturn || results[0].Val.String() != "{6, {0}}" {
+		t.Fatalf("%d checkpoints, results %v; want 2 checkpoints and one task returning {6, {0}}", checkpoints, results)
+	}
+}
+
 // A checkpoint writes every variable of the suspended task and of each queued
 // fork in full, as Toast's write_forked_task and write_activ do (tasks.cc:1911,
 // execute.cc:3979), while in memory they share one value. This program holds
