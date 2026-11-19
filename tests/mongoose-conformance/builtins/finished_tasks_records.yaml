@@ -23,7 +23,7 @@ tests:
 
   - name: record_keys_and_types
     permission: wizard
-    code: |
+    statement: |
       ft = finished_tasks();
       r = ft[$];
       return {length(ft) > 0, sort(mapkeys(r)), typeof(r["time"]), typeof(r["foreground"]), typeof(r["suspended"]), typeof(r["fullverb"])};
@@ -68,14 +68,12 @@ tests:
       - run: create($nothing)
         capture: obj
       - run: |
-          add_verb({obj}, {player, "rxd", "ft_outer"}, {"this", "none", "this"});
-          return set_verb_code({obj}, "ft_outer", {"suspend(0);", "return 3;"});
+          add_verb({obj}, {player, "rxd", "ft_forker"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "ft_forker", {"fork (0)", "  suspend(0);", "endfork", "return 3;"});
         expect:
           value: []
       - run: |
-          fork (0)
-            {obj}:ft_outer();
-          endfork
+          {obj}:ft_forker();
           suspend(0);
           return 1;
         expect:
@@ -83,7 +81,7 @@ tests:
       - run: |
           hits = {};
           for r in (finished_tasks())
-            if (r["fullverb"] == "ft_outer")
+            if (r["fullverb"] == "ft_forker")
               hits = {@hits, {r["foreground"], r["suspended"]}};
             endif
           endfor
