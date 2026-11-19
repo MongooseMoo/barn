@@ -224,7 +224,7 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 		Caller:     saved.Player,
 		Verb:       saved.Verb,
 		VerbLoc:    saved.VerbLoc,
-		LineNumber: 1,
+		LineNumber: max(saved.FirstLine, 1),
 	})
 
 	s.QueueTask(t)
