@@ -71,7 +71,7 @@ Done, committed on `fix/reloaded-fork-debug-flag`, not pushed.
     off. Red: subtest `verb_without_d` failed, `d_verb` passed.
   - `format.TestWriteSuspendedActivationLineEndsInDefinerTypeCode`: red with
     `7 -7 -8 2 -9 3 6 -10 0` for `VerbDebug` false.
-  - `format.TestWriteQueuedTasksUsesToastTaskOrderAndSentinels` expectation
+  - `format.TestWriteQueuedTasksUsesTaskSnapshots` expectation
     changed from `-10 0` to `-10 1`.
   - `go test ./db/format ./task ./types ./vm ./engine -count=1`: all ok.
     `go vet ./...` clean, gofmt clean.
