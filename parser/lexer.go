@@ -475,11 +475,6 @@ func (l *Lexer) readIdentifier() Token {
 		},
 	}
 
-	// Check for error literal (E_XXX)
-	if l.ch == 'E' && l.peekChar() == '_' {
-		return l.readErrorLiteral()
-	}
-
 	start := l.position
 
 	// Read identifier characters
@@ -488,6 +483,14 @@ func (l *Lexer) readIdentifier() Token {
 	}
 
 	tok.Value = l.input[start:l.position]
+	// Error names are keywords too: Toast matches the whole identifier against
+	// its keyword table in any letter case, so `e_type' is E_TYPE while
+	// `E_IN3ARG' and `E_TYPEx' are ordinary variables.
+	if upper := strings.ToUpper(tok.Value); isErrorName(upper) {
+		tok.Type = TOKEN_ERROR_LIT
+		tok.Value = upper
+		return tok
+	}
 	// Keywords match in any letter case, as in Toast's keyword table
 	// (`IF', `Return' and `ANY' are keywords, never variables).
 	tok.Type = LookupKeyword(strings.ToLower(tok.Value))
