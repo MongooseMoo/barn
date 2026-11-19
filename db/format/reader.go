@@ -131,6 +131,8 @@ type QueuedTask struct {
 	// FirstLine is the header's first line number: the verb line on which
 	// the fork body in Code began.
 	FirstLine int
+	// Debug is the activation's debug flag: the forking verb's d flag.
+	Debug bool
 }
 
 // SuspendedTask represents a suspended task

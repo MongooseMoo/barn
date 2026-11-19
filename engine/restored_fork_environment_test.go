@@ -103,7 +103,7 @@ func TestRestoredForkCanonicalEnvironmentRoundtrip(t *testing.T) {
 }
 
 func TestRestoredForkAbsentLocalIsUnbound(t *testing.T) {
-	saved := &dbformat.QueuedTask{ID: 8822, This: 0, Player: 0, Programmer: 0, VerbLoc: 0, Verb: "restored",
+	saved := &dbformat.QueuedTask{ID: 8822, This: 0, Player: 0, Programmer: 0, VerbLoc: 0, Verb: "restored", Debug: true,
 		Code: []string{"return missing;"}, Variables: map[string]types.Value{}}
 	runtime, loaded := loadedForkForTest(t, saved)
 	frame := loaded.VM().CurrentFrame()
@@ -119,7 +119,7 @@ func TestRestoredForkAbsentLocalIsUnbound(t *testing.T) {
 }
 
 func TestRestoredForkAbsentPredefinedLocalIsUnbound(t *testing.T) {
-	saved := &dbformat.QueuedTask{ID: 8824, This: 0, Player: 0, Programmer: 0, VerbLoc: 0, Verb: "restored",
+	saved := &dbformat.QueuedTask{ID: 8824, This: 0, Player: 0, Programmer: 0, VerbLoc: 0, Verb: "restored", Debug: true,
 		Code: []string{"return STR;"}, Variables: map[string]types.Value{}}
 	runtime, loaded := loadedForkForTest(t, saved)
 	frame := loaded.VM().CurrentFrame()
@@ -162,7 +162,7 @@ func TestRestoredForkCanonicalValuesDoNotAliasSavedMap(t *testing.T) {
 }
 
 func TestRestoredForkAbsentLocalRoundtripPreservesUnbound(t *testing.T) {
-	saved := &dbformat.QueuedTask{ID: 8823, This: 0, Player: 0, Programmer: 0, VerbLoc: 0, Verb: "restored",
+	saved := &dbformat.QueuedTask{ID: 8823, This: 0, Player: 0, Programmer: 0, VerbLoc: 0, Verb: "restored", Debug: true,
 		Code: []string{"return `missing ! E_VARNF => 91';"}, Variables: map[string]types.Value{}}
 	for checkpoint := 0; checkpoint < 2; checkpoint++ {
 		runtime, loaded := loadedForkForTest(t, saved)
