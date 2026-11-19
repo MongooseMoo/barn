@@ -208,6 +208,10 @@ func (s *barnImportLayout) flush(c *lowerer) {
 		s.locals[int(operands[0])] = consumed[0]
 	case op == bytecode.OP_DUP:
 		value = consumed[0]
+	case op == bytecode.OP_MAKE_LIST && operands[0] == 0:
+		// A spliced argument list starts empty before its first argument,
+		// where Toast holds no list yet; the value is always {}.
+		value = barnImportValue{literal: types.NewList(nil), isLiteral: true}
 	case op == bytecode.OP_MAKE_LIST:
 		value.origin = NativeValueOrigin{Kind: NativeListPrefix, Node: node, Aux: int(operands[0])}
 	case op == bytecode.OP_SPLICE && leadingSplice(node):

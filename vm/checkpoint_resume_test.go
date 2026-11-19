@@ -573,6 +573,23 @@ func TestCheckpointReloadsEvalCalledThroughCallFunction(t *testing.T) {
 	}
 }
 
+// A call with a spliced argument starts Barn's argument list with an empty
+// OP_MAKE_LIST before its first argument, where Toast holds no list yet. The
+// import looked that empty list up among Toast's operands and refused the
+// frame ("native continuation lacks 2 value from *ir.VerbCallExpr").
+func TestCheckpointReloadsSuspendInFirstArgumentBeforeSplice(t *testing.T) {
+	for _, source := range []string{
+		`l = {1, 2}; return l:initialize(suspend(0), @l);`,
+		`l = {1, 2}; return length(suspend(0), @l);`,
+		`l = {1, 2}; return {suspend(0), @l};`,
+	} {
+		difference, skip := checkpointResumeDifference(t, source, checkpointSuspendedVM, sourceFuzzTicks, false)
+		if skip != "" || difference != "" {
+			t.Errorf("%s: difference %q, skip %q; want neither", source, difference, skip)
+		}
+	}
+}
+
 // Issue #917: a task suspended in a catch expression's handler was refused
 // by ExportNativeSnapshot ("operand stack of 1 does not match its call
 // site"): the import layout still counted the guarded expression's result,
