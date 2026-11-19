@@ -1,0 +1,59 @@
+name: server_version_default_options
+description: >
+  server_version() declares the server's own compiled limit defaults in its
+  options group, under ToastStunt's option names and value shapes. The values
+  are the server's, not Toast's, so only their type and consistency with the
+  matching MIN_* limit are checked.
+requires:
+  builtins: [server_version]
+tests:
+  - name: positive_integer_defaults
+    statement: |
+      for name in ({"MAX_QUEUED_OUTPUT", "DEFAULT_MAX_STACK_DEPTH", "DEFAULT_FG_TICKS", "DEFAULT_BG_TICKS", "DEFAULT_FG_SECONDS", "DEFAULT_BG_SECONDS"})
+        value = server_version("options/" + name);
+        if (typeof(value) != INT || value <= 0)
+          return {name, value};
+        endif
+      endfor
+      return 1;
+    expect:
+      value: 1
+  - name: string_concat_default_meets_minimum
+    statement: |
+      default = server_version("options/DEFAULT_MAX_STRING_CONCAT");
+      minimum = server_version("options/MIN_STRING_CONCAT_LIMIT");
+      return typeof(default) == INT && typeof(minimum) == INT && minimum > 0 && default >= minimum;
+    expect:
+      value: 1
+  - name: list_value_bytes_default_meets_minimum
+    statement: |
+      default = server_version("options/DEFAULT_MAX_LIST_VALUE_BYTES");
+      minimum = server_version("options/MIN_LIST_VALUE_BYTES_LIMIT");
+      return typeof(default) == INT && typeof(minimum) == INT && minimum > 0 && default >= minimum;
+    expect:
+      value: 1
+  - name: map_value_bytes_default_meets_minimum
+    statement: |
+      default = server_version("options/DEFAULT_MAX_MAP_VALUE_BYTES");
+      minimum = server_version("options/MIN_MAP_VALUE_BYTES_LIMIT");
+      return typeof(default) == INT && typeof(minimum) == INT && minimum > 0 && default >= minimum;
+    expect:
+      value: 1
+  - name: defaults_appear_in_full_options_group
+    statement: |
+      names = {};
+      for group in (server_version(1))
+        if (group[1] == "options")
+          for entry in (group[2])
+            names = {@names, entry[1]};
+          endfor
+        endif
+      endfor
+      for name in ({"MAX_QUEUED_OUTPUT", "DEFAULT_MAX_STACK_DEPTH", "DEFAULT_FG_TICKS", "DEFAULT_BG_TICKS", "DEFAULT_FG_SECONDS", "DEFAULT_BG_SECONDS", "DEFAULT_MAX_STRING_CONCAT", "MIN_STRING_CONCAT_LIMIT", "DEFAULT_MAX_LIST_VALUE_BYTES", "MIN_LIST_VALUE_BYTES_LIMIT", "DEFAULT_MAX_MAP_VALUE_BYTES", "MIN_MAP_VALUE_BYTES_LIMIT"})
+        if (!(name in names))
+          return name;
+        endif
+      endfor
+      return 1;
+    expect:
+      value: 1

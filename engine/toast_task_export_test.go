@@ -103,6 +103,25 @@ var toastExportShapes = []toastExportShape{
 		want:    "{1, 2, 3}",
 	},
 	{
+		name:    "builtin in a range loop's upper bound",
+		program: "for n in [1..suspend(100)]\nendfor\n#0.log = {@#0.log, 1};",
+		want:    "{1}",
+	},
+	{
+		// The inner bound runs once per outer pass; only the first pass waits.
+		name:    "builtin in a nested range loop's upper bound",
+		program: "for n in [1..2]\nfor k in [3..suspend(100 * (2 - n))]\nendfor\n#0.log = {@#0.log, n};\nendfor",
+		want:    "{1, 2}",
+	},
+	{
+		name: "verb call in a range loop's upper bound below a computed lower bound",
+		verbs: map[string]string{
+			"limit": "if (#0.n == 0)\n#0.n = 1;\nsuspend(100);\nendif\nreturn args[1];",
+		},
+		program: "for a in [1..2]\nfor b in [10 * a..#0:limit(10 * a + 1)]\n#0.log = {@#0.log, {a, b}};\nendfor\nendfor",
+		want:    "{{1, 10}, {1, 11}, {2, 20}, {2, 21}}",
+	},
+	{
 		name:    "builtin inside a string loop",
 		program: "for c in (\"ab\")\nif (c == \"a\")\nsuspend(100);\nendif\n#0.log = {@#0.log, c};\nendfor",
 		want:    "{\"a\", \"b\"}",
@@ -114,6 +133,35 @@ var toastExportShapes = []toastExportShape{
 		},
 		program: "fork (0)\nfor v, k in ([\"p\" -> {1, 2}])\nfor x in (v)\n#0:pause();\n#0.log = {@#0.log, {k, x}};\nendfor\nendfor\nendfork",
 		want:    "{{\"p\", 1}, {\"p\", 2}}",
+	},
+	{
+		name:    "builtin in a finally body the try body fell into",
+		program: "try\n#0.log = {@#0.log, 1};\nfinally\nsuspend(100);\n#0.log = {@#0.log, 2};\nendtry\n#0.log = {@#0.log, 3};",
+		want:    "{1, 2, 3}",
+	},
+	{
+		name: "verb call in a finally body a return entered",
+		verbs: map[string]string{
+			"outer": "try\nreturn 5;\nfinally\n#0.log = {@#0.log, this:inner()};\nendtry\nreturn 6;",
+			"inner": "suspend(100);\nreturn \"inner\";",
+		},
+		program: "r = #0:outer();\n#0.log = {@#0.log, r};",
+		want:    "{\"inner\", 5}",
+	},
+	{
+		name:    "builtin in a finally body a handled error entered",
+		program: "try\ntry\nraise(E_PERM, \"m\", 7);\nfinally\nsuspend(100);\n#0.log = {@#0.log, 1};\nendtry\n#0.log = {@#0.log, 2};\nexcept e (E_PERM)\n#0.log = {@#0.log, e[1..3]};\nendtry",
+		want:    "{1, {E_PERM, \"m\", 7}}",
+	},
+	{
+		name:    "builtin in a finally body a break entered",
+		program: "for x in ({1, 2, 3})\ntry\nif (x == 2)\nbreak;\nendif\nfinally\nif (x == 2)\nsuspend(100);\nendif\nendtry\n#0.log = {@#0.log, x};\nendfor\n#0.log = {@#0.log, \"done\"};",
+		want:    "{1, \"done\"}",
+	},
+	{
+		name:    "builtin in a finally body a continue entered, inside a try/except",
+		program: "try\nwhile (#0.n < 3)\n#0.n = #0.n + 1;\ntry\nif (#0.n == 2)\ncontinue;\nendif\nfinally\nif (#0.n == 2)\nsuspend(100);\nendif\nendtry\n#0.log = {@#0.log, #0.n};\nendwhile\nexcept (ANY)\n#0.log = {@#0.log, \"except\"};\nendtry",
+		want:    "{1, 3}",
 	},
 	{
 		name:    "fork body inside a collection loop",
@@ -290,9 +338,10 @@ func TestBarnSuspendedTaskShapesCheckpointAsToastFrames(t *testing.T) {
 
 const (
 	toastFormProgram = "#0.log = {@#0.log, \"toast\"};\nsuspend(100);\n#0.log = {@#0.log, \"toast resumed\"};"
-	// Paused inside a finally clause: Toast holds the pending reason there,
-	// which Barn does not write in Toast's form.
-	barnFormProgram = "try\n#0.other = {@#0.other, \"body\"};\nfinally\nsuspend(100);\n#0.other = {@#0.other, \"finally resumed\"};\nendtry"
+	// Paused where the variables Toast holds unbound depend on the path taken
+	// (TestExportRefusesPathDependentPushClear), which Barn does not write in
+	// Toast's form.
+	barnFormProgram = "n = 1;\nm = n;\n#0.other = {@#0.other, \"body\"};\nwhile ((n = suspend(100)) == 0)\nbreak;\nendwhile\n#0.other = {@#0.other, \"resumed\"};"
 )
 
 // pauseMixedTasks starts one task in a shape Toast can hold and one it
@@ -368,7 +417,7 @@ func TestCheckpointKeepsBarnFormTaskBesideToastFormTasks(t *testing.T) {
 		}
 		driveNativeImportedContinuation(t, resumed, restored)
 	}
-	for property, want := range map[string]string{"log": "{\"toast\", \"toast resumed\"}", "other": "{\"body\", \"finally resumed\"}"} {
+	for property, want := range map[string]string{"log": "{\"toast\", \"toast resumed\"}", "other": "{\"body\", \"resumed\"}"} {
 		if got, code := resumedStore.DirectTxn().PropertyValue(0, property); code != types.E_NONE || got.String() != want {
 			t.Fatalf("#0.%s = %s (%s), want %s", property, got, code, want)
 		}

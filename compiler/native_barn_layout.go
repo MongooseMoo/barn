@@ -54,8 +54,12 @@ type barnImportLayout struct {
 	calls       map[ir.Node]barnImportCall
 	// forkDepths holds, per fork statement in code order, the operands the
 	// enclosing code holds while its body runs; a forked task starts without them.
-	forkDepths  []int
-	handlers    []barnImportHandler
+	forkDepths []int
+	handlers   []barnImportHandler
+	// finallys holds the address of each try statement's OP_TRY_FINALLY_WIDE,
+	// and exits that of each break or continue statement's OP_UNWIND_JUMP.
+	finallys    map[ir.Node]int
+	exits       map[ir.Node]int
 	pending     int
 	pendingNode ir.Node
 	err         error
@@ -65,6 +69,7 @@ func newBarnImportLayout() *barnImportLayout {
 	return &barnImportLayout{
 		locals: make(map[int]barnImportValue), localOwners: make(map[int]ir.Node),
 		calls: make(map[ir.Node]barnImportCall), pending: -1,
+		finallys: make(map[ir.Node]int), exits: make(map[ir.Node]int),
 	}
 }
 
@@ -74,6 +79,16 @@ func (s *barnImportLayout) markListPrefix(c *lowerer, list *ir.ListExpr) {
 	s.flush(c)
 	if len(s.stack) != 0 {
 		s.stack[len(s.stack)-1] = barnImportValue{origin: NativeValueOrigin{Kind: NativeListPrefix, Node: list, Aux: 1}}
+	}
+}
+
+// markRangeStart names the operand on top of the stack as loop's evaluated
+// lower bound. Toast holds it as the loop's next value while it evaluates the
+// upper bound (code_gen.cc STMT_RANGE; nativeVector.stmt names it the same).
+func (s *barnImportLayout) markRangeStart(c *lowerer, loop *ir.RangeLoopStmt) {
+	s.flush(c)
+	if len(s.stack) != 0 {
+		s.stack[len(s.stack)-1] = barnImportValue{origin: NativeValueOrigin{Kind: NativeRangeNext, Node: loop}}
 	}
 }
 
@@ -225,6 +240,11 @@ func (s *barnImportLayout) flush(c *lowerer) {
 		value.projection = importLength
 	case op == bytecode.OP_TRY_EXCEPT || op == bytecode.OP_TRY_EXCEPT_WIDE || op == bytecode.OP_TRY_EXCEPT_LOCAL_WIDE || op == bytecode.OP_TRY_FINALLY || op == bytecode.OP_TRY_FINALLY_WIDE:
 		s.handlers = append(s.handlers, barnImportHandler{Node: node, SetupIP: ip, StackDepth: len(s.stack)})
+		if op == bytecode.OP_TRY_FINALLY_WIDE {
+			s.finallys[node] = ip
+		}
+	case op == bytecode.OP_UNWIND_JUMP:
+		s.exits[node] = ip
 	case op == bytecode.OP_END_EXCEPT:
 		if len(s.handlers) != 0 && s.handlers[len(s.handlers)-1].Node == node {
 			s.handlers = s.handlers[:len(s.handlers)-1]
