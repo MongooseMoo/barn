@@ -97,9 +97,9 @@ jobs:
         uses: ./.github/actions/elle-cli
       - name: Build Barn
         run: go build -o bin/barn ./cmd/barn/
-      - name: Build Jepsen workload
+      - name: Test and build Jepsen workload
         working-directory: tests/jepsen-checkpoint
-        run: JAVA_CMD="$JAVA_HOME/bin/java" lein uberjar
+        run: JAVA_CMD="$JAVA_HOME/bin/java" lein do test, uberjar
       - name: Checkout moo-conformance-tests
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

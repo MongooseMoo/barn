@@ -114,6 +114,7 @@ IN_FLIGHT_KINDS = ("disconnect-after-send", "truncate-reply", "lose-reply")
 READ_TIMEOUT = 3.0
 PAUSE_HOLD = 4.0            # > READ_TIMEOUT: in-flight replies of a pause arrive late
 ARM_DEADLINE = 10.0         # for a client transaction to consume an armed fault
+ARM_GRACE = 1.0             # then for one that took it just before the disarm
 LATE_DEADLINE = 30.0        # a timed-out stream is read this long for its late reply
 TRUNCATE_BYTES = 8          # truncate-reply keeps this many reply bytes, then closes
 SLOW_READ_BYTES, SLOW_READ_PAUSE = 16, 0.02   # slow-reader: 16-byte reads, 20 ms apart
@@ -127,6 +128,12 @@ RECOVERY_BOUND_DERIVATION = (
     "probes; live checkpoint 8-21 ms; first client :ok after a heal while clients ran at most 1.912 s. The "
     "healthy worst sum is about 2.2 s; 10 s (about 4.5x) is the explicit ceiling. The nemesis-only resume "
     "between Jepsen phases (12.9 s, no client running) is not a recovery latency and was excluded.")
+# Client seconds the Jepsen generator adds after the last transport fault may
+# begin: a fault's longest wait before its heal (an armed client kind, or the
+# pause hold) plus RECOVERY_BOUND, so a fault begun at the phase limit has
+# clients until its recovery window closes (run 44578291285: fault 57 began
+# 0.04 s before the limit and no client operation followed its heal).
+TRANSPORT_TAIL = max(ARM_DEADLINE + ARM_GRACE, PAUSE_HOLD) + RECOVERY_BOUND
 
 # Deterministic stage schedule (plan section 2 interruption table) for the
 # elle build's stop points (internal/isolationprobe/checkpoint.go). Each step
@@ -1991,7 +1998,7 @@ class Campaign:
                 if self.armed_transport is fault:
                     self.armed_transport = None
             # take_transport_fault may have taken it just before the disarm.
-            if "op_id" in fault and fault["applied"].wait(1.0):
+            if "op_id" in fault and fault["applied"].wait(ARM_GRACE):
                 row.update(op_id=fault["op_id"], applied_generation=fault["generation"],
                            applied_ns=fault["applied_ns"])
             else:
@@ -4048,7 +4055,7 @@ def run_campaign(args, output):
                    "--adapter-port", str(adapter.server_address[1]), "--history", str(output / "history.jsonl"),
                    "--phase1", str(args.phase1), "--phase3", str(args.phase3),
                    "--phase-live", str(args.phase_live), "--rate", str(args.rate),
-                   "--phase-transport", str(args.phase_transport),
+                   "--phase-transport", str(args.phase_transport), "--transport-tail", str(TRANSPORT_TAIL),
                    "--transport-kinds", json.dumps(args.transport_kinds),
                    "--stages", str(len(args.stages)), "--stage-seconds", str(args.stage_seconds),
                    "--concurrency", str(args.concurrency), "--seed", str(args.seed),
