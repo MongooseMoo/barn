@@ -24,12 +24,12 @@ joined by spaces equal the descriptor exactly. New candidate conformance file
 - The check runs per verb, before the alias check, in definition order, as
   Toast's does.
 - Only the defined-verb lookup changed. Verb dispatch and command matching
-  keep the alias matcher: on Toast, a names string only reaches dispatch
-  through `o:(verbs(o)[i])()`, which this PR doesn't cover.
+  keep the alias matcher. Not checked: whether Toast's pointer check also lets
+  `o:(verbs(o)[i])()` call a multi-name verb.
 
 ## Surprises
 None.
 
 ## Next step
-None planned. If dispatch through `o:(verbs(o)[i])()` turns out to matter, the
-same check would go in the callable-verb lookup.
+Check `o:(verbs(o)[i])()` on Toast. If it calls the verb there, the same check
+belongs in the callable-verb lookup.
