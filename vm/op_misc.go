@@ -23,6 +23,7 @@ func (vm *VM) builtinExecution() *builtins.Execution {
 		execution.CollectAnonymousRefs = func(out map[types.ObjID]struct{}) {
 			CollectAnonymousRefsFromVM(vm, out)
 		}
+		execution.ReleaseFinalizable = vm.collectPendingFinalizationsFromValue
 		vm.builtinPendingFinalizations = func() []types.Value {
 			return CollectPendingFinalizationValues(vm.Store, vm)
 		}

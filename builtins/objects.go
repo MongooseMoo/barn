@@ -1,8 +1,6 @@
 package builtins
 
 import (
-	"sort"
-
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -342,24 +340,6 @@ func (r *Session) EndRecycle(object types.Value) {
 	delete(state.ids, object.ID())
 }
 
-func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.Value) {
-	switch v.Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		if v.IsAnonymous() {
-			out[v.ID()] = v
-		}
-	case types.TYPE_LIST:
-		for _, elem := range v.Elements() {
-			collectAnonymousRefs(elem, out)
-		}
-	case types.TYPE_MAP:
-		for _, pair := range v.Pairs() {
-			collectAnonymousRefs(pair[0], out)
-			collectAnonymousRefs(pair[1], out)
-		}
-	}
-}
-
 // builtinRecycle implements recycle(object)
 // Destroys an object and invokes :recycle lifecycle hooks.
 type RecycleLifecycleRequest struct {
@@ -467,28 +447,20 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 	oldContents := request.OldContents
 	oldLocation := request.OldLocation
 
-	// Recycle anonymous objects reachable via property values (including nested
-	// list/map values) before this object is destroyed.
-	anonRefs := make(map[types.ObjID]types.Value)
-	errCode := tx.VisitPropertyValues(objID, func(value types.Value) {
-		collectAnonymousRefs(value, anonRefs)
-	})
-	if errCode != types.E_NONE {
-		return types.Err(types.E_INVARG)
-	}
-
-	if len(anonRefs) > 0 {
-		ids := make([]int64, 0, len(anonRefs))
-		for id := range anonRefs {
-			if id != objID {
-				ids = append(ids, int64(id))
+	// Destroying the object releases the references its property values hold,
+	// as Toast's db_destroy_object frees them. It does not recycle the anonymous
+	// objects they point to: one that another property, a variable or a value
+	// elsewhere still references stays valid. Hand the values to the release
+	// ledger, the path a variable's old value takes, so the deferred collector
+	// recycles each anonymous object only once nothing reaches it.
+	if ctx.ReleaseFinalizable != nil {
+		errCode := tx.VisitPropertyValues(objID, func(value types.Value) {
+			if value.MayHoldFinalizable() {
+				ctx.ReleaseFinalizable(value)
 			}
-		}
-		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-		for _, id := range ids {
-			ref := anonRefs[types.ObjID(id)]
-			// Ignore errors while cascading anonymous recycling.
-			_ = builtinRecycle(ctx, []types.Value{ref})
+		})
+		if errCode != types.E_NONE {
+			return types.Err(types.E_INVARG)
 		}
 	}
 
