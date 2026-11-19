@@ -164,8 +164,9 @@ func builtinVerbInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	// Build names string (space-separated aliases)
-	namesStr := strings.Join(verb.Names, " ")
+	// The verb's own names string, so it can be passed back as a descriptor
+	// (Toast returns str_ref of the verb's name).
+	namesStr := verb.NamesString
 
 	return types.Ok(types.NewList([]types.Value{
 		types.NewObj(verb.Owner),

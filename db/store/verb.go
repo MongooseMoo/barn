@@ -3,6 +3,7 @@ package store
 import (
 	"strings"
 	"sync/atomic"
+	"unsafe"
 
 	"github.com/MongooseMoo/barn/sourcekey"
 	"github.com/MongooseMoo/barn/types"
@@ -31,10 +32,15 @@ type Verb struct {
 	// real-mongoose workload) keeps the hot path allocation-free. The slice is
 	// immutable once built — renames build a fresh one — so clones share it.
 	lowerNames []string
-	owner      types.ObjID
-	perms      VerbPerms
-	argSpec    VerbArgs
-	code       []string // Source lines
+	// namesString is names joined by spaces, built once per rename and handed
+	// out by verbs() and verb_info(). Like Toast's verb name string, its
+	// identity (not just its text) lets a descriptor that came from it match
+	// the verb; struct copies keep the same backing bytes.
+	namesString string
+	owner       types.ObjID
+	perms       VerbPerms
+	argSpec     VerbArgs
+	code        []string // Source lines
 	// codeKey is the content key of code, carried so the verb-call hot path can
 	// look up the compiler's program cache without rehashing the whole source on
 	// every call (profile: the per-call sha256 was 1.2% of total CPU and 1.5GB of
@@ -71,11 +77,13 @@ type Verb struct {
 // headers by value (the backing arrays are read-only at call sites); the store
 // never hands out a live *Verb to external callers.
 type VerbView struct {
-	Names   []string
-	Owner   types.ObjID
-	Perms   VerbPerms
-	ArgSpec VerbArgs
-	Code    []string
+	// NamesString is the verb's canonical names string (see Verb.namesString).
+	NamesString string
+	Names       []string
+	Owner       types.ObjID
+	Perms       VerbPerms
+	ArgSpec     VerbArgs
+	Code        []string
 	// CodeKey is the content key of Code, precomputed by the store. Compile
 	// callers pass it to compiler.CompileMOOWithKey instead of rehashing Code.
 	CodeKey sourcekey.Key
@@ -210,13 +218,14 @@ func (o *Object) verbByID(id uint64) *Verb {
 // tests) to construct a Verb without touching unexported fields.
 func NewVerb(names []string, owner types.ObjID, perms VerbPerms, argSpec VerbArgs, code []string) Verb {
 	return Verb{
-		names:      names,
-		lowerNames: loweredNames(names),
-		owner:      owner,
-		perms:      perms,
-		argSpec:    argSpec,
-		code:       code,
-		codeKey:    sourcekey.Of(code),
+		names:       names,
+		lowerNames:  loweredNames(names),
+		namesString: strings.Join(names, " "),
+		owner:       owner,
+		perms:       perms,
+		argSpec:     argSpec,
+		code:        code,
+		codeKey:     sourcekey.Of(code),
 		// A verb constructed with non-empty source already has a program. An
 		// empty/nil code slice means "no program yet" (add_verb, or the loader's
 		// metadata pass before the verb-code section is read); setCodeOwned
@@ -257,15 +266,32 @@ func (v *Verb) setCodeCopy(lines []string) {
 }
 
 // View returns a flat read-only snapshot of the verb.
+// NamesString returns the verb's names joined by spaces: the canonical string
+// whose identity isNamesString recognises.
+func (v *Verb) NamesString() string {
+	if v.namesString == "" && len(v.names) > 0 {
+		return strings.Join(v.names, " ")
+	}
+	return v.namesString
+}
+
+// isNamesString reports whether s is this verb's own names string, the same
+// bytes rather than equal text. Toast's verbcasecmp makes the same pointer
+// check, so verbs(o)[i] finds that verb while a typed literal does not.
+func (v *Verb) isNamesString(s string) bool {
+	return len(s) > 0 && len(s) == len(v.namesString) && unsafe.StringData(s) == unsafe.StringData(v.namesString)
+}
+
 func (v *Verb) View() VerbView {
 	return VerbView{
-		Names:      v.names,
-		Owner:      v.owner,
-		Perms:      v.perms,
-		ArgSpec:    v.argSpec,
-		Code:       v.code,
-		CodeKey:    v.codeKey,
-		HasProgram: v.hasProgram,
+		NamesString: v.NamesString(),
+		Names:       v.names,
+		Owner:       v.owner,
+		Perms:       v.perms,
+		ArgSpec:     v.argSpec,
+		Code:        v.code,
+		CodeKey:     v.codeKey,
+		HasProgram:  v.hasProgram,
 	}
 }
 
