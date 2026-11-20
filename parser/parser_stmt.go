@@ -194,16 +194,9 @@ func (p *Parser) parseForStatement() (ir.Stmt, error) {
 	startPos := p.current.Position
 	p.nextToken() // consume 'for'
 
-	// Check for optional label
-	var label string
-	if p.current.Type == TOKEN_IDENTIFIER && p.peek.Type == TOKEN_IDENTIFIER {
-		// Might be a label - need to distinguish from "for x in (...)"
-		// Look ahead further
-		label = p.current.Value
-		p.nextToken() // consume label
-	}
-
-	// Parse variable name(s)
+	// Parse variable name(s). A for loop has no label (Toast parser.y
+	// accepts only "for ID in", "for ID, ID in"); its exit names are its
+	// variables.
 	if p.current.Type != TOKEN_IDENTIFIER {
 		return nil, fmt.Errorf("expected identifier in for loop")
 	}
@@ -284,7 +277,7 @@ func (p *Parser) parseForStatement() (ir.Stmt, error) {
 	}
 
 	loopDepth := len(p.sourceLoops)
-	p.sourceLoops = append(p.sourceLoops, sourceLoop{names: []string{label, value, index}})
+	p.sourceLoops = append(p.sourceLoops, sourceLoop{names: []string{value, index}})
 	defer func() { p.sourceLoops = p.sourceLoops[:loopDepth] }()
 	// Parse body
 	body, err := p.parseBody(TOKEN_ENDFOR)
@@ -301,7 +294,6 @@ func (p *Parser) parseForStatement() (ir.Stmt, error) {
 	if container != nil {
 		return &ir.CollectionLoopStmt{
 			Pos:        startPos,
-			Label:      label,
 			Value:      value,
 			Index:      index,
 			Collection: container,
@@ -311,7 +303,6 @@ func (p *Parser) parseForStatement() (ir.Stmt, error) {
 
 	return &ir.RangeLoopStmt{
 		Pos:   startPos,
-		Label: label,
 		Value: value,
 		Start: rangeStart,
 		End:   rangeEnd,

@@ -237,19 +237,19 @@ func (g *generator) statement(depth int) ir.Stmt {
 				index = ""
 			}
 		}
-		label := g.optionalName()
+		g.unusedForLabel()
 		collection := g.expr(1)
 		g.bind(value)
 		if index != "" {
 			g.bind(index)
 		}
-		return &ir.CollectionLoopStmt{Label: label, Value: value, Index: index, Collection: collection, Body: g.loopBody(depth, label, value, index)}
+		return &ir.CollectionLoopStmt{Value: value, Index: index, Collection: collection, Body: g.loopBody(depth, value, index)}
 	case 5:
 		value := g.pick(assignableNames)
-		label := g.optionalName()
+		g.unusedForLabel()
 		start, end := g.expr(1), g.expr(1)
 		g.bind(value)
-		return &ir.RangeLoopStmt{Label: label, Value: value, Start: start, End: end, Body: g.loopBody(depth, label, value)}
+		return &ir.RangeLoopStmt{Value: value, Start: start, End: end, Body: g.loopBody(depth, value)}
 	case 6:
 		if len(g.loops) == 0 {
 			return &ir.EmptyStmt{}
@@ -288,6 +288,14 @@ func (g *generator) optionalName() string {
 		return g.pick(assignableNames)
 	}
 	return ""
+}
+
+// unusedForLabel draws the choices a for-loop label once took and discards
+// them. Toast's for loop takes no label (parser.y: "for ID in", "for ID, ID
+// in"), but drawing the same choices keeps recorded corpus inputs generating
+// the programs they did, less the label.
+func (g *generator) unusedForLabel() {
+	_ = g.optionalName()
 }
 
 func (g *generator) loopBody(depth int, names ...string) []ir.Stmt {

@@ -38,11 +38,10 @@ func TestReview_ListExprAsStatementMistakenForScatter(t *testing.T) {
 }
 
 // TestReview_UnparseForWithIndexVar confirms that FormatMOO preserves a
-// labeled collection loop with an index/key variable.
+// collection loop with an index/key variable.
 func TestReview_UnparseForWithIndexVar(t *testing.T) {
-	// `for L x, k in (mylist) ... endfor`
-	// The label heuristic consumes "L" as the collection loop label.
-	src := "for L x, k in (mylist)\nreturn x;\nendfor"
+	// `for x, k in (mylist) ... endfor`
+	src := "for x, k in (mylist)\nreturn x;\nendfor"
 	p := NewParser(src)
 	stmts, err := p.ParseProgram()
 	if err != nil {
@@ -53,9 +52,9 @@ func TestReview_UnparseForWithIndexVar(t *testing.T) {
 	got := strings.Join(lines, "\n")
 
 	// The unparser must emit the `for value, index in (container)` surface
-	// (ToastStunt parser.y:160-174), preserving the label, not a garbage range.
-	if !strings.Contains(got, "for L x, k in (mylist)") {
-		t.Fatalf("BUG: FormatMOO for for-with-index-variable produced wrong output:\n%s\n\nExpected output containing 'for L x, k in (mylist)'", got)
+	// (ToastStunt parser.y:160-174), not a garbage range.
+	if !strings.Contains(got, "for x, k in (mylist)") {
+		t.Fatalf("BUG: FormatMOO for for-with-index-variable produced wrong output:\n%s\n\nExpected output containing 'for x, k in (mylist)'", got)
 	}
 
 	// Round-trip: the unparsed source must re-parse and re-unparse identically.
