@@ -92,8 +92,9 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 		"0 9 124 5\n",
 		// Toast execute.cc::write_activ_as_pi starts with typed INT -111.
 		"0 9 124 5\n0\n-111\n",
-		// Toast preserves the historical activation-header sentinels.
-		"4 -7 -8 2 -9 3 6 -10 0\n",
+		// Toast preserves the historical activation-header sentinels and
+		// ends the line with the definer's type code (1, an object).
+		"4 -7 -8 2 -9 3 6 -10 1\n",
 		// Toast persists the invoked verb and stored verb name separately.
 		"No\nMore\nParse\nInfos\ntick\nt*ick\n",
 		"1 variables\nx\n0\n1\n",
@@ -101,6 +102,26 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("queued task output missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// Toast's write_activ_as_pi passes the 16-byte Var a.vloc to one integer
+// conversion, so a suspended activation's line also ends in the definer's
+// type code and never in the activation's debug flag.
+func TestWriteSuspendedActivationLineEndsInDefinerTypeCode(t *testing.T) {
+	for _, debug := range []bool{true, false} {
+		var buf bytes.Buffer
+		writer := NewWriter(&buf, store.NewStore().Snapshot())
+		frame := task.VMFrameSnapshot{This: 7, ThisValue: types.NewObj(7), Player: 2, Verb: "inner", VerbLoc: 6, VerbDebug: debug}
+		if err := writer.writeVMActivationAsPI(frame, types.ActivationFrame{Programmer: 3}); err != nil {
+			t.Fatalf("writeVMActivationAsPI: %v", err)
+		}
+		if err := writer.Flush(); err != nil {
+			t.Fatalf("flush: %v", err)
+		}
+		if want := "\n7 -7 -8 2 -9 3 6 -10 1\n"; !strings.Contains(buf.String(), want) {
+			t.Fatalf("VerbDebug %v: suspended activation missing %q in:\n%s", debug, want, buf.String())
 		}
 	}
 }

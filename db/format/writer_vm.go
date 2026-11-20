@@ -333,10 +333,6 @@ func (w *Writer) writeVMActivationAsPI(frame task.VMFrameSnapshot, activation ty
 	if err := w.writeInt(threaded); err != nil {
 		return err
 	}
-	debug := 0
-	if frame.VerbDebug {
-		debug = 1
-	}
 	if _, err := fmt.Fprintf(
 		w.w,
 		"%d -7 -8 %d -9 %d %d -10 %d\n",
@@ -344,7 +340,7 @@ func (w *Writer) writeVMActivationAsPI(frame task.VMFrameSnapshot, activation ty
 		frame.Player,
 		programmer,
 		frame.VerbLoc,
-		debug,
+		activationDefinerType,
 	); err != nil {
 		return err
 	}

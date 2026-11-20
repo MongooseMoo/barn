@@ -154,7 +154,6 @@ func (queued *QueuedTask) persistenceSnapshot() task.Snapshot {
 			VariableNames: names,
 			SourceLines:   slices.Clone(queued.Code),
 			FirstLine:     firstLine,
-			Debug:         queued.Debug,
 		},
 	}
 }

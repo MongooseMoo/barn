@@ -21,5 +21,5 @@ type ForkInfo struct {
 	Caller      ObjID            // caller context
 	Verb        string           // verb context
 	VerbLoc     ObjID            // object where the enclosing verb is defined
-	Debug       bool             // the forking verb's d flag when the fork was queued
+	Debug       bool             // debug flag the fork runs with: the verb's d flag at the fork statement, or the loaded activation line's last number
 }
