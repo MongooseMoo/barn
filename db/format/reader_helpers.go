@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -214,7 +215,35 @@ func (r *slotResolver) layoutFor(obj *store.ObjectBuilder) *store.SlotLayout {
 			}
 		}
 	}
-	return r.pool.Layout(r.database.slotNames(obj))
+	return r.pool.Layout(distinctSlotNames(r.database.slotNames(obj)))
+}
+
+// distinctSlotNames renames each slot whose name repeats an earlier slot's
+// (case-insensitively) to its positional placeholder. A database can define
+// one name on an object and on its ancestor; the earlier slot is the one
+// lookups find (Toast db_properties.cc db_find_property), and the store keys values by name, so
+// a shadowed slot left under the same name would be dropped and the next
+// checkpoint would write one slot fewer each time. Under a placeholder its
+// value is kept and written back in its position, as Toast keeps every slot.
+func distinctSlotNames(names []string) []string {
+	seen := make(map[string]bool, len(names))
+	var distinct []string
+	for i, name := range names {
+		key := store.PropertyNameKey(name)
+		if !seen[key] {
+			seen[key] = true
+			continue
+		}
+		if distinct == nil {
+			distinct = slices.Clone(names)
+		}
+		distinct[i] = inheritedSlotPlaceholder(i)
+		seen[store.PropertyNameKey(distinct[i])] = true
+	}
+	if distinct == nil {
+		return names
+	}
+	return distinct
 }
 
 // slotNames returns the name of each of obj's positional slots: its ancestry's
