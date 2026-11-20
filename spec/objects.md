@@ -29,14 +29,15 @@ MOO is an object-oriented language with prototype-based inheritance. Objects con
 #0      // System object (root)
 #1      // First created object
 #-1     // Common "nothing" sentinel
-#-2     // Waif class marker
+#-2     // Ambiguous match result
+#-3     // Failed match result
 ```
 
 **Special objects:**
 - `#0` - System object, accessed via `$`
-- `$nothing` - Typically `#-1`
-- `$failed_match` - Typically `#-2`
-- `$ambiguous_match` - Typically `#-3`
+- `$nothing` - Typically `#-1` (Toast `NOTHING`)
+- `$ambiguous_match` - Typically `#-2` (Toast `AMBIGUOUS`)
+- `$failed_match` - Typically `#-3` (Toast `FAILED_MATCH`; `structures.h`)
 
 ---
 
@@ -87,20 +88,40 @@ child = create({parent1, parent2});
 
 ### 3.3 Inheritance Resolution
 
-**Algorithm:** Breadth-first search, left-to-right order.
+**Algorithm:** Depth-first, pre-order, left-to-right. Each parent's whole
+ancestry is searched before the next parent.
 
 For property/verb lookup with parents `{A, B}` where A has parent X and B has parent Y:
 
-**Search order:** obj → A → B → X → Y
+**Search order:** obj → A → X → B → Y
 
 **Implementation:**
-1. Start with queue containing [obj]
-2. Pop from front of queue (FIFO)
-3. Check for property/verb on current object
-4. If found, return it (first match wins)
-5. If not found, append current object's parents to end of queue
-6. Repeat until queue is empty or match found
-7. Track visited objects to prevent infinite loops in cycles
+1. Start with stack containing [obj]
+2. Pop the top of the stack
+3. Skip it if invalid or already visited
+4. Check for property/verb on current object; if found, return it (first
+   match wins)
+5. If not found, push the current object's parents onto the top of the
+   stack, keeping their order (the first parent is popped next)
+6. Repeat until the stack is empty or a match is found
+
+Toast sources:
+- Verb calls and `pass()`: `db_verbs.cc` `find_callable_verbdef()` pops
+  the stack top and prepends parents (`listinsert(..., 1)` /
+  `listconcat(parents, stack)`). Once the walk branches, it skips objects it
+  has already seen.
+- Properties: the object's own definitions first, then `db_ancestors(obj,
+  false)` in order (`db_properties.cc` `db_find_property()`).
+  `db_ancestors()` is `db2_add_parents` in `db_objects.cc` (the `DEFUNC`
+  macro), a recursive pre-order walk that adds each valid parent the first
+  time it is reached and then that parent's own ancestors, before moving to
+  the next parent. Property slot layout uses the same order
+  (`properties_offset()`).
+- Command verbs: `db_verbs.cc` `db_find_command_verb()` walks
+  `db_ancestors(obj, true)`, the same order with the object first.
+
+`ancestors()` returns the same order (`objects.cc` `bf_ancestors()` calls
+`db_ancestors()`).
 
 **Diamond inheritance example:**
 ```
@@ -112,14 +133,22 @@ For property/verb lookup with parents `{A, B}` where A has parent X and B has pa
 ```
 
 If A has parents {B, C}, and both B and C inherit from D:
-- Search order: A → B → C → D
-- If both B and D define property `x`, B's value is found first
+- Search order: A → B → D → C
+- If both C and D define a verb `x`, D's is found first, because D is
+  reached through B before C is searched. (Property names cannot repeat
+  along an ancestry; `add_property()` and `chparent()` refuse that.)
 - D is visited only once despite being reachable through both paths
 
 **Key properties:**
 - First match wins (left-to-right precedence)
-- Each object visited at most once (cycle-safe)
-- All immediate parents checked before any grandparents (breadth-first)
+- Each object visited at most once
+- A parent's ancestors are searched before the next parent (depth-first),
+  not all immediate parents before any grandparents
+
+No merged conformance test distinguishes depth-first from breadth-first
+order: `builtins/objects.yaml:ancestors_basic` and
+`audit/verb_dispatch_toast_oracle.yaml:audit_diamond_inheritance_resolution`
+pass under either order. The order above comes from Toast source.
 
 ### 3.4 Related Functions
 
@@ -152,13 +181,21 @@ obj.property_name = value
 obj.(expr) = value
 ```
 
+Property names are case-insensitive. Built-in property names are found
+first, then the object's own definitions, then its ancestors' (see
+`spec/builtins/properties.md` §1.2).
+
+Every object holds its own slot for each property it defines or inherits.
+A slot has a value (or is clear), an owner and perms; permission checks use
+the slot on the object accessed.
+
 ### 4.2 Property Permissions
 
 | Permission | Bit | Description |
 |------------|-----|-------------|
 | Read | r | Property can be read |
 | Write | w | Property can be modified |
-| Chown | c | Property owner can change |
+| Chown | c | Slots created on other objects are owned by those objects' owners (`spec/builtins/properties.md` §8.3) |
 
 ### 4.3 Property Inheritance
 
@@ -208,6 +245,8 @@ Every object has these:
 | `.r` | INT | Yes | Read flag (0/1) |
 | `.w` | INT | Yes | Write flag (0/1) |
 | `.f` | INT | Yes | Fertile flag (0/1) |
+| `.a` | INT | Yes | Anonymous flag (0/1): parent may have anonymous children |
+| `.last_move` | MAP | No | Last move record |
 
 **Mutability notes:**
 - `.location` and `.contents` are read-only. Attempting to write raises E_PERM.
@@ -227,6 +266,12 @@ Verbs are named code blocks attached to objects.
 obj:verb_name(args)
 obj:(expr)(args)      // Dynamic name
 ```
+
+A verb has a names string of one or more names separated by spaces (only
+spaces; a tab is part of a name). A name may contain `*` to mark the
+shortest accepted abbreviation. Names are matched case-insensitively, and an
+object may define several verbs with the same names; the first in
+definition order wins. See `spec/builtins/verbs.md` §2.2.
 
 ### 5.2 Verb Permissions
 
@@ -259,6 +304,22 @@ Parsed command dispatch does not check the verb's `x` permission. Toast's
 the `x` permission applies to programmed verb calls such as `obj:verb()`.
 This distinction is covered by
 `gap_followups_toast_oracle::audit_command_dispatch_ignores_execute_flag`.
+
+**Object matching** (Toast `match.cc` `match_object()`): the direct and
+indirect object strings are matched as follows.
+- `""` gives `#-1`. `"#N"` gives `#N` if that object is valid, else `#-3`.
+  `"me"` gives the player and `"here"` the player's location (any case).
+- Otherwise the candidates are the player's contents, then the contents of
+  the player's location (which include the player). Each candidate's `name`
+  and each string element of the value its `aliases` property has at match
+  time are compared case-insensitively with the typed string. The `aliases`
+  value is read through inheritance at match time, so an object whose
+  `aliases` slot is clear matches by the value its ancestor holds now. A
+  missing or non-list `aliases` contributes nothing.
+- An exact match wins over prefix matches. Two different objects matching
+  exactly, or (with no exact match) two different objects matching by
+  prefix, give `#-2` (ambiguous). No match gives `#-3` (failed).
+(Conformance `audit/command_parser_toast_oracle.yaml:audit_clear_aliases_match_current_inherited_value`.)
 
 ### 5.5 Context Variables
 
@@ -308,7 +369,8 @@ new_obj = create({parent1, parent2});
 1. Allocate new object ID
 2. Set parent(s)
 3. Set owner (caller if not specified)
-4. Inherit properties from parent(s)
+4. Give the object a clear slot for each inherited property (no value is
+   copied; reads go through to the ancestor)
 5. Call `initialize` verb if defined
 
 ### 6.2 Recycling
@@ -317,13 +379,11 @@ new_obj = create({parent1, parent2});
 recycle(obj);
 ```
 
-**Semantics:**
+**Semantics** (see `spec/builtins/objects.md` §1.3):
 1. Call `recycle` verb if defined
-2. Clear all properties
-3. Remove all verbs
-4. Remove from parent's children
-5. Remove from location's contents
-6. Mark object slot as recycled
+2. Move each content to `#-1`, then remove the object from its location
+3. Give each child the recycled object's parents in its place
+4. Discard properties, verbs and the object; mark the slot recycled
 
 ### 6.3 Recycled Objects
 
@@ -358,16 +418,21 @@ Objects can contain other objects:
 move(what, where);
 ```
 
-**Semantics:**
-1. Remove `what` from old location's contents
-2. Set `what.location` to `where`
-3. Add `what` to `where.contents`
-4. Call `exitfunc` on old location (if defined)
-5. Call `enterfunc` on new location (if defined)
+**Semantics** (see `spec/builtins/objects.md` §5.2):
+1. Call `where:accept(what)` (unless `where` is `#-1` or the current
+   location); refusal is `E_NACC` for non-wizards
+2. If either object became invalid during `:accept`, return 0 without moving
+3. Remove `what` from old location's contents
+4. Set `what.location` to `where`
+5. Add `what` to `where.contents`
+6. Call `exitfunc` on old location (if defined)
+7. Call `enterfunc` on new location (if defined)
 
 **Errors:**
-- `E_RECMOVE`: Can't move object into itself/descendant
+- `E_RECMOVE`: Can't move object into itself or into an object inside it
 - `E_PERM`: No permission to move
+- `E_NACC`: `:accept` refused
+- `E_INVARG`: Invalid object
 
 ### 7.3 Related Functions
 
@@ -409,7 +474,7 @@ valid(obj)
 ### 9.1 Creation
 
 ```moo
-anon = create(parent, $nothing, 1);  // Third arg = anonymous
+anon = create(parent, 1);   // INT argument = anonymous flag
 ```
 
 ### 9.2 Characteristics
@@ -418,6 +483,13 @@ anon = create(parent, $nothing, 1);  // Third arg = anonymous
 - Cannot be stored in database permanently
 - Collected when no references remain
 - Useful for temporary data structures
+- Never a parent: an anonymous object cannot be named as a parent
+  (`create()`, `chparent()`, `chparents()` raise `E_TYPE`), so it has no
+  children and is never listed in `children()` or `descendants()`
+- Takes no object number: `renumber()` and `max_object()` ignore it
+- Builtins that change verbs or property definitions require a numbered
+  object and raise `E_TYPE` for an anonymous one (`spec/builtins/objects.md`
+  §8.2)
 
 ### 9.3 Cycle Detection
 
@@ -461,6 +533,24 @@ The intrinsic `.class` and `.owner` properties return objects.
 intrinsics raises `E_PERM`. Assigning the WAIF itself, or a list or map that
 contains it, into one of its properties raises `E_RECMOVE`.
 
+WAIF property names are matched case-insensitively, for reads and writes,
+against the class's `:`-prefixed definitions and against the intrinsic names
+(`w.Foo`, `w.foo` and `w.FOO` are one property; `w.OWNER` is `.owner`).
+Reading or writing a name the class does not define is `E_PROPNF`.
+(Conformance `language/waif_property_case.yaml`.)
+
+A WAIF is reconciled with its class's current `:` definitions when it is
+next accessed (Toast `waif.cc`), so its values follow later changes to the
+class and to the class's ancestors:
+- After `set_property_info()` renames a `:` property, the WAIF's value
+  (written or not) is found under the new name and the old name is
+  `E_PROPNF`; renaming to a name without `:` drops the value, and renaming
+  back gives the class value. Swapping two names swaps the values.
+- After `delete_property()` of a `:` property, reads and writes of it are
+  `E_PROPNF`; re-adding it gives the class value, not the old WAIF value.
+- `add_property()` of another `:` property leaves existing values alone.
+(Conformance `builtins/waif_class_property_rename_delete.yaml`.)
+
 ### 10.4 Waif Class
 
 All waifs inherit from their "waif class" object, which provides:
@@ -487,9 +577,9 @@ Every object has an owner:
 
 | Action | Required |
 |--------|----------|
-| Read property | Owner, or `r` flag |
-| Write property | Owner, or `w` flag |
-| Call verb | Owner, or `x` flag |
+| Read property | Slot owner, or `r` flag |
+| Write property | Slot owner, or `w` flag |
+| Call verb | `x` flag (no owner or wizard bypass) |
 | Read verb code | Owner, or `r` flag |
 | Modify object | Owner or wizard |
 | Create child | Owner/wizard, and `f` flag |
@@ -505,7 +595,7 @@ set_task_perms(obj)  // Change task permissions
 
 Wizards can:
 - Access any property
-- Call any verb
+- Read and change any verb (calling still needs the verb's `x` flag)
 - Modify any object
 - Use privileged builtins
 
@@ -521,12 +611,12 @@ The system object is accessed via `$` in MOO code. It is the root of the object 
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `server_options` | MAP | Server configuration (see §12.4) |
+| `server_options` | OBJ | Object whose properties are the server options (see §12.4) |
 | `maxint` | INT | Maximum integer value: 9223372036854775807 (2^63-1, 64-bit signed) |
 | `minint` | INT | Minimum integer value: -9223372036854775808 (-2^63, 64-bit signed) |
 | `nothing` | OBJ | "Nothing" sentinel (typically #-1) |
-| `failed_match` | OBJ | Failed match sentinel (typically #-2) |
-| `ambiguous_match` | OBJ | Ambiguous match sentinel (typically #-3) |
+| `failed_match` | OBJ | Failed match sentinel (typically #-3) |
+| `ambiguous_match` | OBJ | Ambiguous match sentinel (typically #-2) |
 
 **Required Verbs:**
 
@@ -568,9 +658,16 @@ The login object (often `$login` or pointed to by `#0.login`) handles authentica
 
 ### 12.4 Server Options
 
-`#0.server_options` is a MAP controlling server behavior:
+`#0.server_options` holds a valid object, and each server option is a
+property of that object, read by name (Toast `server.cc`
+`get_server_option()`, lines 544-556 at origin/master). If `server_options`
+is missing, is not an OBJ, or is not a valid object, or the option property
+is missing, the option takes its default. For connection-specific options
+the listener object's own `server_options` is consulted before `#0`'s. Most
+options are read into a cache when `load_server_options()` runs; see
+`spec/builtins/server.md` §2.3.
 
-| Key | Type | Default | Description |
+| Property | Type | Default | Description |
 |-----|------|---------|-------------|
 | `bg_ticks` | INT | 30000 | Background task tick limit |
 | `bg_seconds` | INT | 3 | Background task time limit |
@@ -591,7 +688,7 @@ The login object (often `$login` or pointed to by `#0.login`) handles authentica
 A minimal MOO database requires:
 
 1. **#0** (system object) with:
-   - `server_options` property (empty map is valid, server uses defaults)
+   - `server_options` is optional; without it every option takes its default
    - `do_login_command` verb (can just return 0 to deny all logins)
    - `server_started` verb (can be empty)
 
@@ -599,7 +696,14 @@ A minimal MOO database requires:
    - WIZARD flag set (for bootstrapping)
    - Allows use of wizard-only builtins to build the database
 
-**Type validation:** Setting `server_options` to invalid values (wrong types, out-of-range) will cause `load_server_options()` to raise E_INVARG.
+**No validation error:** `load_server_options()` never raises `E_INVARG`.
+Its only error is `E_PERM` for a non-wizard. A non-INT value for an integer
+option gives the default (`server.cc` `server_int_option()`, lines
+1450-1459), a flag option is read with truthiness (`server_flag_option()`,
+lines 1439-1448), and some cached values are clamped by the option's
+canonicalization step (Toast `functions.cc` `load_server_options()` and
+`bf_load_server_options()`, lines 528-565 at origin/master; see
+`spec/builtins/server.md` §2.3).
 
 3. **Optional but conventional:**
    - `$nothing` (#-1) for sentinel
@@ -613,7 +717,7 @@ A minimal MOO database requires:
 **Recommended bootstrap approach:**
 
 1. Create empty database file with #0 (system object)
-2. Add minimal required properties (`server_options` as empty map)
+2. Optionally add a `server_options` property holding an object whose properties set server options
 3. Add stub verbs for hooks (`do_login_command`, `server_started`)
 4. Create wizard object for administration
 5. Save database

@@ -21,10 +21,24 @@ Functions for embedded SQLite database operations (ToastStunt optional extension
 **Description:** Opens or creates SQLite database file. Returns a numeric handle for use with other SQLite functions.
 
 **Parameters:**
-- `path`: Database file path (STR). Use `":memory:"` for in-memory database.
-- `flags`: Optional integer flags (implementation-specific)
+- `path`: Database file path (STR). Use `":memory:"` (or `""`) for an in-memory database.
+- `flags`: Optional integer option bits (parse types, parse objects, sanitize strings; reported by `sqlite_info()`)
 
 **Returns:** Database handle (INT).
+
+**Path resolution:** Any path other than `":memory:"` or `""` is resolved the
+way the file I/O builtins resolve names: it must pass the file I/O path check
+(otherwise `E_INVARG`), one leading `/` is dropped, and the file I/O
+subdirectory prefix (`files/`) is prepended. The resolved string, with forward
+slashes, is what `sqlite_info(handle)["path"]` reports: `sqlite_open("x.sqlite")`
+and `sqlite_open("/x.sqlite")` both report `"files/x.sqlite"`. In-memory
+databases keep `":memory:"` or `""` unresolved.
+
+**Duplicate opens:** Opening a file-backed database whose resolved path is
+already open raises `E_INVARG` with message `"Database already open with
+handle: N"` and the existing handle `N` as the error value; no second handle is
+allocated. In-memory databases are never duplicates: each `sqlite_open(":memory:")`
+returns a distinct handle.
 
 **Examples:**
 ```moo
@@ -37,10 +51,11 @@ tempdb = sqlite_open(":memory:");
 
 **Errors:**
 - E_PERM: Caller is not wizard
-- E_INVARG: Invalid arguments
-- E_FILE: Cannot open database
+- E_QUOTA: Too many handles open (message `"Too many database connections open."`, value 0)
+- E_INVARG: Path rejected by the file I/O path check, or the database is already open (see above)
+- E_NONE: `sqlite3_open` failed; raised with the `sqlite3_errmsg` text as the message and value 0
 
-**Limits:** Maximum number of open handles is controlled by `$server_options.SQLITE_MAX_HANDLES`.
+**Limits:** Maximum number of open handles is controlled by `$server_options.sqlite_max_handles` (compiled default `SQLITE_MAX_HANDLES`).
 
 ---
 
@@ -98,13 +113,13 @@ handles = sqlite_handles();
 **Parameters:**
 - `handle`: Database handle (INT)
 
-**Returns:** Map with connection information.
+**Returns:** Map with keys `"path"` (the resolved path string, see `sqlite_open`), `"parse_types"`, `"parse_objects"`, `"sanitize_strings"` (each 0 or 1, from the open flags), and `"locks"` (the number of worker threads currently using the handle).
 
 **Examples:**
 ```moo
 db = sqlite_open("data.db");
-info = sqlite_info(db);
-// Returns map with connection details
+sqlite_info(db)["path"];
+// => "files/data.db"
 ```
 
 **Errors:**
@@ -150,10 +165,10 @@ sqlite_close(db);
 
 **Errors:**
 - E_PERM: Caller is not wizard
-- E_INVARG: Invalid SQL or handle
-- Returns error message string if SQL fails
+- E_INVARG: Invalid handle
+- A statement that fails to prepare or step is not raised: the call returns the `sqlite3_errmsg()` text as a STR. For example, a second `BEGIN TRANSACTION;` inside a transaction returns `"cannot start a transaction within a transaction"`, and `SELECT * FROM nosuch` returns `"no such table: nosuch"`.
 
-**Threading:** Executes in background thread. The connection is locked during execution to prevent concurrent access.
+**Threading:** Executes in a background thread, suspending the task until it completes. When the running activation has disabled threading (`set_thread_mode(0)`), the statement runs inline and the task is not suspended, so its tick budget keeps counting down. The connection is locked during execution to prevent concurrent access.
 
 ---
 
@@ -193,12 +208,12 @@ sqlite_close(db);
 
 **Errors:**
 - E_PERM: Caller is not wizard
-- E_INVARG: Invalid SQL, handle, or wrong number of parameters
-- Returns error message string if SQL fails
+- E_INVARG: Invalid handle
+- A statement that fails to prepare or on its first step is not raised: the call returns the `sqlite3_errmsg()` text as a STR (for example `"no such table: nosuch"`).
 
 **Security:** Always use parameterized queries with `?` placeholders to prevent SQL injection attacks. Never concatenate user input directly into SQL strings.
 
-**Threading:** Executes in background thread. The connection is locked during execution.
+**Threading:** Same as `sqlite_query()`: background thread unless the running activation has disabled threading, in which case it runs inline without suspending. The connection is locked during execution.
 
 ---
 
@@ -460,9 +475,10 @@ sqlite_close(db);
 | Error | Condition |
 |-------|-----------|
 | E_PERM | Caller is not wizard |
-| E_INVARG | Invalid SQL, handle, or parameters |
-| E_FILE | Database I/O error |
-| STR | SQL execution error (returns error message) |
+| E_INVARG | Invalid handle, rejected path, or database already open |
+| E_QUOTA | Too many open handles |
+| E_NONE | `sqlite3_open` failed (message is the SQLite error text) |
+| STR | SQL prepare/step error (returned, not raised: the `sqlite3_errmsg()` text) |
 
 ---
 
@@ -474,7 +490,7 @@ The server enforces a maximum number of open SQLite connections:
 
 ```moo
 // Check limit
-max_handles = $server_options.SQLITE_MAX_HANDLES;
+max_handles = $server_options.sqlite_max_handles;
 
 // List current connections
 handles = sqlite_handles();
@@ -500,7 +516,7 @@ endif
 
 ### Threading
 
-`sqlite_query()` and `sqlite_execute()` run in background threads automatically. The server doesn't block during query execution.
+`sqlite_query()` and `sqlite_execute()` run in background threads automatically and suspend the calling task; the server doesn't block during query execution. With `set_thread_mode(0)` in the running activation they run inline instead and do not suspend the task.
 
 ### Locking
 
@@ -541,7 +557,7 @@ sqlite_close(db);
 1. **Wizard-only:** All SQLite functions require wizard permissions
 2. **Optional feature:** Not available unless compiled with `SQLITE3_FOUND`
 3. **File system access:** Database paths may be restricted by server configuration
-4. **Connection limit:** Maximum handles controlled by `$server_options.SQLITE_MAX_HANDLES`
+4. **Connection limit:** Maximum handles controlled by `$server_options.sqlite_max_handles`
 5. **No connection pooling:** Each handle is independent
 6. **Thread-safe only:** Requires SQLite compiled with thread safety
 7. **Single process:** SQLite handles are not shared across server restarts

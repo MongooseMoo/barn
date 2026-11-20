@@ -249,6 +249,8 @@ file_openmode(handle)
 
 **Signature:** `file_grep(handle, pattern [, all_matches]) → LIST`
 
+**Flag arguments:** `all_matches` accept an INT or a BOOL and are read by truth value (`function_info()` reports the position as -3); any other type raises `E_TYPE`.
+
 **Description:** Rewinds the file and searches for lines containing the pattern.
 
 **Parameters:**
@@ -258,7 +260,9 @@ file_openmode(handle)
 
 **Returns:** List of `{line_text, line_number}` pairs, with one-based line numbers.
 The cursor follows the last consumed line: immediately after the first match,
-or at EOF after an all-match or unsuccessful scan.
+or at EOF after an all-match or unsuccessful scan. Long lines are
+scanned whole: a 65536-character line is counted, matched and returned as one
+line.
 
 **Examples:**
 ```moo
@@ -272,7 +276,7 @@ matches = file_grep(handle, "error");
 
 **Signature:** `file_count_lines(handle) → INT`
 
-**Description:** Rewinds the file, counts all lines and leaves the cursor at EOF.
+**Description:** Rewinds the file, counts all lines (of any length) and leaves the cursor at EOF.
 
 **Examples:**
 ```moo

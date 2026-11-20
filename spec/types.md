@@ -2,7 +2,7 @@
 
 ## Overview
 
-MOO is a dynamically-typed language with 9 distinct value types. All collections use **1-based indexing**.
+MOO is a dynamically-typed language with 10 distinct value types. All collections use **1-based indexing**.
 
 ---
 
@@ -17,10 +17,11 @@ MOO is a dynamically-typed language with 9 distinct value types. All collections
 | 4 | LIST | Heterogeneous ordered collection |
 | 9 | FLOAT | 64-bit IEEE 754 floating point |
 | 10 | MAP | Key-value dictionary |
+| 12 | ANON | Anonymous object reference |
 | 13 | WAIF | Lightweight prototype object |
 | 14 | BOOL | Boolean (true/false) |
 
-**Note:** Type codes 5-8, 11-12 are reserved for internal use.
+**Note:** Type codes 5-8 and 11 are reserved for internal use.
 
 ---
 
@@ -53,7 +54,12 @@ MOO is a dynamically-typed language with 9 distinct value types. All collections
 1.0e10
 6.022e23
 1e-9
+.5
 ```
+
+A float literal compiles to the full double its spelling denotes. Decompiled
+code shows 15 significant digits, but the compiled value is not rounded to
+that display (grammar.md Section 8).
 
 **Special values:** NaN and Infinity **cannot exist** in MOO.
 - Division by zero (int or float): raises `E_DIV` before computation
@@ -75,21 +81,20 @@ MOO is a dynamically-typed language with 9 distinct value types. All collections
 **Literals:**
 ```moo
 "hello"
-"line1\nline2"
 "quote: \"nested\""
-"tab:\there"
 ""
 ```
 
-**Escape sequences:**
+**Escapes:** In a string literal a backslash makes the next character literal.
+There are no other escape sequences:
+
 | Sequence | Meaning |
 |----------|---------|
 | `\\` | Backslash |
 | `\"` | Double quote |
-| `\n` | Newline |
-| `\t` | Tab |
-| `\r` | Carriage return |
-| `\xHH` | Hex byte |
+| `\` followed by any other character | That character (`"\n"` is `"n"`) |
+
+A string literal cannot span source lines (grammar.md Section 8).
 
 **Go mapping:** Custom `MOOString` with 1-based indexing
 
@@ -114,7 +119,7 @@ MOO is a dynamically-typed language with 9 distinct value types. All collections
 
 ### 2.5 ERR (Error Code)
 
-**18 standard error codes:**
+**19 error codes** (ToastStunt `structures.h` `enum error`):
 
 | Code | Name | Value | Description |
 |------|------|-------|-------------|
@@ -136,13 +141,18 @@ MOO is a dynamically-typed language with 9 distinct value types. All collections
 | E_FLOAT | Float error | 15 | Invalid float operation |
 | E_FILE | File error | 16 | File I/O failure |
 | E_EXEC | Exec error | 17 | Process execution failure |
+| E_INTRPT | Interrupted | 18 | Operation interrupted |
 
 **Literals:**
 ```moo
 E_TYPE
 E_RANGE
 E_PERM
+e_type      // Same value as E_TYPE: error names are keywords in any letter case
 ```
+
+An error name matches only as a whole identifier: `E_TYPEx` and `E_IN3ARG`
+are ordinary variable names (grammar.md Section 9.1).
 
 **Go mapping:** Custom `ErrorCode` enum
 
@@ -182,10 +192,32 @@ list[^..$]             // Entire list
 ### 2.7 MAP (Dictionary)
 
 **Characteristics:**
-- Keys: Any hashable type (INT, FLOAT, STR, OBJ, ERR, BOOL, LIST, MAP, ANON, WAIF)
+- Keys: any type except LIST and MAP (INT, FLOAT, STR, OBJ, ERR, BOOL, ANON,
+  WAIF). A LIST or MAP key raises E_TYPE (Toast `execute.cc` `OP_MAP_INSERT`).
 - Values: Any type
-- Unordered (implementation-defined iteration order)
+- Ordered by key, not by insertion: iteration, `mapkeys()`, `mapvalues()`, and
+  `^`/`$` all follow key order
 - Copy-on-write semantics
+
+**Key order** is Toast's `compare()` (`utils.cc`):
+- Keys of different types order by type code (INT 0 < OBJ 1 < STR 2 < ERR 3 <
+  FLOAT 9 < ... < WAIF 13 < BOOL 14).
+- INT and OBJ keys order numerically across the full 64-bit range (`#1` and
+  `#4294967297` are distinct and ordered).
+- FLOAT keys order numerically; ERR keys by code.
+- STR keys order case-insensitively (the tree is built with `compare(..., 0)`,
+  `map.cc`).
+- BOOL keys order `false` before `true`: `[true -> 1, false -> 0]` and
+  `[false -> 0, true -> 1]` are the same map with keys `{false, true}`.
+- WAIF and ANON keys order by object identity. The order is fixed while both
+  values live and does not depend on insertion order, but which of two such
+  keys comes first is not predictable from the program.
+
+(Conformance `language/map_authority.yaml`:
+`full_width_integer_map_keys_order_numerically`,
+`full_width_object_map_keys_order_numerically`, and the
+`reverse_inserted_{bool,waif,anon}_key_maps_expose_reverse_topology` cases,
+whose names predate the Toast 2.8 assertions they now hold.)
 
 **Literals:**
 ```moo
@@ -208,11 +240,17 @@ map["key"] = value          // Set value
 
 **Values:** `true` or `false`
 
-**Literals:**
+**Spelling:**
 ```moo
 true
 false
 ```
+
+`true` and `false` are not literals or keywords: they are predefined variables
+(Section 6.2) that every activation starts with set to the Boolean values. They
+can be reassigned like any variable; `x = true = {}` assigns `{}` to both
+(Toast `sym_table.cc` `SLOT_TRUE`/`SLOT_FALSE`; conformance
+`language/expression_codes_and_defaults.yaml`).
 
 **Truthiness:**
 - False: `0`, `0.0`, `""`, `{}`, `[]`, `false`, and every WAIF
@@ -329,7 +367,8 @@ toliteral({1})   => "{1}"
 | `*` | STR | INT | STR (repeat) |
 | `/` | INT | INT | INT (truncate) |
 | `/` | FLOAT | FLOAT | FLOAT |
-| `%` | INT | INT | INT |
+| `%` | INT | INT | INT (floored) |
+| `%` | FLOAT | FLOAT | FLOAT (floored) |
 | `^` | INT | INT | INT |
 | `^` | FLOAT | INT | FLOAT |
 | `^` | FLOAT | FLOAT | FLOAT |
@@ -426,12 +465,20 @@ str[2..4]     => "ell"
 
 **Range bounds checking:**
 
-For range indexing `list[start..end]`:
-- If `start < 1` or `start > length(list)`, raise E_RANGE
-- If `end < 1` or `end > length(list)`, raise E_RANGE
-- If `start > end`, return empty list `{}` (not an error)
+For range indexing `list[start..end]` (and strings alike):
+- If `start > end`, return an empty list `{}` (or `""`), whatever the bounds
+  are: `list[100..2]` is `{}`
+- Otherwise, if `start < 1`, `start > length(list)`, `end < 1`, or
+  `end > length(list)`, raise E_RANGE
 - Both bounds are checked strictly; **no clamping occurs**
 - Example: `list[2..100]` on a 5-element list raises E_RANGE (not clamped to `list[2..5]`)
+
+(Toast `execute.cc` `OP_RANGE_REF`.) Range *assignment* uses looser bounds; see
+operators.md Section 2.3.
+
+For a map, the endpoints are keys. If `start` orders after `end` (key order,
+Section 2.7) the result is `[]`; otherwise both endpoints must be keys present
+in the map, or E_RANGE is raised.
 
 ### 5.3 Special Index Markers
 
@@ -442,20 +489,25 @@ For range indexing `list[start..end]`:
 
 **Evaluation order:** MOO `^` and `$` syntax is lowered before bytecode
 compilation to semantic first and last boundary expressions. During collection
-evaluation, list and string index boundaries resolve to `1` and collection
-length. Map index boundaries resolve to the first and last key in map key order.
-For ranges over any collection, boundaries are positional: first is `1` and
-last is collection length, including maps whose keys are non-integers or
-integers outside that positional range. The resolved values then participate in
-the normal one-based, inclusive range and strict bounds rules. If a resolved
-range has `start > end`, an empty collection of the sliced type is returned.
+evaluation, a list or string first boundary resolves to `1` when the value is
+non-empty and to `0` when it is empty; the last boundary resolves to its
+length. Map boundaries resolve to the first and last key in map key order, in
+index and range position alike (Toast `execute.cc` `EOP_FIRST`/`EOP_LAST`;
+conformance `builtins/map.yaml` `first_last_index`). The resolved values then
+participate in the normal range rules of Section 5.2.
 
 Example:
 ```moo
 list = {1, 2, 3};
 list[2..$]    => {2, 3}      // $ = 3
-list[5..$]    => E_RANGE     // start > length, even though $ = 3
+list[5..$]    => {}          // start > end, so empty
+""[^..$]      => E_RANGE     // ^ = 0, $ = 0: [0..0] is out of range
+""[1..$]      => ""          // [1..0] is empty
+{}[^..$]      => E_RANGE
+x = {}; x[^..$] = {1};       // x = {1}: range assignment accepts [0..0]
 ```
+
+(Conformance `language/caret_empty_sequence.yaml`.)
 
 ### 5.4 Copy-on-Write
 
@@ -521,15 +573,29 @@ For comparison with `typeof()`:
 
 ```moo
 INT   = 0
+NUM   = 0
 OBJ   = 1
 STR   = 2
 ERR   = 3
 LIST  = 4
 FLOAT = 9
 MAP   = 10
+ANON  = 12
 WAIF  = 13
 BOOL  = 14
+true  = true
+false = false
 ```
+
+These names are not keywords. They are predefined local variables that every
+activation (verb call, `eval()`, forked task) starts with set to the values
+above (Toast `sym_table.cc` builtin names, `eval_env.cc`
+`fill_in_rt_consts`). A program can assign them like any variable; the new
+value lasts for the rest of that activation, a `fork` body inherits the value
+current when the fork statement ran, and a called verb starts with the original
+values. The constants are initialized before the first statement, so a read
+that precedes a conditional assignment still sees the constant (conformance
+`vm/activation_environment.yaml`).
 
 ---
 
