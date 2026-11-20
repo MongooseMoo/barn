@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -356,6 +357,14 @@ func (database *Database) readAnonymousObjects(r *bufio.Reader) error {
 				// saved under; everything else by its identity, as the
 				// _TYPE_ANON values read for it do (readValue).
 				saved := obj.ID()
+				// A negative id names no object, and an id past
+				// MaxInt64-AnonymousIdentityBase has no identity, so
+				// neither can be an anonymous object. Toast finds the
+				// object by this id among those its references created
+				// (ng_read_object -> dbpriv_find_object) and has none.
+				if saved < 0 || saved > math.MaxInt64-store.AnonymousIdentityBase {
+					return fmt.Errorf("anonymous object %d of %d has invalid id #%d", i+1, count, saved)
+				}
 				obj.SetLoadedAnonymousIdentity()
 				database.AnonymousObjs = append(database.AnonymousObjs, obj)
 				if database.loadedAnonymous == nil {
