@@ -460,6 +460,10 @@ func (c *lowerer) compileTry(n *ir.TryStmt) error {
 		numHandlers := len(n.Handlers)
 		clauseCodes := make([][]byte, numHandlers)
 		for i, handler := range n.Handlers {
+			if c.lines != nil {
+				// Computed codes are evaluated on their except line.
+				c.statementLine = c.lines.handlers[&n.Handlers[i]]
+			}
 			codes, err := c.prepareExceptCodes(n, i, handler.IsAny, handler.Codes)
 			if err != nil {
 				return err

@@ -70,12 +70,13 @@ return before;
 	if path == nil {
 		t.Fatalf("no loss path on #0.read_value: %+v", census.Paths)
 	}
-	// The program text starts with a newline, so the read is on line 2 and
-	// server_log on line 4.
-	if path.Loser != (dbstore.ConflictLabel{Obj: 0, Verb: "diag"}) || path.ReadSite.Line != 2 ||
+	// Lines count statements, as Toast's do, so the blank line the program
+	// text starts with is not counted: the read is on line 1 and server_log
+	// on line 3.
+	if path.Loser != (dbstore.ConflictLabel{Obj: 0, Verb: "diag"}) || path.ReadSite.Line != 1 ||
 		path.LostAt.Boundary != 1 || path.MaxAttempt != 1 ||
-		len(path.BoundarySites) != 1 || path.BoundarySites[0].Builtin != "server_log" || path.BoundarySites[0].Site.Line != 4 {
-		t.Errorf("path = %+v, want #0:diag reading at line 2, lost at the server_log boundary (line 4) on attempt 1", *path)
+		len(path.BoundarySites) != 1 || path.BoundarySites[0].Builtin != "server_log" || path.BoundarySites[0].Site.Line != 3 {
+		t.Errorf("path = %+v, want #0:diag reading at line 1, lost at the server_log boundary (line 3) on attempt 1", *path)
 	}
 	var verb *dbstore.VerbGoodput
 	for i := range census.Verbs {

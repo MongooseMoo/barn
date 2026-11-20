@@ -77,6 +77,7 @@ func (c *Compiler) compileNativeVector(source []string, languageVersion, vector 
 	}
 	lower := newLowerer(c.builtinIDs)
 	lower.importLayout = importing
+	lower.lines = numberStatements(program, parser.ElseIfArms(text, program))
 	compiled, err := lower.compileProgram(&ir.Program{Statements: selected.Body})
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("compile native continuation: %w", err)
