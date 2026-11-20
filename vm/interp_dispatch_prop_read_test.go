@@ -49,8 +49,10 @@ func TestTracebackLinesAfterFastPathRunInEveryFrame(t *testing.T) {
 	for _, frame := range result.CallStack {
 		lines = append(lines, frame.LineNumber)
 	}
-	if len(lines) != 2 || lines[0] != 4 || lines[1] != 4 {
-		t.Fatalf("call stack lines = %v, want [4 4] (probe's division, then the caller's call)", lines)
+	// Lines count statements, as Toast's do: each one-line loop is three
+	// lines (header, body, end), so both returns are on line 8.
+	if len(lines) != 2 || lines[0] != 8 || lines[1] != 8 {
+		t.Fatalf("call stack lines = %v, want [8 8] (probe's division, then the caller's call)", lines)
 	}
 }
 
@@ -64,8 +66,9 @@ func TestSuspendResumeBetweenFastPathRuns(t *testing.T) {
 		"return {x, y, 1 / (y - y)};"
 	result := runBytecodeProgram(t, code, nil, nil)
 	requireError(t, result, types.E_DIV)
-	if len(result.CallStack) == 0 || result.CallStack[0].LineNumber != 7 {
-		t.Fatalf("call stack = %+v, want the error on line 7", result.CallStack)
+	// Each one-line loop is three lines, so the return is on line 11.
+	if len(result.CallStack) == 0 || result.CallStack[0].LineNumber != 11 {
+		t.Fatalf("call stack = %+v, want the error on line 11", result.CallStack)
 	}
 	code = "x = 0;\n" +
 		"for i in [1..20] x = x + i; endfor\n" +

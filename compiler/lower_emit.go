@@ -180,9 +180,19 @@ func (c *lowerer) currentOffset() int {
 
 // trackLine records a line number entry if the semantic node's line differs
 // from the last recorded line. This populates Program.LineInfo so that runtime
-// errors can include source line numbers.
+// errors can include line numbers. With statement lines, a statement's code is
+// on its Toast line (numberStatements) and an expression is on the line of the
+// statement or except arm it belongs to.
 func (c *lowerer) trackLine(node ir.Node) {
 	line := node.Position().Line
+	if c.lines != nil {
+		if stmt, ok := node.(ir.Stmt); ok {
+			if statementLine, ok := c.lines.statements[stmt]; ok {
+				c.statementLine = statementLine
+			}
+		}
+		line = c.statementLine
+	}
 	if line > 0 && line != c.lastLine {
 		c.program.LineInfo = append(c.program.LineInfo, bytecode.LineEntry{
 			StartIP: len(c.program.Code),

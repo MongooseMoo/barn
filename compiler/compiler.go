@@ -145,6 +145,7 @@ func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []D
 	}
 
 	lower := newLowerer(c.builtinIDs)
+	lower.lines = numberStatements(program, parser.ElseIfArms(source, program))
 	compiled, err := lower.compileProgram(program)
 	if err == nil {
 		compiled.ForkSources, err = forkSources(source, program, lower.forks)

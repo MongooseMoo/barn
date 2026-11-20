@@ -37,6 +37,8 @@ type lowerer struct {
 	indexContextVar       int                  // Variable slot used by index-boundary compilation (-1 = none)
 	indexBoundaryContext  indexBoundaryContext // Whether map boundaries resolve as keys or positions
 	lastLine              int                  // Last emitted line number for LineInfo deduplication
+	lines                 *statementLines      // Toast line of each statement; nil numbers by source position
+	statementLine         int                  // Toast line of the statement or except arm being compiled
 	err                   error                // First overflow/limit error; checked at Compile boundaries
 	importLayout          *barnImportLayout    // Set only while converting a native checkpoint.
 	forks                 []*ir.ForkStmt       // Fork statements in the order their instructions were emitted
