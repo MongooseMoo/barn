@@ -34,11 +34,13 @@ func hasConflict(conflicts []ReadConflict, kind ConflictKind, objID types.ObjID,
 
 // TestRenumberPropertyOwnerFixInvalidatesConcurrentSlotRead is the history
 // FuzzStoreCommitsMatchSerialReplay found (rapid seed 6666356451387711135):
-// #0 is recycled, a transaction sets #1.a, renumber(#2) takes the freed #0 and
-// clears every owner equal to #0 to #-1 (Toast db_renumber_object), and then the
-// transaction commits. Serially the renumber comes first or the commit fails,
-// so #1.a must end owned by #-1. The transaction's staged slot carries the
-// owner it read (#0); it must fail validation instead of writing that back.
+// #0 is recycled, a transaction sets an inherited slot owned by #0, renumber(#3)
+// takes the freed #0 and clears every owner equal to #0 to #-1 (Toast
+// db_renumber_object), and then the transaction commits. Serially the renumber
+// comes first or the commit fails, so the slot must end owned by #-1. The
+// transaction's staged slot carries the owner it read (#0); it must fail
+// validation instead of writing that back. The property is defined by #1, not
+// by the recycled #0, so the slot survives the recycle as it does in Toast.
 func TestRenumberPropertyOwnerFixInvalidatesConcurrentSlotRead(t *testing.T) {
 	s := NewStore()
 	if err := s.Add(NewObject(0, types.ObjNothing)); err != nil {
@@ -50,41 +52,42 @@ func TestRenumberPropertyOwnerFixInvalidatesConcurrentSlotRead(t *testing.T) {
 			t.Fatalf("create under #%d: %s", parent, ec)
 		}
 	}
-	for id, name := range []string{"a", "b"} {
-		id := types.ObjID(id)
-		if ec := d.DefineProperty(id, name, NewProperty(types.NewInt(0), id, PropRead|PropWrite, false, true)); ec != types.E_NONE {
-			t.Fatalf("define #%d.%s: %s", id, name, ec)
-		}
+	// #1 defines a owned by #0, so #2's inherited slot of a is owned by #0.
+	if ec := d.DefineProperty(1, "a", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+		t.Fatalf("define #1.a: %s", ec)
 	}
 	if err := s.Recycle(0); err != nil {
 		t.Fatal(err)
 	}
 
 	tx := s.BeginSnapshot(0)
-	if ec := tx.SetPropertyValue(1, "a", types.NewInt(0)); ec != types.E_NONE {
-		t.Fatalf("set #1.a: %s", ec)
+	if ec := tx.SetPropertyValue(2, "a", types.NewInt(0)); ec != types.E_NONE {
+		t.Fatalf("set #2.a: %s", ec)
 	}
-	renumberUnderGate(t, s, 2, 0)
+	renumberUnderGate(t, s, 3, 0)
 
 	next, _, ec := tx.CommitAndRenewCarryingReads()
 	if ec == types.E_NONE {
 		next.Release()
-		t.Errorf("commit after renumber rewrote #1.a's owner validated; it read the slot before the rewrite")
+		t.Errorf("commit after renumber rewrote #2.a's owner validated; it read the slot before the rewrite")
 	} else {
-		if !hasConflict(tx.Conflicts(), ConflictProperty, 1, "a") {
-			t.Errorf("conflicts = %+v, want a stale read of #1.a", tx.Conflicts())
+		if !hasConflict(tx.Conflicts(), ConflictProperty, 2, "a") {
+			t.Errorf("conflicts = %+v, want a stale read of #2.a", tx.Conflicts())
 		}
 		tx.Release()
 	}
 
-	// The slot itself: with the commit refused it is still clear, and #1 has no
-	// parent left to resolve its value through.
-	prop, _, ec := s.DirectTxn().LocalProperty(1, "a")
-	if ec != types.E_NONE {
-		t.Fatalf("find #1.a: %s", ec)
+	// The slot itself: with the commit refused it is still #2's clear
+	// inherited slot.
+	prop, ok, ec := s.DirectTxn().LocalProperty(2, "a")
+	if ec != types.E_NONE || !ok {
+		t.Fatalf("find #2.a: ok=%v %s", ok, ec)
+	}
+	if !prop.Clear {
+		t.Errorf("#2.a = %v, want the clear inherited slot the refused commit left", prop.Value)
 	}
 	if prop.Owner != types.ObjNothing {
-		t.Errorf("#1.a owner = #%d, want #-1 (renumber cleared the owner equal to the new id)", prop.Owner)
+		t.Errorf("#2.a owner = #%d, want #-1 (renumber cleared the owner equal to the new id)", prop.Owner)
 	}
 }
 
