@@ -947,7 +947,7 @@ func getHasher(algo string) (hash.Hash, bool) {
 		return sha1.New(), true
 	case "sha224":
 		return sha256.New224(), true
-	case "sha256", "":
+	case "sha256":
 		return sha256.New(), true
 	case "sha384":
 		return sha512.New384(), true
@@ -1255,7 +1255,7 @@ func getHmacFunc(algo string) (func() hash.Hash, bool) {
 		return sha1.New, true
 	case "sha224":
 		return sha256.New224, true
-	case "sha256", "":
+	case "sha256":
 		return sha256.New, true
 	case "sha384":
 		return sha512.New384, true

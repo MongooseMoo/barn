@@ -104,6 +104,30 @@ func TestValueHashHidesAnonymousObjectIdentity(t *testing.T) {
 	}
 }
 
+// Toast's hash and HMAC builtins reject an empty algorithm name with E_INVARG
+// instead of falling back to SHA-256 (issue #935).
+func TestHashAndHMACRejectEmptyAlgorithm(t *testing.T) {
+	tests := []struct {
+		name string
+		args []types.Value
+	}{
+		{"string_hash", []types.Value{types.NewStr("x"), types.NewStr("")}},
+		{"binary_hash", []types.Value{types.NewStr("\"%%"), types.NewStr(""), types.NewInt(0)}},
+		{"value_hash", []types.Value{types.NewInt(1), types.NewStr(""), types.NewInt(1)}},
+		{"string_hmac", []types.Value{types.NewStr("x"), types.NewStr("k"), types.NewStr("")}},
+		{"binary_hmac", []types.Value{types.NewStr("x"), types.NewStr("k"), types.NewStr("")}},
+		{"value_hmac", []types.Value{types.NewStr("x"), types.NewStr("k"), types.NewStr("")}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := admitTestBuiltin(test.name, newTestExecution(), test.args)
+			if !result.IsError() || result.Error != types.E_INVARG {
+				t.Fatalf("%s with empty algorithm = %+v, want E_INVARG", test.name, result)
+			}
+		})
+	}
+}
+
 func TestHashAndHMACResultsIgnoreStringConcatLimit(t *testing.T) {
 	ctx := newTestExecution()
 	ctx.PendingEffects = []task.PendingEffect{{
