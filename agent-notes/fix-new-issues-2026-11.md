@@ -38,6 +38,28 @@ moo-conformance-tests branch `test/traceback-line-numbering`,
 fails `empty_statements_take_no_line` (got 4, Toast 2); the other seven
 already passed because `set_verb_code` stores formatted code.
 
+### #946: anonymous identities apart from numbered ids
+
+Branch `fix/anonymous-identity-namespace` (worktree
+`C:/Users/Q/code/barn-anon-identity`). On master an anonymous identity came
+from the numbered counter (`allocateID`), so a numbered create() after an
+anonymous one skipped a number (`{a, c, max_object()}` = `{#4, #6, #6}`),
+and after `reset_max_object()` a create took a live anonymous object's id
+(issue case `{1, "", 0, 1, 0}`). Toast gives the slot back
+(`objects.cc` bf_create `db_make_anonymous(oid, last)`,
+`db_objects.cc` `db_set_last_used_objid`). The fix gives anonymous objects
+their own counter starting at `store.AnonymousIdentityBase` (1<<62); the
+reader maps a file's serialization id n to identity base+n
+(`reader_value.go`, `ObjectBuilder.SetLoadedAnonymousIdentity`), so loaded
+anonymous objects no longer raise the next numbered id either. The writer
+already numbered anonymous objects per file (`anonSerializationPlan`). The
+anonymous GC floor is `NextAnonymousID()`. Conformance branch
+`test/anonymous-identity-namespace`, `builtins/anonymous_identity_numbering.yaml`.
+
+Not done from the issue's proposal: lookups still fall back between the
+anonymous map and the directory (harmless now that the ranges are disjoint),
+and bare-ObjID paths are not split by type.
+
 ## Decisions and why
 
 - PR #944 (closed) made Barn self-consistent by numbering a restored fork
@@ -64,6 +86,11 @@ already passed because `set_verb_code` stores formatted code.
 
 ## Next step
 
-The lead pushes `fix/checkpoint-resume-fuzz`, then the conformance branch
-`test/traceback-line-numbering` after it merges (Toast-green, Barn-red until
-the Barn fix lands).
+The lead pushes and PRs both Barn branches (independent, both from master):
+`fix/checkpoint-resume-fuzz` (Fixes #943, #949) and
+`fix/anonymous-identity-namespace` (Fixes #946). Each conformance branch is
+Toast-green and Barn-red until its Barn fix merges, so merge it after:
+`test/traceback-line-numbering` after `fix/checkpoint-resume-fuzz`,
+`test/anonymous-identity-namespace` after `fix/anonymous-identity-namespace`.
+Close #909, #910, #912, #913, #915, #920, #921, #925, #926 (fixed by #922)
+and #941, #942 (fixed by #919).
