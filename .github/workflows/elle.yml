@@ -1,0 +1,137 @@
+name: Elle isolation
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  merge_group:
+  # Extended mode: the nightly run, or a dispatch with extended set. Same job
+  # and check name; more seeds and rounds (see Check histories). Scheduled at
+  # 01:17 UTC so it ends before jepsen.yml's 04:37 UTC extended run.
+  schedule:
+    - cron: '17 1 * * *'
+  workflow_dispatch:
+    inputs:
+      extended:
+        description: Extended mode (50 seeds of 400 rounds unless seeds/rounds are given)
+        type: boolean
+        default: false
+      seeds:
+        description: Space-separated integer seeds (blank for the mode's default)
+        type: string
+        default: ''
+      rounds:
+        description: Random rounds per healthy seed (8-10000; blank for the mode's default)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  # An extended run on master must not cancel, or be cancelled by, a push run.
+  group: elle-${{ github.ref }}${{ (github.event_name == 'schedule' || inputs.extended) && '-extended' || '' }}
+  cancel-in-progress: true
+
+jobs:
+  # Skip the required job when a run of this repository already passed on
+  # this exact tree (see .github/actions/tested-tree). A manual dispatch
+  # and the nightly extended run always run.
+  tested:
+    name: Check for an earlier pass
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    outputs:
+      hit: ${{ steps.tree.outputs.hit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - id: tree
+        if: github.event_name != 'workflow_dispatch' && github.event_name != 'schedule'
+        uses: ./.github/actions/tested-tree
+        with:
+          mode: check
+          name: elle
+
+  record:
+    name: Record pass
+    needs: isolation
+    # Manual campaigns may select less work than the required PR configuration,
+    # and extended runs use other seeds. They must not populate its tested-tree
+    # pass record.
+    if: github.event_name != 'workflow_dispatch' && github.event_name != 'schedule'
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/tested-tree
+        with:
+          mode: record
+          name: elle
+
+  isolation:
+    name: Serializable histories and negative control
+    needs: tested
+    if: needs.tested.outputs.hit != 'true'
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.extended) && 180 || 25 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check runner device
+        run: test -c /dev/null
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build pinned checker
+        uses: ./.github/actions/elle-cli
+      # Extended mode: 50 healthy seeds taken from the run number, so each night
+      # differs (the step log prints them; a dispatch with that seed list
+      # replays them), at 400 rounds each. Cost grows faster than rounds
+      # (#0:read_row walks the whole row): run 43134804468 took 30-45 s per
+      # seed at about 250 rounds, one seed at 500 took 99 s locally, and one
+      # at 1000 passed check_elle.py's 5-minute go test timeout near round 860.
+      # The fault cases run unchanged (rounds 0).
+      - name: Check histories
+        env:
+          ELLE_SEEDS: ${{ inputs.seeds }}
+          ELLE_ROUNDS: ${{ inputs.rounds || ((github.event_name == 'schedule' || inputs.extended) && '400' || '40') }}
+          ELLE_EXTENDED: ${{ github.event_name == 'schedule' || inputs.extended }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ELLE_SEEDS" ]; then
+            ELLE_SEEDS='412 395 396'
+            if [ "$ELLE_EXTENDED" = true ]; then
+              first=$((GITHUB_RUN_NUMBER * 100))
+              ELLE_SEEDS=$(seq -s ' ' "$first" $((first + 49)))
+            fi
+          fi
+          echo "seeds: $ELLE_SEEDS; rounds: $ELLE_ROUNDS"
+          python3 -m unittest discover -s scripts -p 'test_check_elle.py' -v
+          go test -tags elle ./engine -run '^TestElleRecorder' -count=1
+          read -r -a seeds <<< "$ELLE_SEEDS"
+          python3 scripts/check_elle.py --jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" --output elle-evidence --seeds "${seeds[@]}" --rounds "$ELLE_ROUNDS"
+      - name: Archive raw evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          # Elle names some HTML witnesses after printed EDN keys, including
+          # quotes. GitHub rejects those as individual artifact paths; retain
+          # their original names and contents inside one portable archive.
+          if [ -d elle-evidence ]; then
+            tar -czf elle-evidence.tar.gz elle-evidence
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: elle-evidence-${{ github.sha }}
+          path: elle-evidence.tar.gz
+          if-no-files-found: warn

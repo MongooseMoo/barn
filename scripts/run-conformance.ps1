@@ -60,7 +60,7 @@ if (-not $NoFreshDb) {
 $serverBinary = [System.IO.Path]::GetFullPath($Binary)
 $managedDb = [System.IO.Path]::GetFullPath($RunDb)
 $escapedServerBinary = $serverBinary.Replace('"', '\"')
-$serverCommand = "`"$escapedServerBinary`" -db {db} -port {port}"
+$serverCommand = "`"$escapedServerBinary`" serve --db {db} --port {port}"
 if ($ExtraServerArgs.Count -gt 0) {
     $serverCommand += " " + ($ExtraServerArgs -join " ")
 }

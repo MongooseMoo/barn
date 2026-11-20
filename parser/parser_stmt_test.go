@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 	"testing"
 )
 
@@ -25,15 +25,15 @@ func TestElseIfLowersToNestedSemanticConditionals(t *testing.T) {
 		t.Fatalf("ParseProgram() error = %v", err)
 	}
 
-	root, ok := program.Statements[0].(*verb.IfStmt)
+	root, ok := program.Statements[0].(*ir.IfStmt)
 	if !ok {
 		t.Fatalf("root = %T, want *verb.IfStmt", program.Statements[0])
 	}
-	second, ok := root.Else[0].(*verb.IfStmt)
+	second, ok := root.Else[0].(*ir.IfStmt)
 	if !ok {
 		t.Fatalf("first else = %T, want nested *verb.IfStmt", root.Else[0])
 	}
-	third, ok := second.Else[0].(*verb.IfStmt)
+	third, ok := second.Else[0].(*ir.IfStmt)
 	if !ok {
 		t.Fatalf("second else = %T, want nested *verb.IfStmt", second.Else[0])
 	}
@@ -62,12 +62,6 @@ func TestTryFormsLowerToOneSemanticStatement(t *testing.T) {
 			source:        "try\nreturn 1;\nfinally\nreturn 2;\nendtry",
 			wantFinalizer: true,
 		},
-		{
-			name:          "handlers and finalizer",
-			source:        "try\nreturn 1;\nexcept (E_DIV)\nreturn 2;\nexcept (ANY)\nreturn 3;\nfinally\nreturn 4;\nendtry",
-			wantHandlers:  2,
-			wantFinalizer: true,
-		},
 	}
 
 	for _, test := range tests {
@@ -77,7 +71,7 @@ func TestTryFormsLowerToOneSemanticStatement(t *testing.T) {
 				t.Fatalf("ParseProgram() error = %v", err)
 			}
 
-			tryStmt, ok := program.Statements[0].(*verb.TryStmt)
+			tryStmt, ok := program.Statements[0].(*ir.TryStmt)
 			if !ok {
 				t.Fatalf("statement = %T, want *verb.TryStmt", program.Statements[0])
 			}
@@ -91,12 +85,26 @@ func TestTryFormsLowerToOneSemanticStatement(t *testing.T) {
 	}
 }
 
+// Toast's grammar (parser.y:277-288) has try/except and try/finally but no
+// try/except/finally, so a finally after an except clause is a syntax error
+// (issue #874: Barn returned 0 where the Toast oracle refused to compile).
+func TestTryExceptFinallyIsSyntaxError(t *testing.T) {
+	for _, source := range []string{
+		"try return 1 / e; except ereturn  (ANY) 0; finally 1; endtry",
+		"try\nreturn 1;\nexcept (E_DIV)\nreturn 2;\nexcept (ANY)\nreturn 3;\nfinally\nreturn 4;\nendtry",
+	} {
+		if _, err := NewParser(source).ParseProgram(); err == nil {
+			t.Errorf("ParseProgram(%q) succeeded, want syntax error", source)
+		}
+	}
+}
+
 func TestForFormsLowerToDistinctSemanticStatements(t *testing.T) {
 	collectionProgram, err := NewParser("for items value, key in (source)\nreturn value;\nendfor").ParseProgram()
 	if err != nil {
 		t.Fatalf("collection ParseProgram() error = %v", err)
 	}
-	collection, ok := collectionProgram.Statements[0].(*verb.CollectionLoopStmt)
+	collection, ok := collectionProgram.Statements[0].(*ir.CollectionLoopStmt)
 	if !ok {
 		t.Fatalf("collection statement = %T, want *verb.CollectionLoopStmt", collectionProgram.Statements[0])
 	}
@@ -108,7 +116,7 @@ func TestForFormsLowerToDistinctSemanticStatements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("range ParseProgram() error = %v", err)
 	}
-	rangeLoop, ok := rangeProgram.Statements[0].(*verb.RangeLoopStmt)
+	rangeLoop, ok := rangeProgram.Statements[0].(*ir.RangeLoopStmt)
 	if !ok {
 		t.Fatalf("range statement = %T, want *verb.RangeLoopStmt", rangeProgram.Statements[0])
 	}
@@ -128,43 +136,43 @@ func TestAssignmentsLowerToSealedSemanticTargets(t *testing.T) {
 	tests := []struct {
 		name   string
 		source string
-		check  func(*testing.T, verb.Target)
+		check  func(*testing.T, ir.Target)
 	}{
-		{"variable", "x = 1;", func(t *testing.T, target verb.Target) {
-			if _, ok := target.(*verb.VariableTarget); !ok {
+		{"variable", "x = 1;", func(t *testing.T, target ir.Target) {
+			if _, ok := target.(*ir.VariableTarget); !ok {
 				t.Fatalf("target = %T, want *verb.VariableTarget", target)
 			}
 		}},
-		{"property", "object.name = 1;", func(t *testing.T, target verb.Target) {
-			if _, ok := target.(*verb.PropertyTarget); !ok {
+		{"property", "object.name = 1;", func(t *testing.T, target ir.Target) {
+			if _, ok := target.(*ir.PropertyTarget); !ok {
 				t.Fatalf("target = %T, want *verb.PropertyTarget", target)
 			}
 		}},
-		{"index", "items[1] = 1;", func(t *testing.T, target verb.Target) {
-			if _, ok := target.(*verb.IndexTarget); !ok {
+		{"index", "items[1] = 1;", func(t *testing.T, target ir.Target) {
+			if _, ok := target.(*ir.IndexTarget); !ok {
 				t.Fatalf("target = %T, want *verb.IndexTarget", target)
 			}
 		}},
-		{"range", "items[1..2] = {};", func(t *testing.T, target verb.Target) {
-			if _, ok := target.(*verb.RangeTarget); !ok {
+		{"range", "items[1..2] = {};", func(t *testing.T, target ir.Target) {
+			if _, ok := target.(*ir.RangeTarget); !ok {
 				t.Fatalf("target = %T, want *verb.RangeTarget", target)
 			}
 		}},
-		{"destructuring", "{a, ?b = 2, @rest} = {1};", func(t *testing.T, target verb.Target) {
-			destructuring, ok := target.(*verb.DestructuringTarget)
+		{"destructuring", "{a, ?b = 2, @rest} = {1};", func(t *testing.T, target ir.Target) {
+			destructuring, ok := target.(*ir.DestructuringTarget)
 			if !ok {
 				t.Fatalf("target = %T, want *verb.DestructuringTarget", target)
 			}
 			if len(destructuring.Bindings) != 3 {
 				t.Fatalf("binding count = %d, want 3", len(destructuring.Bindings))
 			}
-			if _, ok := destructuring.Bindings[0].(*verb.RequiredBinding); !ok {
+			if _, ok := destructuring.Bindings[0].(*ir.RequiredBinding); !ok {
 				t.Fatalf("binding 0 = %T, want *verb.RequiredBinding", destructuring.Bindings[0])
 			}
-			if _, ok := destructuring.Bindings[1].(*verb.OptionalBinding); !ok {
+			if _, ok := destructuring.Bindings[1].(*ir.OptionalBinding); !ok {
 				t.Fatalf("binding 1 = %T, want *verb.OptionalBinding", destructuring.Bindings[1])
 			}
-			if _, ok := destructuring.Bindings[2].(*verb.RestBinding); !ok {
+			if _, ok := destructuring.Bindings[2].(*ir.RestBinding); !ok {
 				t.Fatalf("binding 2 = %T, want *verb.RestBinding", destructuring.Bindings[2])
 			}
 		}},
@@ -176,8 +184,8 @@ func TestAssignmentsLowerToSealedSemanticTargets(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseProgram() error = %v", err)
 			}
-			statement := program.Statements[0].(*verb.ExprStmt)
-			assignment := statement.Expr.(*verb.AssignExpr)
+			statement := program.Statements[0].(*ir.ExprStmt)
+			assignment := statement.Expr.(*ir.AssignExpr)
 			test.check(t, assignment.Target)
 		})
 	}
@@ -200,11 +208,11 @@ func TestIndexMarkersLowerToSemanticBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseProgram() error = %v", err)
 	}
-	returnStmt := program.Statements[0].(*verb.ReturnStmt)
-	rangeExpr := returnStmt.Value.(*verb.RangeExpr)
-	first := rangeExpr.Start.(*verb.IndexBoundaryExpr)
-	last := rangeExpr.End.(*verb.IndexBoundaryExpr)
-	if first.Boundary != verb.IndexFirst || last.Boundary != verb.IndexLast {
-		t.Fatalf("boundaries = (%v, %v), want (%v, %v)", first.Boundary, last.Boundary, verb.IndexFirst, verb.IndexLast)
+	returnStmt := program.Statements[0].(*ir.ReturnStmt)
+	rangeExpr := returnStmt.Value.(*ir.RangeExpr)
+	first := rangeExpr.Start.(*ir.IndexBoundaryExpr)
+	last := rangeExpr.End.(*ir.IndexBoundaryExpr)
+	if first.Boundary != ir.IndexFirst || last.Boundary != ir.IndexLast {
+		t.Fatalf("boundaries = (%v, %v), want (%v, %v)", first.Boundary, last.Boundary, ir.IndexFirst, ir.IndexLast)
 	}
 }

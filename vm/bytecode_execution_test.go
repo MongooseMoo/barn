@@ -1,33 +1,37 @@
 package vm
 
 import (
+	"math"
 	"testing"
 
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
-func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *kernel.TaskContext) types.Result {
+func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *task.Context) types.Result {
 	t.Helper()
-	if store == nil {
-		store = dbstore.NewStore()
-	}
-	if ctx == nil {
-		ctx = kernel.NewTaskContext()
-	}
-	taskValue := task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
-
 	registry := BuildVMRegistry()
-	session := newTestSessionWithTaskManager(registry)
-	ctx.Store = store
-
 	prog, diagnostics := registry.Compiler().CompileMOO([]string{code})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
+	return runCompiledBytecodeProgram(prog, registry, store, ctx)
+}
+
+func runCompiledBytecodeProgram(prog *bytecode.Program, registry *builtins.Registry, store *dbstore.Store, ctx *task.Context) types.Result {
+	if store == nil {
+		store = dbstore.NewStore()
+	}
+	if ctx == nil {
+		ctx = task.NewContext()
+	}
+	taskValue := task.NewState(1, types.ObjID(0), ctx.TicksRemaining, 1)
+
+	session := newTestSessionWithTaskManager(registry)
+	ctx.Store = store
 
 	machine := NewVM(store, session)
 	machine.Context = ctx
@@ -40,6 +44,32 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ke
 		result = machine.Resume()
 	}
 	return result
+}
+
+// Raw reported input: builtins/map.yaml::first_last_index. Markers evaluated
+// inside range bounds must expose the actual first/last keys, not the map size.
+func TestMapRangeFirstLastMarkersExposeActualKeys(t *testing.T) {
+	result := runBytecodeProgram(t, `
+x = [];
+r = {};
+x[1] = 1;
+x[(a = ^)..(b = $)];
+r = {@r, {a, b}};
+x[2] = 2;
+x[(a = ^)..(b = $)];
+r = {@r, {a, b}};
+x[3] = 3;
+x[(a = ^)..(b = $)];
+r = {@r, {a, b}};
+x[5] = 5;
+x[(a = ^)..(b = $)];
+r = {@r, {a, b}};
+x[8] = 8;
+x[(a = ^)..(b = $)];
+return {@r, {a, b}};`, nil, nil)
+	if result.Flow != types.FlowReturn || result.Val.String() != `{{1, 1}, {1, 2}, {1, 3}, {1, 5}, {1, 8}}` {
+		t.Fatalf("map range marker result = %+v; want actual first and last keys", result)
+	}
 }
 
 func runBytecodeExpr(t *testing.T, expr string) types.Result {
@@ -109,7 +139,7 @@ func TestComputedPropertyAssignmentEvaluatesTargetBeforeValue(t *testing.T) {
 
 func TestComputedVerbCallEvaluatesNameBeforeArguments(t *testing.T) {
 	store := newBytecodeVerbStore()
-	if _, errCode := store.AddVerb(0, dbstore.NewVerb("target", []string{"target"}, 0,
+	if _, errCode := store.AddVerb(0, dbstore.NewVerb([]string{"target"}, 0,
 		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{"return args[1];"})); errCode != types.E_NONE {
@@ -147,7 +177,7 @@ func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 		t.Fatalf("DefineProperty last_value failed: %v", errCode)
 	}
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
-	if _, errCode := store.AddVerb(1, dbstore.NewVerb(":_set_index", []string{":_set_index"}, 0,
+	if _, errCode := store.AddVerb(1, dbstore.NewVerb([]string{":_set_index"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{
 			"this.last_key = args[1];",
 			"this.last_value = args[2];",
@@ -155,7 +185,7 @@ func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 		})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb _set_index failed: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(1, dbstore.NewVerb(":_index", []string{":_index"}, 0,
+	if _, errCode := store.AddVerb(1, dbstore.NewVerb([]string{":_index"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{
 			"return {args[1], this.last_key, this.last_value, typeof(this) == WAIF};",
 		})); errCode != types.E_NONE {
@@ -204,7 +234,7 @@ func TestNonwizardOwnedWaifClassCannotDispatchIndex(t *testing.T) {
 		t.Fatalf("DefineProperty waif failed: %v", errCode)
 	}
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
-	if _, errCode := store.AddVerb(1, dbstore.NewVerb(":_index", []string{":_index"}, 0,
+	if _, errCode := store.AddVerb(1, dbstore.NewVerb([]string{":_index"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return args[1];"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb _index failed: %v", errCode)
 	}
@@ -214,11 +244,11 @@ func TestNonwizardOwnedWaifClassCannotDispatchIndex(t *testing.T) {
 }
 
 func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	resultList := types.NewList([]types.Value{types.NewInt(1), types.NewInt(2)})
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxListValueBytes: types.ValueBytes(resultList),
 		},
 	}}
@@ -227,12 +257,86 @@ func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
 	requireError(t, result, types.E_QUOTA)
 }
 
+// Toast 2.8.1 (6505a7f, execute.cc OP_ADD) raises E_QUOTA when the list +
+// result's value_bytes exceeds max_list_value_bytes; a result of exactly the
+// limit is allowed, unlike the builtins' exclusive check.
+func TestListAddUsesInclusiveListValueByteLimit(t *testing.T) {
+	size := types.ValueBytes(types.NewList([]types.Value{types.NewInt(1), types.NewInt(2)}))
+	for _, source := range []string{`x = {1}; return x + {2};`, `x = {1}; return x + 2;`} {
+		for _, limit := range []int{size - 1, size} {
+			ctx := task.NewContext()
+			ctx.PendingEffects = []task.PendingEffect{{
+				Kind:          task.PendingEffectServerOptions,
+				ServerOptions: &task.PendingServerOptions{MaxListValueBytes: limit},
+			}}
+			result := runBytecodeProgram(t, source, nil, ctx)
+			if limit < size {
+				requireError(t, result, types.E_QUOTA)
+			} else if result.Flow != types.FlowReturn || result.Val.String() != `{1, 2}` {
+				t.Fatalf("%s with byte limit %d = %+v, want {1, 2}", source, limit, result)
+			}
+		}
+	}
+}
+
+// OP_LIST_RANGE remains executable in persisted bytecode, although MOO source
+// has no list-range production. Exercise the opcode without invalid source.
+func runListRangeBytecode(start, end int64, ctx *task.Context) types.Result {
+	program := &bytecode.Program{
+		Constants: []types.Value{types.NewInt(start), types.NewInt(end)},
+		Code: []byte{
+			byte(bytecode.OP_PUSH), 0, byte(bytecode.OP_PUSH), 1,
+			byte(bytecode.OP_LIST_RANGE), byte(bytecode.OP_RETURN),
+		},
+	}
+	return runCompiledBytecodeProgram(program, BuildVMRegistry(), nil, ctx)
+}
+
+func TestListRangeChecksQuotaBeforeAllocation(t *testing.T) {
+	for _, bounds := range [][2]int64{
+		{35 << 35, 35},
+		{35, 35 << 35},
+		{math.MinInt64, math.MaxInt64},
+		{math.MaxInt64, math.MinInt64},
+	} {
+		requireError(t, runListRangeBytecode(bounds[0], bounds[1], nil), types.E_QUOTA)
+	}
+}
+
+func TestListRangeUsesExclusivePendingQuota(t *testing.T) {
+	for _, limit := range []int{64, 65} {
+		ctx := task.NewContext()
+		ctx.PendingEffects = []task.PendingEffect{{
+			Kind:          task.PendingEffectServerOptions,
+			ServerOptions: &task.PendingServerOptions{MaxListValueBytes: limit},
+		}}
+		result := runListRangeBytecode(1, 2, ctx)
+		if limit == 64 {
+			requireError(t, result, types.E_QUOTA)
+		} else if result.Flow != types.FlowReturn || result.Val.String() != `{1, 2}` {
+			t.Fatalf("range with byte limit %d = %+v, want {1, 2}", limit, result)
+		}
+	}
+}
+
+func TestListRangeTerminatesAtIntegerEndpoints(t *testing.T) {
+	for bounds, want := range map[[2]int64]string{
+		{math.MaxInt64 - 1, math.MaxInt64}: `{9223372036854775806, 9223372036854775807}`,
+		{math.MinInt64 + 1, math.MinInt64}: `{-9223372036854775807, -9223372036854775808}`,
+	} {
+		result := runListRangeBytecode(bounds[0], bounds[1], nil)
+		if result.Flow != types.FlowReturn || result.Val.String() != want {
+			t.Fatalf("%v = %+v, want %s", bounds, result, want)
+		}
+	}
+}
+
 func TestMapIndexAssignmentUsesPendingListValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxListValueBytes: types.ValueBytes(resultMap),
 			MaxMapValueBytes:  types.ValueBytes(resultMap) + 1,
 		},
@@ -243,11 +347,11 @@ func TestMapIndexAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 }
 
 func TestMapLiteralUsesPendingMapValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxMapValueBytes: types.ValueBytes(resultMap) - 1,
 		},
 	}}
@@ -257,12 +361,12 @@ func TestMapLiteralUsesPendingMapValueByteLimit(t *testing.T) {
 }
 
 func TestMapRangeAssignmentUsesPendingListValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	initialMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(0)}})
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxListValueBytes: types.ValueBytes(resultMap),
 			MaxMapValueBytes:  types.ValueBytes(resultMap) + 1,
 		},
@@ -300,6 +404,65 @@ func TestRangeAssignmentAllowsEndPastCollectionLength(t *testing.T) {
 			if result.Flow != types.FlowReturn || result.Val.String() != test.want {
 				t.Fatalf("range assignment result = flow %v, value %v, error %v; want %s", result.Flow, result.Val, result.Error, test.want)
 			}
+		})
+	}
+}
+
+// Toast raises E_RANGE for a list or string range assignment only when
+// from > length + 1 or to < 0 (execute.cc EOP_RANGESET); a start below 1
+// keeps no prefix (list.cc listrangeset, strrangeset).
+func TestRangeAssignmentAcceptsStartBelowOne(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+		want string
+	}{
+		{"list start zero", `l = {1, 2}; l[0..1] = {9}; return l;`, `{9, 2}`},
+		{"list start negative", `l = {1, 2}; l[-1..1] = {9}; return l;`, `{9, 2}`},
+		{"list start zero end zero", `l = {1, 2}; l[0..0] = {9}; return l;`, `{9, 1, 2}`},
+		{"list start negative end zero", `l = {1, 2}; l[-1..0] = {9}; return l;`, `{9, 1, 2}`},
+		{"list start zero end past length", `l = {1, 2}; l[0..5] = {9}; return l;`, `{9}`},
+		{"list start length plus one", `l = {1, 2}; l[3..2] = {9}; return l;`, `{1, 2, 9}`},
+		{"list nested start zero", `l = {{1, 2}, "ab"}; l[1][0..1] = {9}; return l;`, `{{9, 2}, "ab"}`},
+		{"string start zero", `s = "ab"; s[0..1] = "z"; return s;`, `"zb"`},
+		{"string start negative", `s = "ab"; s[-1..1] = "z"; return s;`, `"zb"`},
+		{"string start zero end zero", `s = "ab"; s[0..0] = "z"; return s;`, `"zab"`},
+		{"string start negative end zero", `s = "ab"; s[-1..0] = "z"; return s;`, `"zab"`},
+		{"string start zero end past length", `s = "ab"; s[0..5] = "z"; return s;`, `"z"`},
+		{"string start length plus one", `s = "ab"; s[3..2] = "z"; return s;`, `"abz"`},
+		{"string multibyte start negative", `s = "éb"; s[-1..1] = "z"; return s;`, `"zb"`},
+		{"string start min int", `s = "abcdef"; s[-9223372036854775807 - 1..2] = "X"; return s;`, `"Xcdef"`},
+		{"string multibyte start min int", `s = "éb"; s[-9223372036854775807 - 1..1] = "z"; return s;`, `"zb"`},
+		{"list start min int", `l = {1, 2, 3}; l[-9223372036854775807 - 1..1] = {9}; return l;`, `{9, 2, 3}`},
+		{"string nested start zero", `l = {{1, 2}, "ab"}; l[2][0..1] = "z"; return l;`, `{{1, 2}, "zb"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := runBytecodeProgram(t, test.code, nil, nil)
+			if result.Flow != types.FlowReturn || result.Val.String() != test.want {
+				t.Fatalf("range assignment result = flow %v, value %v, error %v; want %s", result.Flow, result.Val, result.Error, test.want)
+			}
+		})
+	}
+}
+
+func TestRangeAssignmentRejectsNegativeEndOrStartPastAppendPosition(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+	}{
+		{"list start negative end negative", `l = {1, 2}; l[-1..-1] = {9};`},
+		{"list end negative", `l = {1, 2}; l[1..-1] = {9};`},
+		{"list start length plus two", `l = {1, 2}; l[4..3] = {9};`},
+		{"list nested end negative", `l = {{1, 2}, "ab"}; l[1][-1..-1] = {9};`},
+		{"string start negative end negative", `s = "ab"; s[-1..-1] = "z";`},
+		{"string end negative", `s = "ab"; s[1..-1] = "z";`},
+		{"string start length plus two", `s = "ab"; s[4..3] = "z";`},
+		{"string nested end negative", `l = {{1, 2}, "ab"}; l[2][-1..-1] = "z";`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requireError(t, runBytecodeProgram(t, test.code, nil, nil), types.E_RANGE)
 		})
 	}
 }
@@ -460,6 +623,38 @@ func TestBytecodeFloatOverflowRaisesEFloat(t *testing.T) {
 	}
 }
 
+// Toast's do_power raises E_FLOAT when pow() sets errno, which libm does when a
+// nonzero base underflows to zero. Subnormal results and a zero base do not.
+func TestBytecodeFloatPowUnderflowRaisesEFloat(t *testing.T) {
+	exprs := []string{
+		"2.0 ^ -2000",
+		"2.0 ^ -1075",
+		"0.5 ^ 2000",
+		"(-2.0) ^ -2001",
+		"1.0e-300 ^ 1.5",
+		"0.1 ^ 324",
+		"1425^5%-84264%492.425^2.24455^2.244^42.455^-242616",
+	}
+	for _, expr := range exprs {
+		t.Run(expr, func(t *testing.T) {
+			requireError(t, runBytecodeExpr(t, expr), types.E_FLOAT)
+		})
+	}
+	values := map[string]float64{
+		"2.0 ^ -1074": math.SmallestNonzeroFloat64,
+		"0.5 ^ 1074":  math.SmallestNonzeroFloat64,
+		"0.0 ^ 2.0":   0,
+	}
+	for expr, want := range values {
+		t.Run(expr, func(t *testing.T) {
+			result := runBytecodeExpr(t, expr)
+			if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_FLOAT || result.Val.Float() != want {
+				t.Fatalf("%s: got flow=%v error=%v val=%v, want %v", expr, result.Flow, result.Error, result.Val, want)
+			}
+		})
+	}
+}
+
 func TestBytecodeIntegerLiteralOverflowWraps(t *testing.T) {
 	cases := map[string]int64{
 		"9223372036854775808":  -9223372036854775807 - 1,
@@ -520,6 +715,32 @@ func TestBytecodeScatterAssignment(t *testing.T) {
 	})
 }
 
+// Toast's EOP_SCATTER (execute.cc) binds every target an element reaches in
+// one instruction, before any default expression runs, and gives the elements
+// beyond the required ones to the optional targets from the left. Barn bound
+// targets one by one around the defaults, those after @rest first: a default
+// read a later target's old value, and an optional target after @rest took an
+// element before one in front of it.
+func TestBytecodeScatterBindsEveryTargetBeforeDefaults(t *testing.T) {
+	cases := []struct{ source, want string }{
+		{`c = 5; {a, ?b = c, @c} = {1}; return {a, b, c};`, "{1, {}, {}}"},
+		{`d = 7; {a, ?b = d, c, d} = {1, 2, 3}; return {a, b, c, d};`, "{1, 3, 2, 3}"},
+		{`a = 0; b = 0; {?a, @r, ?b} = {1}; return {a, r, b};`, "{1, {}, 0}"},
+		{`a = 0; b = 0; c = 0; {?a, ?b, @r, ?c} = {1, 2}; return {a, b, r, c};`, "{1, 2, {}, 0}"},
+		{`{?a = 1, ?b = a + 1, ?c = b + 1} = {5}; return {a, b, c};`, "{5, 6, 7}"},
+		{`{a, ?b = 8, @r, ?c = 9, d} = {1, 2, 3, 4, 5, 6}; return {a, b, r, c, d};`, "{1, 2, {3, 4}, 5, 6}"},
+		{`{a, ?b = 8, @r, ?c = 9, d} = {1, 2, 3}; return {a, b, r, c, d};`, "{1, 2, {}, 9, 3}"},
+		{`{a, ?b = 8, @r, ?c = 9, d} = {1, 2}; return {a, b, r, c, d};`, "{1, 8, {}, 9, 2}"},
+		{`{@r, a} = {1, 2, 3}; return {r, a};`, "{{1, 2}, 3}"},
+		{`return {a, ?b = ({c, ?d = 4} = {3})[1], @r} = {1};`, "{1}"},
+	}
+	for _, tc := range cases {
+		if got := runBytecodeProgram(t, tc.source, nil, nil); got.Flow != types.FlowReturn || got.Val.String() != tc.want {
+			t.Errorf("%s: flow %v value %v, want %s", tc.source, got.Flow, got.Val, tc.want)
+		}
+	}
+}
+
 func newBytecodeVerbStore() *dbstore.Store {
 	store := dbstore.NewStore()
 	rootBuilder := dbstore.NewObjectBuilder(0)
@@ -530,15 +751,15 @@ func newBytecodeVerbStore() *dbstore.Store {
 
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
 	debugPerms := execPerms | dbstore.VerbDebug
-	store.AddVerb(0, dbstore.NewVerb("test_return", []string{"test_return"}, 0,
+	store.AddVerb(0, dbstore.NewVerb([]string{"test_return"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return 42;"}))
-	store.AddVerb(0, dbstore.NewVerb("test_throw", []string{"test_throw"}, 0,
+	store.AddVerb(0, dbstore.NewVerb([]string{"test_throw"}, 0,
 		debugPerms, dbstore.VerbArgs{}, []string{"return 1 / 0;"}))
-	store.AddVerb(0, dbstore.NewVerb("test_chain_b", []string{"test_chain_b"}, 0,
+	store.AddVerb(0, dbstore.NewVerb([]string{"test_chain_b"}, 0,
 		debugPerms, dbstore.VerbArgs{}, []string{"return this:test_chain_c();"}))
-	store.AddVerb(0, dbstore.NewVerb("test_chain_c", []string{"test_chain_c"}, 0,
+	store.AddVerb(0, dbstore.NewVerb([]string{"test_chain_c"}, 0,
 		debugPerms, dbstore.VerbArgs{}, []string{"return 1 / 0;"}))
-	store.AddVerb(0, dbstore.NewVerb("test_no_exec", []string{"test_no_exec"}, 0,
+	store.AddVerb(0, dbstore.NewVerb([]string{"test_no_exec"}, 0,
 		dbstore.VerbRead|dbstore.VerbWrite, dbstore.VerbArgs{}, []string{"return 1;"}))
 	return store
 }
@@ -586,10 +807,10 @@ func TestRejectedVerbCallDoesNotLeakTaskActivationFrame(t *testing.T) {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
 
-	taskValue := task.NewTask(1, 0, 30_000, 1)
+	taskValue := task.NewState(1, 0, 30_000, 1)
 	machine := NewVM(store, newTestSession(registry))
 	machine.MaxStackDepth = 1
-	machine.Context = kernel.NewTaskContext()
+	machine.Context = task.NewContext()
 	machine.Context.ThisObj = 7
 	machine.Context.Programmer = 7
 	machine.Context.IsWizard = false
@@ -618,7 +839,7 @@ func TestPassWithNoParentRaisesInvind(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(obj, dbstore.NewVerb("foo", []string{"foo"}, 0,
+	if _, errCode := store.AddVerb(obj, dbstore.NewVerb([]string{"foo"}, 0,
 		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{"return pass();"})); errCode != types.E_NONE {
@@ -651,11 +872,11 @@ func TestPassPreservesOriginalCaller(t *testing.T) {
 	}
 
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute | dbstore.VerbDebug
-	if _, errCode := store.AddVerb(1, dbstore.NewVerb("pass_caller", []string{"pass_caller"}, 0,
+	if _, errCode := store.AddVerb(1, dbstore.NewVerb([]string{"pass_caller"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return caller;"})); errCode != types.E_NONE {
 		t.Fatalf("add pass target: %s", errCode)
 	}
-	if _, errCode := store.AddVerb(2, dbstore.NewVerb("pass_caller", []string{"pass_caller"}, 0,
+	if _, errCode := store.AddVerb(2, dbstore.NewVerb([]string{"pass_caller"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return pass();"})); errCode != types.E_NONE {
 		t.Fatalf("add pass source: %s", errCode)
 	}
@@ -670,7 +891,7 @@ func TestPassPreservesOriginalCaller(t *testing.T) {
 		t.Fatalf("compile inherited verb: %v", diagnostics)
 	}
 	machine := NewVM(store, newTestSession(registry))
-	machine.Context = kernel.NewTaskContext()
+	machine.Context = task.NewContext()
 	result := machine.RunWithVerbContext(prog, 3, 3, 3, "pass_caller", defObjID, nil)
 	if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_OBJ || result.Val.Obj() != 3 {
 		t.Fatalf("pass target caller = %v, want original caller #3", result.Val)
@@ -692,15 +913,15 @@ func TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity(t *testing.T) {
 	}
 
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
-	if _, errCode := store.AddVerb(0, dbstore.NewVerb("anon_inner", []string{"anon_inner"}, 0,
+	if _, errCode := store.AddVerb(0, dbstore.NewVerb([]string{"anon_inner"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return {typeof(this) == ANON, typeof(caller) == ANON, caller == this};"})); errCode != types.E_NONE {
 		t.Fatalf("add inner verb: %s", errCode)
 	}
-	if _, errCode := store.AddVerb(0, dbstore.NewVerb("anon_outer", []string{"anon_outer"}, 0,
+	if _, errCode := store.AddVerb(0, dbstore.NewVerb([]string{"anon_outer"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return this:anon_inner();"})); errCode != types.E_NONE {
 		t.Fatalf("add outer verb: %s", errCode)
 	}
-	if _, errCode := store.AddVerb(0, dbstore.NewVerb("caller_type", []string{"caller_type"}, 0,
+	if _, errCode := store.AddVerb(0, dbstore.NewVerb([]string{"caller_type"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return typeof(caller);"})); errCode != types.E_NONE {
 		t.Fatalf("add caller type verb: %s", errCode)
 	}
@@ -708,7 +929,7 @@ func TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity(t *testing.T) {
 	requireList(t, runBytecodeProgram(t, "return #0.anon:anon_outer();", store, nil),
 		types.NewInt(1), types.NewInt(1), types.NewInt(1))
 
-	staleContext := kernel.NewTaskContext()
+	staleContext := task.NewContext()
 	staleContext.ThisValue = types.NewAnon(1)
 	requireInt(t, runBytecodeProgram(t, "return #0:caller_type();", store, staleContext), int64(types.TYPE_OBJ))
 }
@@ -876,8 +1097,8 @@ func TestBytecodeSuspendClearsDeadStackSlots(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
 	session := newTestSessionWithTaskManager(registry)
-	ctx := kernel.NewTaskContext()
-	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
+	ctx := task.NewContext()
+	taskValue := task.NewState(1, 0, ctx.TicksRemaining, 1)
 
 	program, diagnostics := registry.Compiler().CompileMOO([]string{`suspend(); return 9;`})
 	if len(diagnostics) > 0 {
@@ -913,8 +1134,8 @@ func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
 	session := newTestSessionWithTaskManager(registry)
-	ctx := kernel.NewTaskContext()
-	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
+	ctx := task.NewContext()
+	taskValue := task.NewState(1, 0, ctx.TicksRemaining, 1)
 	ctx.Store = store
 	program, diagnostics := registry.Compiler().CompileMOO([]string{`
 		try
@@ -941,7 +1162,7 @@ func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 	}
 }
 
-func TestBytecodeMapRangeBoundariesRemainPositional(t *testing.T) {
+func TestBytecodeMapRangeBoundariesSelectAllKeys(t *testing.T) {
 	read := runBytecodeExpr(t, `["b" -> 2, "a" -> 1][^..$]`)
 	wantRead := types.NewMap([][2]types.Value{
 		{types.NewStr("a"), types.NewInt(1)},
@@ -961,6 +1182,58 @@ func TestBytecodeMapRangeBoundariesRemainPositional(t *testing.T) {
 	})
 	if assigned.Flow != types.FlowReturn || !assigned.Val.Equal(wantAssigned) {
 		t.Fatalf("map range assignment = %#v, want %v", assigned, wantAssigned)
+	}
+}
+
+// Toast's ^ is 0 on an empty string or list, so a range starting at ^ raises
+// E_RANGE there while an explicit [1..0] or [1..$] is empty (issue #883).
+// Expected values are the WSL Toast oracle's.
+func TestBytecodeFirstBoundaryOnEmptySequence(t *testing.T) {
+	for _, code := range []string{
+		`return ""[^..$];`,
+		`return {}[^..$];`,
+		`x = ""; return x[^..$];`,
+		`return ""[^..0];`,
+		`return ""[$..^];`,
+	} {
+		t.Run(code, func(t *testing.T) {
+			requireError(t, runBytecodeProgram(t, code, nil, nil), types.E_RANGE)
+		})
+	}
+	for code, want := range map[string]string{
+		`return ""[1..0];`:                 `""`,
+		`return ""[1..$];`:                 `""`,
+		`return {}[1..$];`:                 `{}`,
+		`return {}[^ + 1..$];`:             `{}`,
+		`return "abc"[^..$];`:              `"abc"`,
+		`x = ""; x[^..$] = "b"; return x;`: `"b"`,
+		`x = {}; x[^..$] = {1}; return x;`: `{1}`,
+		`x = {}; x[^..$] = {}; return x;`:  `{}`,
+		`return {1, 2, 3}[^..^];`:          `{1}`,
+	} {
+		t.Run(code, func(t *testing.T) {
+			result := runBytecodeProgram(t, code, nil, nil)
+			if result.Flow != types.FlowReturn || result.Val.String() != want {
+				t.Fatalf("result = flow %v, value %v, error %v; want %s", result.Flow, result.Val, result.Error, want)
+			}
+		})
+	}
+}
+
+func TestBytecodeMapRangeIntegerEndpointsAreKeys(t *testing.T) {
+	for _, test := range []struct {
+		name, program, want string
+	}{
+		{"sparse keys", `return mapkeys([10 -> "a", 20 -> "b", 30 -> "c"][10..20]);`, `{10, 20}`},
+		{"missing keys", `try return [10 -> "a", 20 -> "b"][1..2]; except e (E_RANGE) return e[1]; endtry`, `E_RANGE`},
+		{"inverted missing keys", `return mapkeys([10 -> "a", 20 -> "b"][9..2]);`, `{}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := runBytecodeProgram(t, test.program, nil, nil)
+			if result.Flow != types.FlowReturn || result.Val.String() != test.want {
+				t.Fatalf("map range result = %+v; want %s", result, test.want)
+			}
+		})
 	}
 }
 

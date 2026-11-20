@@ -124,17 +124,11 @@ func (c *blockingWSConn) Write(context.Context, websocket.MessageType, []byte) e
 func (c *blockingWSConn) Close(websocket.StatusCode, string) error                   { return nil }
 func (c *blockingWSConn) CloseNow() error                                            { return nil }
 
-// TestReview_WebSocketWakeInputReaderInterruptsBlockedRead asserts the real
-// lifecycle contract: after WakeInputReader, a WebSocket read that is parked in
-// conn.Read MUST return promptly so conn.Close / graceful shutdown can proceed.
-//
-// Against the old no-op WakeReader() this test FAILS: WakeInputReader takes the
-// WakeReader path (the transport satisfies the interface), the no-op does
-// nothing, the in-flight read never unblocks, and the test times out.
-func TestReview_WebSocketWakeInputReaderInterruptsBlockedRead(t *testing.T) {
+// TestReview_WebSocketWakeReaderInterruptsBlockedRead pins the transport's
+// explicit cancellation contract independently of connection mode selection.
+func TestReview_WebSocketWakeReaderInterruptsBlockedRead(t *testing.T) {
 	fake := &blockingWSConn{reading: make(chan struct{})}
 	wst := NewWebSocketTransport(fake, "test:1234")
-	conn := NewConnection(2, wst)
 
 	done := make(chan error, 1)
 	go func() {
@@ -149,19 +143,15 @@ func TestReview_WebSocketWakeInputReaderInterruptsBlockedRead(t *testing.T) {
 		t.Fatal("read never started")
 	}
 
-	conn.WakeInputReader()
+	wst.WakeReader()
 
 	select {
 	case err := <-done:
 		if err == nil {
-			t.Fatal("blocked WebSocket read returned nil error after WakeInputReader; expected interruption")
+			t.Fatal("blocked WebSocket read returned nil error after WakeReader; expected interruption")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal(
-			"WakeInputReader did not interrupt the blocked WebSocket read: " +
-				"WakeReader() failed to cancel the in-flight read context, so " +
-				"conn.Close()/graceful shutdown cannot unblock a parked WS reader.",
-		)
+		t.Fatal("WakeReader did not cancel the blocked WebSocket read context")
 	}
 
 	// Secondary: the deadline is stamped so a read starting after the wake also

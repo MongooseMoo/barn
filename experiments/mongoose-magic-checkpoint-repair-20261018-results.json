@@ -1,0 +1,1336 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-18",
+  "study": "Mongoose magic correctness and checkpoint preservation",
+  "verdict": {
+    "status": "bounded_diagnostic_pass",
+    "functional_domain": "complete",
+    "preservation": "verified",
+    "independent_profiles": "validated_offline",
+    "independent_domain": "pass",
+    "remaining_native_errors": true,
+    "performance_claim": false
+  },
+  "scope": "One corrected-observer actual cohort; component n=1 I/O diagnostics and managed MOO semantics are separate evidence. No statistical gameplay speedup/RSS comparison.",
+  "changes": {
+    "sidecar_buffer_commit": "82c042132037282dcb90307a1b2f4a5a03e4bc47",
+    "tested_Go_commit": "05f3680ccfcddf6a94e0d73ebc57a725d6ac17d9",
+    "observer_commit": "f08fd946d2442c2d6cbad9c20032ab48d1599d29",
+    "observer_files": [
+      "scripts/mongoose_barn_process.py",
+      "scripts/test_mongoose_barn_process.py"
+    ],
+    "observer_policy": "ENODATA-only readiness-log retry within unchanged180s deadline; fixed-size errno/count/stamps; ownership recheck; other errors fatal",
+    "limits": {
+      "startup_seconds": 180,
+      "shutdown_seconds": 90,
+      "warmup_seconds": 30,
+      "action_deadline_seconds": 120
+    }
+  },
+  "sidecar_component": {
+    "identities": 48000,
+    "serialized_bytes": 1584089,
+    "serialized_sha256": "939d307d52d582c67979ac71485957a605a09795f9d7d543bb62d6c0248f913d",
+    "rows": [
+      {
+        "phase": "baseline",
+        "filesystem": "native",
+        "traced": true,
+        "operations": 1,
+        "ns_per_op": 6161767789,
+        "bytes_per_op": 2304512,
+        "allocs_per_op": 96010,
+        "binary_sha256": "fd3fd0c79d52dba3e124d2b8d99d602a213a05e6fc96272289b0e46ceea9018c",
+        "source_unchanged": true,
+        "raw": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/baseline/native.txt",
+          "bytes": 419,
+          "sha256": "1681abd4216a0b7072351eac65c08cd8444b8618a661ec1c96620102cd0d5609"
+        },
+        "summary": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/baseline/summary.json",
+          "bytes": 1760,
+          "sha256": "e2f04a41177d03a88faa8945053fd480d3a369f03c64c0a78851b00904dca18c"
+        },
+        "syscalls": {
+          "write": 48001,
+          "fsync": 1,
+          "close": 2
+        },
+        "syscall_evidence": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/baseline/native-syscalls.txt",
+          "bytes": 423,
+          "sha256": "5aa72d535f95ab024c21c58dc0317f393815d0505460b099d38b09adba1a247f"
+        }
+      },
+      {
+        "phase": "baseline",
+        "filesystem": "v9fs",
+        "traced": true,
+        "operations": 1,
+        "ns_per_op": 28429576655,
+        "bytes_per_op": 2304664,
+        "allocs_per_op": 96011,
+        "binary_sha256": "fd3fd0c79d52dba3e124d2b8d99d602a213a05e6fc96272289b0e46ceea9018c",
+        "source_unchanged": true,
+        "raw": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/baseline/v9fs.txt",
+          "bytes": 420,
+          "sha256": "411bdafbcbfa3baf95c6ef90d69ddd494c3cb4b95fc66ac4083f8e9f01b3e06b"
+        },
+        "summary": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/baseline/summary.json",
+          "bytes": 1760,
+          "sha256": "e2f04a41177d03a88faa8945053fd480d3a369f03c64c0a78851b00904dca18c"
+        },
+        "syscalls": {
+          "write": 48001,
+          "close": 2,
+          "fsync": 1
+        },
+        "syscall_evidence": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/baseline/v9fs-syscalls.txt",
+          "bytes": 423,
+          "sha256": "4a82539e05fe2dbe9d85f3c50dff4e168f5cf7150f855fb19c007c1ff06a53c1"
+        }
+      },
+      {
+        "phase": "baseline",
+        "filesystem": "native",
+        "traced": false,
+        "operations": 1,
+        "ns_per_op": 103544854,
+        "bytes_per_op": 2304512,
+        "allocs_per_op": 96010,
+        "binary_sha256": "fd3fd0c79d52dba3e124d2b8d99d602a213a05e6fc96272289b0e46ceea9018c",
+        "source_unchanged": true,
+        "raw": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/baseline-untraced/native.txt",
+          "bytes": 419,
+          "sha256": "1d299209702ecf130380e02df50e5838419f1cbc424e60971ccae88dabc93e87"
+        },
+        "summary": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/baseline-untraced/summary.json",
+          "bytes": 1153,
+          "sha256": "30a4f5eff8bf4ed473ba512a47aa2dd7bb07114c199a6af0a4dd946ea2613254"
+        }
+      },
+      {
+        "phase": "baseline",
+        "filesystem": "v9fs",
+        "traced": false,
+        "operations": 1,
+        "ns_per_op": 21697321437,
+        "bytes_per_op": 2304560,
+        "allocs_per_op": 96010,
+        "binary_sha256": "fd3fd0c79d52dba3e124d2b8d99d602a213a05e6fc96272289b0e46ceea9018c",
+        "source_unchanged": true,
+        "raw": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/baseline-untraced/v9fs.txt",
+          "bytes": 420,
+          "sha256": "c82284a9a54d68726cae8316e9b3f81152e429304ed40514a4d4a4ca754e214f"
+        },
+        "summary": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/baseline-untraced/summary.json",
+          "bytes": 1153,
+          "sha256": "30a4f5eff8bf4ed473ba512a47aa2dd7bb07114c199a6af0a4dd946ea2613254"
+        }
+      },
+      {
+        "phase": "buffered",
+        "filesystem": "native",
+        "traced": true,
+        "operations": 1,
+        "ns_per_op": 84372919,
+        "bytes_per_op": 2308672,
+        "allocs_per_op": 96012,
+        "binary_sha256": "cbf13b8cd7792222c3272b553fd6228850cfcbaf41e6f241ab80f82b7d47a408",
+        "source_unchanged": true,
+        "raw": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/candidate/native.txt",
+          "bytes": 419,
+          "sha256": "7254d1b92c35086b75cfe0e84ca66933d232a5f335112d6dd2d2c7224e4c897e"
+        },
+        "summary": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/candidate/summary.json",
+          "bytes": 1757,
+          "sha256": "e895ca1a2f46990149ab39bc44fda5273aa44c53ff902ff74eaac4973389709d"
+        },
+        "syscalls": {
+          "write": 387,
+          "fsync": 1,
+          "close": 2
+        },
+        "syscall_evidence": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/candidate/native-syscalls.txt",
+          "bytes": 423,
+          "sha256": "16dcac23ce4f30a0ec47636d29204927beb90acfec9b287efec7986ac5ae9f3e"
+        }
+      },
+      {
+        "phase": "buffered",
+        "filesystem": "v9fs",
+        "traced": true,
+        "operations": 1,
+        "ns_per_op": 249630538,
+        "bytes_per_op": 2308688,
+        "allocs_per_op": 96011,
+        "binary_sha256": "cbf13b8cd7792222c3272b553fd6228850cfcbaf41e6f241ab80f82b7d47a408",
+        "source_unchanged": true,
+        "raw": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/candidate/v9fs.txt",
+          "bytes": 419,
+          "sha256": "83a3d9768f81dbc9318f2e59dfb4955fb81b93a96bf26105cb408e966fd28e9c"
+        },
+        "summary": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/candidate/summary.json",
+          "bytes": 1757,
+          "sha256": "e895ca1a2f46990149ab39bc44fda5273aa44c53ff902ff74eaac4973389709d"
+        },
+        "syscalls": {
+          "write": 387,
+          "close": 2,
+          "fsync": 1
+        },
+        "syscall_evidence": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/candidate/v9fs-syscalls.txt",
+          "bytes": 423,
+          "sha256": "2c1248d2eb74233b2339e909749c77666c57f723eb3c7a315e6b3f7ff3f43b59"
+        }
+      },
+      {
+        "phase": "buffered",
+        "filesystem": "native",
+        "traced": false,
+        "operations": 1,
+        "ns_per_op": 19125783,
+        "bytes_per_op": 2308688,
+        "allocs_per_op": 96012,
+        "binary_sha256": "cbf13b8cd7792222c3272b553fd6228850cfcbaf41e6f241ab80f82b7d47a408",
+        "source_unchanged": true,
+        "raw": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/candidate-untraced/native.txt",
+          "bytes": 419,
+          "sha256": "7ce942a8988c673b1786db620d6b4a4fe1aa11b3858cffeba7d5c8e4ad50ff03"
+        },
+        "summary": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/candidate-untraced/summary.json",
+          "bytes": 1152,
+          "sha256": "4a001afb36ab43eb25cb5d6cc969a93c587cdf167f9507d66c9bcc9cfd25f9d5"
+        }
+      },
+      {
+        "phase": "buffered",
+        "filesystem": "v9fs",
+        "traced": false,
+        "operations": 1,
+        "ns_per_op": 193185733,
+        "bytes_per_op": 2314296,
+        "allocs_per_op": 96019,
+        "binary_sha256": "cbf13b8cd7792222c3272b553fd6228850cfcbaf41e6f241ab80f82b7d47a408",
+        "source_unchanged": true,
+        "raw": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/candidate-untraced/v9fs.txt",
+          "bytes": 419,
+          "sha256": "8301d3a0fb1b57f3c79e9e8d52d2bd8ba020277410617195b900f4a8fca9fb46"
+        },
+        "summary": {
+          "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/candidate-untraced/summary.json",
+          "bytes": 1152,
+          "sha256": "4a001afb36ab43eb25cb5d6cc969a93c587cdf167f9507d66c9bcc9cfd25f9d5"
+        }
+      }
+    ],
+    "interpretation": "one operation per phase/filesystem/mode; traced duration includes ptrace; exact bytes preserved; no distribution or whole-world claim",
+    "contracts_raw": {
+      "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/candidate/contracts.txt",
+      "bytes": 227,
+      "sha256": "acc91c386e86d5f42a987c3a616693da906eee6c66ce2fc8e170a2d7085e560a"
+    },
+    "full_format_raw": {
+      "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/checks/format.txt",
+      "bytes": 23077,
+      "sha256": "c8ff4faaf59077a88634b8536670c04b24c7958405f258ce70cb57f004704bbc"
+    },
+    "race_format_raw": {
+      "path": "/mnt/c/Users/Q/code/barn-shutdown-diagnostics/.tmp/sidecar-investigation/checks/race.txt",
+      "bytes": 50,
+      "sha256": "cff2fdb515a25a172458f0297205d6481a369e33d10b9add59b682409f29b2ea"
+    }
+  },
+  "MOO_conformance": {
+    "contract": {
+      "numeric_decimal_strings_0_through_14": "accepted",
+      "numeric_decimal_strings_15_through_32": "E_INVARG",
+      "lexical_cases": "exact native comparison, including noncanonical numeric spellings"
+    },
+    "canonical_oracle": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "evidence": {
+        "path": "/mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/mongoose-control-evidence-20261018/oracle-04-normative/results.xml",
+        "bytes": 862,
+        "sha256": "56d8ad065e2f19532000e10deab0a10829cb7b6c0bcb18131b59b61bdf40a564"
+      }
+    },
+    "unchanged_Barn_RED": {
+      "tests": 2,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0,
+      "evidence": {
+        "path": "/mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/mongoose-control-evidence-20261018/barn-red-01/results.xml",
+        "bytes": 8618,
+        "sha256": "0f077e241225e1151716ae20f239427f433899840c7bcf74aa63fe78a5d09c9d"
+      }
+    },
+    "fixed_Barn_GREEN": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "evidence": {
+        "path": "/mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/mongoose-control-evidence-20261018/barn-green-01/results.xml",
+        "bytes": 862,
+        "sha256": "2a9a4073befbbf5fc13c9614a497e785bdc1be5e896390087fd9a1fb25229b82"
+      }
+    },
+    "native_comparison": [
+      {
+        "Marker": "LEXICAL_PREP_PROBE ",
+        "Equal": true
+      },
+      {
+        "Marker": "NUMERIC_PREP_PROBE ",
+        "Equal": true
+      }
+    ],
+    "input_hashes": {
+      "path": "/mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/mongoose-control-evidence-20261018/barn-green-01/input-hashes.txt",
+      "bytes": 804,
+      "sha256": "6e58d45ca5d0508c3a17ccc0eea424eaa30923b39be93ea48df95ecbdaa418dc"
+    },
+    "managed_process_final": {
+      "path": "/mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/mongoose-control-evidence-20261018/barn-green-01/process-final.json",
+      "bytes": 75,
+      "sha256": "f7c7fbd846fa57226fc3b696d7a55cb5dd4f5b9646fed55a06c152520ee7c7ba"
+    }
+  },
+  "Go_verification": {
+    "go-all": {
+      "exit": 0,
+      "argv": [
+        "/usr/local/go/bin/go",
+        "test",
+        "./...",
+        "-count=1"
+      ],
+      "cwd": "/mnt/c/Users/Q/code/barn-preposition-bounds",
+      "raw_sha256": "b71c4900225c3e8075bc8415929cf978602dccdbcdc40bb3ade4003cb1a49e38",
+      "evidence": {
+        "path": "/mnt/c/Users/Q/code/barn-preposition-bounds/.tmp/preposition-verification/run-01/go-all-exit.json",
+        "bytes": 398,
+        "sha256": "9d6788021e86adf076239d4d21a572cb5b417eb094ef8404568d93c7abcf21cc"
+      }
+    },
+    "race": {
+      "exit": 0,
+      "argv": [
+        "/usr/local/go/bin/go",
+        "test",
+        "-race",
+        "./builtins",
+        "./db/format",
+        "-count=1"
+      ],
+      "cwd": "/mnt/c/Users/Q/code/barn-preposition-bounds",
+      "raw_sha256": "b9bd556de8e311f3ed69c3a60e1096011219520bbf9578fd210defb360e9e3a7",
+      "evidence": {
+        "path": "/mnt/c/Users/Q/code/barn-preposition-bounds/.tmp/preposition-verification/run-01/race-exit.json",
+        "bytes": 433,
+        "sha256": "c0caf163bf7ad5e132a63a8497c24ba773bac423b627dbd3d98e2b7ca687d5bb"
+      }
+    },
+    "elle-driver": {
+      "exit": 0,
+      "argv": [
+        "python3",
+        "scripts/check_elle.py",
+        "--jar",
+        "/root/.cache/barn-elle-412/elle-cli/target/elle-cli-0.1.11-standalone.jar",
+        "--java",
+        "/home/github-runner/actions-runner-barn-03/_work/_tool/Java_Temurin-Hotspot_jdk/21.0.12-101.0.LTS/x64/bin/java",
+        "--output",
+        "/root/.cache/barn-preposition-final-elle-20261018-01",
+        "--seeds",
+        "412",
+        "395",
+        "396",
+        "--rounds",
+        "40"
+      ],
+      "cwd": "/mnt/c/Users/Q/code/barn-preposition-bounds",
+      "raw_sha256": "474174adf7a30a4085d23d665d1f5506adfbabe3e6ead696b1d8e28d3ee41972",
+      "evidence": {
+        "path": "/mnt/c/Users/Q/code/barn-preposition-bounds/.tmp/preposition-verification/run-01/elle-driver-exit.json",
+        "bytes": 754,
+        "sha256": "0cd16b854ca6dd1b736580d14ed5ad090f7d1822c8a6c685fd41be0bcf3d4210"
+      }
+    }
+  },
+  "Elle": {
+    "valid": true,
+    "errors": [],
+    "verdict_count": 12,
+    "healthy_outcomes": {
+      "395": {
+        "list-append": {
+          "counts": {
+            "invoke": 391,
+            "ok": 391
+          },
+          "fail": 0,
+          "info": 0,
+          "history_sha256": "c28ad7eb8b73df0dd4df9c48fe22b5a2b624498c5cccb12c43aea2953e946043"
+        },
+        "rw-register": {
+          "counts": {
+            "invoke": 322,
+            "ok": 322
+          },
+          "fail": 0,
+          "info": 0,
+          "history_sha256": "4eb8b8e26ff268743561865c3b86606c809e028ed0fb3cc4b8e1e0c6f36d0bc7"
+        }
+      },
+      "396": {
+        "list-append": {
+          "counts": {
+            "invoke": 390,
+            "ok": 390
+          },
+          "fail": 0,
+          "info": 0,
+          "history_sha256": "8767a8d34e5bc5c08b960fdf0753cd65a87a49854e636d371222e630d71e9436"
+        },
+        "rw-register": {
+          "counts": {
+            "invoke": 322,
+            "ok": 322
+          },
+          "fail": 0,
+          "info": 0,
+          "history_sha256": "cc2caa84eb0997a4941aabc1c3233d28dca5464037662892ea4320e2d5b02a6a"
+        }
+      },
+      "412": {
+        "list-append": {
+          "counts": {
+            "invoke": 386,
+            "ok": 386
+          },
+          "fail": 0,
+          "info": 0,
+          "history_sha256": "4e527080a9a8bc391b8a69ddc12e21d974a5a2c0842cc0e790928c9be02bfa63"
+        },
+        "rw-register": {
+          "counts": {
+            "invoke": 322,
+            "ok": 322
+          },
+          "fail": 0,
+          "info": 0,
+          "history_sha256": "5894e403010944bdf93a2045a4734eded3d225cfe857d37d1cd1a6d497c6883c"
+        }
+      }
+    },
+    "healthy_coverage": {
+      "395": {
+        "parallel": 380,
+        "exclusive": 948,
+        "exclusive_gate": 847,
+        "hot_renewal": 2,
+        "verb_memo": 443,
+        "suspend": 321,
+        "fork": 14,
+        "native_exception": 48,
+        "read_only": 4,
+        "operation/chparent": 320,
+        "operation/clear_property": 320,
+        "operation/create": 320,
+        "operation/delete_property": 320,
+        "operation/delete_verb": 320,
+        "operation/flags": 320,
+        "operation/invariant": 400,
+        "operation/move": 320,
+        "operation/owner": 320,
+        "operation/permissions": 320,
+        "operation/recycle": 320
+      },
+      "396": {
+        "parallel": 381,
+        "exclusive": 939,
+        "exclusive_gate": 841,
+        "hot_renewal": 3,
+        "verb_memo": 446,
+        "suspend": 321,
+        "fork": 14,
+        "native_exception": 48,
+        "read_only": 4,
+        "operation/chparent": 320,
+        "operation/clear_property": 320,
+        "operation/create": 320,
+        "operation/delete_property": 320,
+        "operation/delete_verb": 320,
+        "operation/flags": 320,
+        "operation/invariant": 400,
+        "operation/move": 320,
+        "operation/owner": 320,
+        "operation/permissions": 320,
+        "operation/recycle": 320
+      },
+      "412": {
+        "parallel": 376,
+        "exclusive": 948,
+        "exclusive_gate": 842,
+        "hot_renewal": 1,
+        "verb_memo": 463,
+        "suspend": 321,
+        "fork": 14,
+        "native_exception": 48,
+        "read_only": 4,
+        "operation/chparent": 320,
+        "operation/clear_property": 320,
+        "operation/create": 320,
+        "operation/delete_property": 320,
+        "operation/delete_verb": 320,
+        "operation/flags": 320,
+        "operation/invariant": 400,
+        "operation/move": 320,
+        "operation/owner": 320,
+        "operation/permissions": 320,
+        "operation/recycle": 320
+      }
+    },
+    "fault_witnesses": {
+      "property-reads": [
+        {
+          "path": "fault-property-reads/graphs-list-append/G-single-item.txt",
+          "bytes": 1150,
+          "sha256": "e5a0ebf4e3ca50a89ad2672e9b112fffbf0e4503b8f8b0d762f25631129b9e6e"
+        }
+      ],
+      "scalar-reads": [
+        {
+          "path": "fault-scalar-reads/graphs-list-append/G-single-item.txt",
+          "bytes": 420,
+          "sha256": "b191c8cdc1abc1f6bff7f479adc67b6156ba1f8389877ea63ec34367b0558e2e"
+        }
+      ],
+      "verb-reads": [
+        {
+          "path": "fault-verb-reads/graphs-list-append/G-single-item.txt",
+          "bytes": 450,
+          "sha256": "3879964024902dfad803227ea9f635934c658ad98aad3ba38d1ab0d4b20feb14"
+        }
+      ],
+      "relationship-reads": [
+        {
+          "path": "fault-relationship-reads/graphs-list-append/G-single-item.txt",
+          "bytes": 633,
+          "sha256": "9e8a3b3b0495cb3c8e1f5a3eb4982b163a04b8dbf760cf28614580ce0f343e0e"
+        }
+      ],
+      "waif-reads": [
+        {
+          "path": "fault-waif-reads/graphs-list-append/G-single-item.txt",
+          "bytes": 420,
+          "sha256": "436381bf0923125aab17ee14f123937d2ad7e83b760ca701d71f07cec15b6874"
+        }
+      ],
+      "commit-exclusion": [
+        {
+          "path": "fault-commit-exclusion/graphs-list-append/G2-item.txt",
+          "bytes": 554,
+          "sha256": "6fce4adaa191be82c075fee4ea941475d5e0e59ab17449d44be5db9a33a61048"
+        }
+      ]
+    },
+    "archive": {
+      "command": [
+        "tar",
+        "-czf",
+        "/mnt/c/Users/Q/code/barn-preposition-bounds/.tmp/preposition-verification/run-01/elle-evidence.tar.gz",
+        "-C",
+        "/root/.cache/barn-preposition-final-elle-20261018-01",
+        "."
+      ],
+      "exit": 0,
+      "path": "/mnt/c/Users/Q/code/barn-preposition-bounds/.tmp/preposition-verification/run-01/elle-evidence.tar.gz",
+      "bytes": 133585,
+      "sha256": "eb6fc1f452d2eef0cede39d9e1d9ae6685c2e81bd9a9966f80dadd3e10c10ccb",
+      "regular_files": 67,
+      "every_member_matches_raw": true
+    },
+    "source_head": "05f3680ccfcddf6a94e0d73ebc57a725d6ac17d9",
+    "source_unchanged": true,
+    "source_hashed_files": 2379,
+    "verdicts": [
+      {
+        "case": "seed-412",
+        "seed": 412,
+        "model": "list-append",
+        "fault": "",
+        "exit_code": 0,
+        "verdict": "true"
+      },
+      {
+        "case": "seed-412",
+        "seed": 412,
+        "model": "rw-register",
+        "fault": "",
+        "exit_code": 0,
+        "verdict": "true"
+      },
+      {
+        "case": "seed-395",
+        "seed": 395,
+        "model": "list-append",
+        "fault": "",
+        "exit_code": 0,
+        "verdict": "true"
+      },
+      {
+        "case": "seed-395",
+        "seed": 395,
+        "model": "rw-register",
+        "fault": "",
+        "exit_code": 0,
+        "verdict": "true"
+      },
+      {
+        "case": "seed-396",
+        "seed": 396,
+        "model": "list-append",
+        "fault": "",
+        "exit_code": 0,
+        "verdict": "true"
+      },
+      {
+        "case": "seed-396",
+        "seed": 396,
+        "model": "rw-register",
+        "fault": "",
+        "exit_code": 0,
+        "verdict": "true"
+      },
+      {
+        "case": "fault-property-reads",
+        "seed": 412,
+        "model": "list-append",
+        "fault": "property-reads",
+        "exit_code": 1,
+        "verdict": "false"
+      },
+      {
+        "case": "fault-scalar-reads",
+        "seed": 412,
+        "model": "list-append",
+        "fault": "scalar-reads",
+        "exit_code": 1,
+        "verdict": "false"
+      },
+      {
+        "case": "fault-verb-reads",
+        "seed": 412,
+        "model": "list-append",
+        "fault": "verb-reads",
+        "exit_code": 1,
+        "verdict": "false"
+      },
+      {
+        "case": "fault-relationship-reads",
+        "seed": 412,
+        "model": "list-append",
+        "fault": "relationship-reads",
+        "exit_code": 1,
+        "verdict": "false"
+      },
+      {
+        "case": "fault-waif-reads",
+        "seed": 412,
+        "model": "list-append",
+        "fault": "waif-reads",
+        "exit_code": 1,
+        "verdict": "false"
+      },
+      {
+        "case": "fault-commit-exclusion",
+        "seed": 412,
+        "model": "list-append",
+        "fault": "commit-exclusion",
+        "exit_code": 1,
+        "verdict": "false"
+      }
+    ],
+    "evidence": {
+      "path": "/mnt/c/Users/Q/code/barn-preposition-bounds/.tmp/preposition-verification/run-01/elle-audit-02.json",
+      "bytes": 17665,
+      "sha256": "d2989cb32cc578a9011855a0e31253d3f811b2aba506f225a6b7e5e9e9cf55c8"
+    }
+  },
+  "Go_binary_binding": {
+    "exit": 0,
+    "source_head": "05f3680ccfcddf6a94e0d73ebc57a725d6ac17d9",
+    "source_unchanged": true,
+    "source_file_count": 2379,
+    "source_inventory_sha256": "fa11c780a5dc097759e57ce760581cedf9eb2d180ac1dfcec17ed991bef61f6c",
+    "binary": "/mnt/c/Users/Q/code/barn-preposition-bounds/.tmp/conformance/preposition-repair-20261018/barn",
+    "binary_bytes": 27285792,
+    "binary_sha256": "d47d6ace45f9115198141a49a83eb8ccdc8140c15e15f0083422a1044cfe5a72",
+    "go_env": {
+      "CGO_ENABLED": "1",
+      "GOARCH": "amd64",
+      "GOFLAGS": "",
+      "GOOS": "linux",
+      "GOVERSION": "go1.27.1"
+    },
+    "automatic_pgo_files": [
+      "cmd/barn/default.pgo"
+    ],
+    "binding_scope": "explicit build command and complete source inventory; embedded VCS only if actually present in version-m",
+    "build_evidence": {
+      "path": "/mnt/c/Users/Q/code/barn-preposition-bounds/.tmp/preposition-build-20261018/run-01/build-exit.json",
+      "bytes": 774,
+      "sha256": "44c3eb5a405e3092ca73ffcc711ac2b3e9463f03f785300dba796592ead3ef4f"
+    },
+    "source_before": {
+      "path": "/mnt/c/Users/Q/code/barn-preposition-bounds/.tmp/preposition-build-20261018/run-01/source-before.json",
+      "bytes": 384517,
+      "sha256": "fa11c780a5dc097759e57ce760581cedf9eb2d180ac1dfcec17ed991bef61f6c"
+    },
+    "source_after": {
+      "path": "/mnt/c/Users/Q/code/barn-preposition-bounds/.tmp/preposition-build-20261018/run-01/source-after.json",
+      "bytes": 384517,
+      "sha256": "fa11c780a5dc097759e57ce760581cedf9eb2d180ac1dfcec17ed991bef61f6c"
+    },
+    "reuse_proof": {
+      "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/startup-log-retry-checks/go-input-equality.json",
+      "bytes": 72288,
+      "sha256": "6310fd677a358da57ffbe53352cc84a8b61eb117f4a906fbeabaa6d98869c6eb"
+    },
+    "reuse_equal_file_count": 697,
+    "rebuild_for_Python_repair": false
+  },
+  "observer_regression": {
+    "baseline": {
+      "tests": 19,
+      "errors": 3,
+      "exit": 1,
+      "evidence": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/startup-log-retry-checks/red-01.txt",
+        "bytes": 8061,
+        "sha256": "8679227e927ee2f6a15667583d0dc0f6f69392945b5c27740861e955132fc7df"
+      }
+    },
+    "focused": {
+      "tests": 19,
+      "errors": 0,
+      "exit": 0,
+      "evidence": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/startup-log-retry-checks/green-01.txt",
+        "bytes": 3562,
+        "sha256": "1891cc03a9e718711975a3917192057c80c3f15d8efe1ed11604b4709aa66421"
+      }
+    },
+    "combined": {
+      "tests": 67,
+      "errors": 0,
+      "exit": 0,
+      "evidence": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/startup-log-retry-checks/integration-01.txt",
+        "bytes": 12391,
+        "sha256": "4f0db440ace754ad0fc8e33014fc335c8205aad00ea5d6f7052ccdd445d7b45a"
+      }
+    },
+    "actual_startup_log_read_errors": null,
+    "actual_recovery_observed": false,
+    "kernel_or_filesystem_cause": "unknown"
+  },
+  "preserved_failed_cohorts": [
+    {
+      "classification": "domain_refusal_failed_and_controller_stop_deadline_expired",
+      "manifest": {
+        "path": "/mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/barn-magic-verb-source-20261018-01/manifest-final.json",
+        "bytes": 84278,
+        "sha256": "1643dc19e20fc20d86c5f968135677ea1a4dca997bb83b7fb5478585196de960"
+      },
+      "status": "failed",
+      "domain_status": "failed",
+      "shutdown_exit": -9,
+      "forced": true,
+      "checkpoint_status": "unknown",
+      "final_checks": {
+        "source_database": true,
+        "executable": true,
+        "controller_sources": true,
+        "sound_catalog": true,
+        "owned_shutdown": false,
+        "bootstrap_executable": true,
+        "barn_configuration": true,
+        "barn_profile_registry": true,
+        "barn_runtime_profile": true,
+        "owned_final_checkpoint": false,
+        "go_diagnostics_transport": true,
+        "go_profiles_validated": false
+      },
+      "preserved_unchanged": true
+    },
+    {
+      "classification": "startup_log_read_ENODATA_before_domain",
+      "manifest": {
+        "path": "/mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/barn-magic-correctness-repair-20261018-01/manifest-final.json",
+        "bytes": 14662,
+        "sha256": "006b9869b47a2c6eae58c540fe808f5ebc12948a78da57a740bf6131131b65ec"
+      },
+      "status": "failed",
+      "domain_status": "not_started",
+      "shutdown_exit": 0,
+      "forced": false,
+      "checkpoint_status": "verified",
+      "final_checks": {
+        "source_database": true,
+        "executable": true,
+        "controller_sources": true,
+        "sound_catalog": true,
+        "owned_shutdown": true,
+        "bootstrap_executable": true,
+        "barn_configuration": true,
+        "barn_profile_registry": true,
+        "barn_runtime_profile": null,
+        "owned_final_checkpoint": true,
+        "go_diagnostics_transport": false,
+        "go_profiles_validated": false
+      },
+      "preserved_unchanged": true
+    }
+  ],
+  "startup_failure_report": {
+    "path": "/mnt/c/Users/Q/code/barn-preposition-bounds/.tmp/startup-investigation-20261018/startup-failure.md",
+    "bytes": 5712,
+    "sha256": "9ad5990f95520bd948025e30c7a9f8ac205a4127f7d5adfed41ccf2648426019"
+  },
+  "actual": {
+    "run_directory": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/barn-magic-startup-observer-repair-20261018-01",
+    "controller_exit": 1,
+    "status": "diagnostic-unvalidated",
+    "domain_status": "complete",
+    "productive_counts": {
+      "completed_iterations": 1,
+      "attempt_count": 8,
+      "fizzles": 6,
+      "productive_lumos": 1,
+      "productive_nox": 1
+    },
+    "attempt_effects": [
+      {
+        "spell": "lumos",
+        "outcome": "fizzle",
+        "room_light_before": 0,
+        "room_light_after": 0
+      },
+      {
+        "spell": "lumos",
+        "outcome": "fizzle",
+        "room_light_before": 0,
+        "room_light_after": 0
+      },
+      {
+        "spell": "lumos",
+        "outcome": "fizzle",
+        "room_light_before": 0,
+        "room_light_after": 0
+      },
+      {
+        "spell": "lumos",
+        "outcome": "fizzle",
+        "room_light_before": 0,
+        "room_light_after": 0
+      },
+      {
+        "spell": "lumos",
+        "outcome": "fizzle",
+        "room_light_before": 0,
+        "room_light_after": 0
+      },
+      {
+        "spell": "lumos",
+        "outcome": "fizzle",
+        "room_light_before": 0,
+        "room_light_after": 0
+      },
+      {
+        "spell": "lumos",
+        "outcome": "applied",
+        "room_light_before": 0,
+        "room_light_after": 0.238732414637843
+      },
+      {
+        "spell": "nox",
+        "outcome": "applied",
+        "room_light_before": 0.238732414637843,
+        "room_light_after": 0
+      }
+    ],
+    "cleanup": {
+      "actor_removed": 1,
+      "private_account_retained": 1,
+      "room_removed": 1,
+      "tutor_removed": 1,
+      "wand_removed": 1
+    },
+    "final_checks": {
+      "source_database": true,
+      "executable": true,
+      "controller_sources": true,
+      "sound_catalog": true,
+      "owned_shutdown": true,
+      "bootstrap_executable": true,
+      "barn_configuration": true,
+      "barn_profile_registry": true,
+      "barn_runtime_profile": true,
+      "owned_final_checkpoint": true,
+      "go_diagnostics_transport": true,
+      "go_profiles_validated": false
+    },
+    "shutdown": {
+      "exit_code": 0,
+      "shutdown": "owned Barn PID stopped",
+      "forced": false,
+      "final_checkpoint": {
+        "status": "verified",
+        "verified": true,
+        "scope": "published database/waif identity pair integrity, not semantic round-trip validation",
+        "success_publication_log": "not emitted by Barn signal shutdown path",
+        "checkpoint": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/barn-magic-startup-observer-repair-20261018-01/mongoose.db.new",
+        "sidecar": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/barn-magic-startup-observer-repair-20261018-01/mongoose.db.new.waifids",
+        "boundary": {
+          "outputs_before_signal": {
+            "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/barn-magic-startup-observer-repair-20261018-01/mongoose.db.new": null,
+            "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/barn-magic-startup-observer-repair-20261018-01/mongoose.db.new.waifids": null
+          },
+          "log_offset_bytes": 2575715
+        },
+        "shutdown_log_sha256": "d180ec9c2b7e2e21c7b8e324c1795f47195d788ef3a92ce747533ef2827536ca",
+        "outputs": {
+          "database": {
+            "device": 74,
+            "inode": 844424952569477,
+            "mode": 33279,
+            "size_bytes": 217230884,
+            "mtime_ns": 1792354060645501000,
+            "ctime_ns": 1792354062387903500,
+            "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/barn-magic-startup-observer-repair-20261018-01/mongoose.db.new",
+            "sha256": "73a026ca627a311d4656de5c24717a3e31fa98e1772d492409e15627c4425d5d"
+          },
+          "waif_identities": {
+            "device": 74,
+            "inode": 2814749789544075,
+            "mode": 33279,
+            "size_bytes": 1573166,
+            "mtime_ns": 1792354062272848100,
+            "ctime_ns": 1792354062387903500,
+            "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/barn-magic-startup-observer-repair-20261018-01/mongoose.db.new.waifids",
+            "sha256": "ce2e44d033eb8834e7fc092bcb68a32cfbcdfa045701221bb1d2f1d6bbad28b0"
+          }
+        },
+        "reason": "fresh owned signal shutdown published an intact database/identity pair"
+      }
+    },
+    "published_files_match": true,
+    "owned_pid": 508308,
+    "owned_process_postcondition": "pid_absent",
+    "candidate_executable_matches": [],
+    "unreadable_other_process_executables": 0,
+    "fixed_shutdown_phases": [
+      {
+        "phase": "shutdown_initiated",
+        "line": 16466,
+        "time": "2026-10-18T14:07:10.384961573-06:00"
+      },
+      {
+        "phase": "shutdown_entered",
+        "line": 16474,
+        "time": "2026-10-18T14:07:10.388098424-06:00"
+      },
+      {
+        "phase": "shutdown_complete",
+        "line": 16544,
+        "time": "2026-10-18T14:07:42.394332359-06:00"
+      }
+    ],
+    "startup_seconds": 18.92887081799563,
+    "action": {
+      "wall_ns": 12174469291,
+      "barn_process_cpu_ns": 17390000000,
+      "rss_before_kib": 3458556,
+      "rss_after_kib": 3626768,
+      "cpu_scope": "all Barn threads/background/in-process diagnostics; excludes external collector CPU"
+    },
+    "observer_peak_rss_kib": 3627148,
+    "observer_samples": 76,
+    "rss_scope": "sampled whole Barn process with background/GC/profiling; no retained-heap or comparative-memory claim",
+    "controller_head": "f08fd946d2442c2d6cbad9c20032ab48d1599d29",
+    "Go_build_head": "05f3680ccfcddf6a94e0d73ebc57a725d6ac17d9",
+    "controller_sources": {
+      "run_mongoose_gameplay.py": "79c0bcdb7b863958da7a0961282325c0f1d398f8177572db1fb51b591ee43a41",
+      "mongoose_scenario_support.py": "e21a5f6b033ae3b36d3f171a951e984be33ba881b0854e09e48004149ca02614",
+      "profile_offline_mongoose.py": "941f5d63459e8aea8a5d90c2ff6c18270077cfc43d2855fb1fc145bc893a6e3e",
+      "bench_players.py": "a07e28f87033b44e541127c6a9d282da12aae27bacaf0f64937420817f8d9a75",
+      "mongoose_barn_process.py": "8a3c5e13d1a47b2f1cca78681eafb8d293b37195eca7c1abb85829b7a6450ac4",
+      "mongoose_error_capture.py": "c278780dc12f59f4009a84cedeceaed3c4132768fa6a22596c664a6e6cc06d65",
+      "mongoose_magic_scenario.py": "90c96717e47f5d6cd2ff307dad2d6753b7d8cdd09cd6f7fa1ef46dbaf301eba7",
+      "mongoose_barn_diagnostics.py": "ad2f40227b6d630fd5a59778ee2166da4982157796f754d6dd738de440c113bb"
+    },
+    "controller_delta": [
+      "mongoose_barn_process.py"
+    ],
+    "unchanged_controller_count": 7,
+    "original_immutable_inputs": [
+      {
+        "path": "/mnt/c/Users/Q/projects/mongoose/db/mongoose.db.new.2026-10-12T2349",
+        "sha256": "fab6957acffa1db8bc1c4b911fb53a8e8d6e605f4de2a31b9f8e4fa874c3200d"
+      },
+      {
+        "path": "/mnt/c/Users/Q/projects/mongoose/db/sound.sqlite.barn395396-20261011T0348",
+        "sha256": "ba15182e25c60e9795c10f8f9479095ff4d22ea9bf2a03d7d061446cfca241e4"
+      },
+      {
+        "path": "/root/build/toaststunt-profiler-retention-refresh-order-20261013/moo",
+        "sha256": "f96c79de3ac701557c7fe71e2a9be42816c188d6d085afba1a7b4b3c4e7c7a01"
+      },
+      {
+        "path": "/mnt/c/Users/Q/code/barn-preposition-bounds/.tmp/conformance/preposition-repair-20261018/barn",
+        "sha256": "d47d6ace45f9115198141a49a83eb8ccdc8140c15e15f0083422a1044cfe5a72"
+      }
+    ],
+    "source_files_unchanged": true,
+    "source_file_count": 2379,
+    "source_before": {
+      "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/startup-observer-study-20261018/source-before.json",
+      "bytes": 384517,
+      "sha256": "5ddb55f4b89462c153afdce32af1eeda8ad62f72beedbf2e0eb556a366fe6fde"
+    },
+    "source_after": {
+      "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/startup-observer-study-20261018/source-after-cohort.json",
+      "bytes": 384517,
+      "sha256": "5ddb55f4b89462c153afdce32af1eeda8ad62f72beedbf2e0eb556a366fe6fde"
+    },
+    "exact_invocation": {
+      "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/startup-observer-study-20261018/replay-command.json",
+      "bytes": 4392,
+      "sha256": "96b912cf65fccf4858528697d8ba061463086da8abc3aac15c519b0f496d99ff"
+    },
+    "plan": {
+      "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/startup-observer-study-20261018/plan.md",
+      "bytes": 2180,
+      "sha256": "8ec2fe551d7271d08223a326e9bc540bfcd0bf98399a21580e700c4a8bf31b13"
+    },
+    "preservation_DTO": {
+      "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/startup-observer-study-20261018/cohort-preservation.json",
+      "bytes": 6352,
+      "sha256": "43fb50aa4575f087b6a6f0a9d3379d0921ed743b55e718b9ab2b100bd4fd1ab2"
+    },
+    "original_manifests": [
+      {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/barn-magic-startup-observer-repair-20261018-01/manifest-final.json",
+        "sha256": "bb3360c67ad547a68a08f92bb3fc9912c2b11b6aa0e930ea2259d0e9652f9420"
+      },
+      {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/barn-magic-startup-observer-repair-20261018-01/go-diagnostics/manifest.json",
+        "sha256": "9fe31b1e3bdc4fa1332ec7f6fa9f64cf9b8d235dfdc5c8197811eb840930d77e"
+      }
+    ],
+    "original_manifests_unchanged": true,
+    "domain_evidence": {
+      "result": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/barn-magic-startup-observer-repair-20261018-01/magic/result.json",
+        "bytes": 74099,
+        "sha256": "a1532a6c1257c817cf7fdf7888fa3c53b9d834e922dd00120d4814bfae5ffff5"
+      },
+      "fixture": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/barn-magic-startup-observer-repair-20261018-01/magic/fixture.json",
+        "bytes": 1789,
+        "sha256": "87cf8e7dda8df05f22db0559f141846b5805a70615dc5ef294d31f519d5e5579"
+      },
+      "actions": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/barn-magic-startup-observer-repair-20261018-01/magic-actions.jsonl",
+        "bytes": 68398,
+        "sha256": "e58e44675ee764d82eba44aceff76a28857fe250ff270c02f981d3d87482d5d0"
+      },
+      "baseline_error_metadata": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/barn-magic-startup-observer-repair-20261018-01/magic/error-metadata-baseline.json",
+        "bytes": 8602,
+        "sha256": "ebf8d82a93355cf3077cc4f455f2051004f53d66d124f4955c296088a0f67cb6"
+      }
+    },
+    "independent_domain_and_census": {
+      "status": "independent_domain_and_census_pass",
+      "ordinary_actor": {
+        "wizard": 0,
+        "is_player": 1
+      },
+      "native_rng_reseeded": false,
+      "attempts": [
+        {
+          "spell": "lumos",
+          "attempt": 1,
+          "outcome": "fizzle",
+          "paid_focus": 0.5,
+          "physical_effect_verified_independently": true,
+          "light_before": 0,
+          "light_after": 0,
+          "wand_emission_before": 0,
+          "wand_emission_after": 0,
+          "one_matching_debit": true
+        },
+        {
+          "spell": "lumos",
+          "attempt": 2,
+          "outcome": "fizzle",
+          "paid_focus": 0.5,
+          "physical_effect_verified_independently": true,
+          "light_before": 0,
+          "light_after": 0,
+          "wand_emission_before": 0,
+          "wand_emission_after": 0,
+          "one_matching_debit": true
+        },
+        {
+          "spell": "lumos",
+          "attempt": 3,
+          "outcome": "fizzle",
+          "paid_focus": 0.5,
+          "physical_effect_verified_independently": true,
+          "light_before": 0,
+          "light_after": 0,
+          "wand_emission_before": 0,
+          "wand_emission_after": 0,
+          "one_matching_debit": true
+        },
+        {
+          "spell": "lumos",
+          "attempt": 4,
+          "outcome": "fizzle",
+          "paid_focus": 0.5,
+          "physical_effect_verified_independently": true,
+          "light_before": 0,
+          "light_after": 0,
+          "wand_emission_before": 0,
+          "wand_emission_after": 0,
+          "one_matching_debit": true
+        },
+        {
+          "spell": "lumos",
+          "attempt": 5,
+          "outcome": "fizzle",
+          "paid_focus": 0.5,
+          "physical_effect_verified_independently": true,
+          "light_before": 0,
+          "light_after": 0,
+          "wand_emission_before": 0,
+          "wand_emission_after": 0,
+          "one_matching_debit": true
+        },
+        {
+          "spell": "lumos",
+          "attempt": 6,
+          "outcome": "fizzle",
+          "paid_focus": 0.5,
+          "physical_effect_verified_independently": true,
+          "light_before": 0,
+          "light_after": 0,
+          "wand_emission_before": 0,
+          "wand_emission_after": 0,
+          "one_matching_debit": true
+        },
+        {
+          "spell": "lumos",
+          "attempt": 7,
+          "outcome": "applied",
+          "paid_focus": 1,
+          "physical_effect_verified_independently": true,
+          "light_before": 0,
+          "light_after": 0.238732414637843,
+          "wand_emission_before": 0,
+          "wand_emission_after": 3,
+          "one_matching_debit": true
+        },
+        {
+          "spell": "nox",
+          "attempt": 1,
+          "outcome": "applied",
+          "paid_focus": 1,
+          "physical_effect_verified_independently": true,
+          "light_before": 0.238732414637843,
+          "light_after": 0,
+          "wand_emission_before": 3,
+          "wand_emission_after": 0,
+          "one_matching_debit": true
+        }
+      ],
+      "negative_controls": [
+        {
+          "control": "nox_while_unlit",
+          "verified": true
+        },
+        {
+          "control": "zero_focus_lumos",
+          "verified": true
+        }
+      ],
+      "preservation_gates_true": 10,
+      "terminal_count": 78,
+      "terminal_groups": [
+        {
+          "error": "E_INVARG",
+          "reason": "unknown",
+          "this": 592,
+          "verb": "exitfunc",
+          "count": 1
+        },
+        {
+          "error": "E_INVARG",
+          "reason": "unknown",
+          "this": 2478,
+          "verb": "schedule_flush",
+          "count": 76
+        },
+        {
+          "error": "E_INVIND",
+          "reason": "unknown",
+          "this": 0,
+          "verb": "user_client_disconnected",
+          "count": 1
+        }
+      ],
+      "terminal_invalid": 0,
+      "malformed_log_records": 0,
+      "E_MAXREC_terminal_count": 0,
+      "terminal_scope": "entire owned lifecycle; background errors visible; not per-command rates",
+      "full_log_ERROR_count": 1,
+      "full_log_ERROR_enum": "E_INVIND",
+      "full_log_ERROR_classifier": "traceback_delivery_no_connection",
+      "full_log_ERROR_task_join": "unavailable: ERROR row has no task_id/this/verb",
+      "prior_same_error_class_counts": {
+        "barn-magic-verb-source-20261018-01": 3,
+        "barn-magic-verb-args-20261017-01": 1
+      },
+      "prior_error_scope": "same enum/message/player-slot metadata class, not same actor generation or proven causal identity",
+      "weave_task_count": 10,
+      "weave_vm_attempt_counts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "max_weave_vm_attempt_wall_ns": 12581173,
+      "max_weave_slice_wall_ns": 24201301,
+      "runtime_scope": "overlapping wall phases, not CPU or a command-exclusive join; task-root labels are not leaf activations",
+      "barn_logs_runtime_exit": 1,
+      "barn_logs_runtime_exit_scope": "retained ERROR row makes whole-log runtime command nonzero; parsed typed census has no invalid records",
+      "originals_unchanged": true,
+      "evidence": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/final-repair-review-20261018/domain-census.json",
+        "bytes": 26172,
+        "sha256": "d84664214dbfa466219b3aed47105a74289eb2872aaff12792b7b59bc4584702"
+      },
+      "validation": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/final-repair-review-20261018/domain-validation.txt",
+        "bytes": 2556,
+        "sha256": "60da8e8d36f27dcea09e243cd8727bc97607a74e1fbfa1eae43204b43ad2a8e8"
+      },
+      "final_audit": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/final-repair-review-20261018/audit-summary.json",
+        "bytes": 2732,
+        "sha256": "52f95285782bd81d7c2f185537cee5fd83eb8f0dd763a06e77cb63dff1df1886"
+      },
+      "independent_report": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/final-repair-review-20261018/report.md",
+        "bytes": 5838,
+        "sha256": "b0781b13b1bac7a34ae0b9fea07cb3eba225a442f4ae1e81a1ac9842857b23e0"
+      },
+      "forty_file_inventory": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/final-repair-review-20261018/inventory.json",
+        "bytes": 5970,
+        "sha256": "d699a51b4ef94c598a107bc3dc7b7878e43c84658c102e2a08c1fa8f50d9a647"
+      }
+    },
+    "profiles": {
+      "offline_validation": "validated_offline",
+      "original_status_preserved": "diagnostic-unvalidated",
+      "original_validation_gate": false,
+      "original_capture_gate_scope": "transport only; separate offline semantic parse validation does not rewrite original manifests",
+      "semantic_profile_validation": true,
+      "base_views": 11,
+      "focused_task_views": 2,
+      "CPU_samples": 2064,
+      "CPU_sampled_ns": 20640000000,
+      "sampled_CPU_by_root_ns": {
+        "#1007:s_run": 15760000000,
+        "#277800:weave": 50000000
+      },
+      "sampled_weave_task_CPU_ns": {
+        "1788854459": 20000000,
+        "1788854634": 10000000,
+        "1788854660": 10000000,
+        "1788854779": 10000000
+      },
+      "heap_sample_types": [
+        "alloc_objects/count",
+        "alloc_space/bytes",
+        "inuse_objects/count",
+        "inuse_space/bytes"
+      ],
+      "natural_heap_before_totals": [29987726, 3604682715, 5624037, 698315083],
+      "natural_heap_after_totals": [61108466, 6275078569, 5655418, 717180503],
+      "memstats_before": {
+        "HeapAlloc": 1445458336,
+        "HeapInuse": 1557733376,
+        "HeapSys": 3445030912,
+        "TotalAlloc": 6960154912,
+        "NumGC": 5,
+        "Sys": 3555813000
+      },
+      "memstats_after": {
+        "HeapAlloc": 1255705648,
+        "HeapInuse": 1404715008,
+        "HeapSys": 3596615680,
+        "TotalAlloc": 9503834776,
+        "NumGC": 6,
+        "Sys": 3716212392
+      },
+      "scope": "CPU samples include all Barn threads/background/runtime/HTTP work. Root labels are not current nested MOO activations. Natural heap gc=0 samples, memstats, RSS and cumulative allocations are distinct; no command-specific or comparative-memory claim.",
+      "evidence": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/final-repair-review-20261018/profiles.json",
+        "bytes": 11218,
+        "sha256": "79cff49f714babe7721ba88393a6710cd258dac4c56e0d6dbef6b72c5e12644d"
+      },
+      "commands": {
+        "path": "/mnt/c/Users/Q/code/barn-startup-log-retry/.tmp/final-repair-review-20261018/commands.json",
+        "bytes": 8777,
+        "sha256": "7358ae2fb1537890722629050e3470316c02250dd6241ab5c03f04b6ad525f8e"
+      }
+    }
+  },
+  "privacy": "No private MOO source, task environments, messages, values, arguments or credentials included; raw files referenced by path/hash only."
+}

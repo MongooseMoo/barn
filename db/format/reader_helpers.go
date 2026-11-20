@@ -9,9 +9,31 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/preposition"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
+
+// readPlayers reads the player list shared by all supported database versions.
+func (database *Database) readPlayers(r *bufio.Reader) error {
+	// Format: nplayers, player[0], player[1], ...
+	count, err := readInt(r)
+	if err != nil {
+		return err
+	}
+
+	if count < 0 {
+		return fmt.Errorf("invalid player count %d", count)
+	}
+	database.Players = make([]types.ObjID, 0, min(count, maxTrustedCount))
+	for i := 0; i < count; i++ {
+		objID, err := readObjID(r)
+		if err != nil {
+			return err
+		}
+		database.Players = append(database.Players, objID)
+	}
+	return nil
+}
 
 // readInt reads an integer from the next line
 func readInt(r *bufio.Reader) (int, error) {
@@ -58,13 +80,26 @@ func readLineBytes(r *bufio.Reader) ([]byte, error) {
 	return long, err
 }
 
-// readLine reads a line and returns it without the newline
+// readLine returns a line without the newline, accepting a nonempty final line
+// without a delimiter. Once no bytes remain, preserve EOF for required readers.
 func readLine(r *bufio.Reader) (string, error) {
 	line, err := r.ReadString('\n')
-	if err != nil && err != io.EOF {
+	if err != nil && (err != io.EOF || len(line) == 0) {
 		return "", err
 	}
 	return strings.TrimRight(line, "\n\r"), nil
+}
+
+// readPropDefName reads one property definition name. Like Toast's
+// dbio_read_string (db_io.cc), it removes only the terminating newline and
+// keeps every other byte, including a trailing carriage return, so the
+// writer's name-plus-newline line reads back as the same name.
+func readPropDefName(r *bufio.Reader) (string, error) {
+	name, err := r.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(name, "\n"), nil
 }
 
 func argSpecFromCode(spec int) string {
@@ -94,7 +129,7 @@ func argSpecToCode(spec string) int {
 }
 
 func prepFromCode(prep int) string {
-	if value, ok := verb.PrepositionFromCode(prep); ok {
+	if value, ok := preposition.FromCode(prep); ok {
 		if canonical, ok := value.Canonical(); ok {
 			return canonical
 		}
@@ -103,7 +138,7 @@ func prepFromCode(prep int) string {
 }
 
 func prepToCode(prep string) int {
-	if value, ok := verb.ParsePreposition(prep); ok {
+	if value, ok := preposition.Parse(prep); ok {
 		if code, ok := value.Code(); ok {
 			return code
 		}
@@ -120,9 +155,10 @@ func prepToCode(prep string) int {
 // objects are resolved one at a time, in any order, and each object's table is
 // built once, already shared.
 func (database *Database) resolvePropertyNames() {
+	database.propPool = store.NewPropSharePool()
 	resolver := slotResolver{
 		database: database,
-		pool:     store.NewPropSharePool(),
+		pool:     database.propPool,
 		layouts:  make(map[types.ObjID]*store.SlotLayout, len(database.Objects)),
 		visiting: make(map[types.ObjID]bool),
 	}
@@ -168,7 +204,7 @@ func (r *slotResolver) layoutOf(obj *store.ObjectBuilder) *store.SlotLayout {
 // are such instances.
 func (r *slotResolver) layoutFor(obj *store.ObjectBuilder) *store.SlotLayout {
 	if parents := obj.Parents(); obj.PropDefsCount() == 0 && len(parents) == 1 {
-		parent := r.database.Objects[parents[0]]
+		parent := r.database.ancestor(parents[0])
 		if parent != nil && parent != obj && !r.visiting[parent.ID()] {
 			r.visiting[obj.ID()] = true
 			layout := r.layoutOf(parent)
@@ -200,9 +236,26 @@ func (database *Database) slotNames(obj *store.ObjectBuilder) []string {
 // by walking up the parent chain and collecting raw propdefs.
 // Raw object state stores local propdefs in the first PropDefsCount entries.
 func (database *Database) rawPropertyNames(obj *store.ObjectBuilder) []string {
-	return propertyNamesSelfFirst(obj, func(id types.ObjID) *store.ObjectBuilder {
-		return database.Objects[id]
-	})
+	return propertyNamesSelfFirst(obj, database.ancestor)
+}
+
+// ancestor returns the object a parent id names during name resolution, the
+// way the loaded store resolves it (store.Store.parentObjectLocked, which also
+// names the slots a checkpoint writes): a valid numbered object only. Parents
+// are never anonymous (Toast db_file.cc links an anonymous object only to
+// valid numbered parents), so an anonymous object loaded under the same id is
+// not an ancestor. Naming slots from it would put its definitions first on
+// load while the next checkpoint writes the slots in the store's order,
+// moving values between slots on every round trip.
+func (database *Database) ancestor(id types.ObjID) *store.ObjectBuilder {
+	if obj := database.Objects[id]; validLoadedObject(obj) {
+		return obj
+	}
+	return nil
+}
+
+func validLoadedObject(obj *store.ObjectBuilder) bool {
+	return obj != nil && !obj.Recycled() && !obj.Flags().Has(store.FlagInvalid)
 }
 
 func propertyNamesSelfFirst(obj *store.ObjectBuilder, parent func(types.ObjID) *store.ObjectBuilder) []string {
@@ -235,7 +288,10 @@ func propertyNamesSelfFirstRecursive(obj *store.ObjectBuilder, parent func(types
 // resolveWaifProperties maps raw property indices to names for all loaded WAIFs.
 func (database *Database) resolveWaifProperties() {
 	namesByClass := make(map[types.ObjID][]string)
-	for _, wd := range database.savedWaifs {
+	for i, wd := range database.savedWaifs {
+		// Retain the definition for Store registration; only the indexed
+		// property scratch map is loading-only. wd keeps it for this pass.
+		database.savedWaifs[i].propsByIndex = nil
 		classObj := database.Objects[wd.waif.Class()]
 		if classObj == nil {
 			continue
@@ -259,9 +315,6 @@ func (database *Database) resolveWaifProperties() {
 			}
 		}
 	}
-
-	// Free the loading-only data.
-	database.savedWaifs = nil
 }
 
 // collectWaifPropNames returns an ordered list of ":" prefixed property names

@@ -1,0 +1,65 @@
+name: suspended_move_accept_checkpoint
+description: A task suspended inside the accept verb that move() called resumes after restart with move() between it and its caller in callers(); move() then moves the object, calls exitfunc and enterfunc, and returns 0 to its caller.
+requires:
+  builtins: [create, recycle, add_property, delete_property, add_verb, delete_verb, set_verb_code, verbs, move, suspend, dump_database]
+  config: [managed_server]
+tests:
+  - name: suspended_move_accept_checkpoint_roundtrip
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          owner = create($nothing);
+          o = create($nothing, owner);
+          add_property(#1, "conformance_suspended_move_accept", o, {player, ""});
+          for name in ({"thing", "origin", "dest"}) add_property(o, name, #-1, {owner, ""}); endfor
+          for name in ({"log", "stack"}) add_property(o, name, {}, {owner, ""}); endfor
+          add_property(o, "result", 0, {owner, ""});
+          add_property(o, "finished", 0, {owner, ""});
+          o.thing = create($nothing, owner);
+          o.origin = create($nothing, owner);
+          o.dest = create($nothing, owner);
+          for x in ({o.origin, o.dest}) add_property(x, "driver", o, {owner, ""}); endfor
+          move(o.thing, o.origin);
+          for hook in ({{o.dest, "accept", 1}, {o.origin, "exitfunc", 0}, {o.dest, "enterfunc", 0}})
+            {where, name, pause} = hook;
+            add_verb(where, {owner, "rxd", name}, {"this", "none", "this"});
+            code = {"o = this.driver;", "o.log = {@o.log, verb};"};
+            if (pause) code = {@code, "suspend(20);", "o.log = {@o.log, verb + \" resumed\"};", "for c in (callers()) o.stack = {@o.stack, c[2]}; endfor"}; endif
+            errors = set_verb_code(where, name, {@code, "return 1;"});
+            if (errors) raise(E_INVARG, "hook compile failed", errors); endif
+          endfor
+          add_verb(o, {owner, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {"this.result = {move(this.thing, this.dest)};", "this.finished = this.finished + 1;"});
+          if (errors) raise(E_INVARG, "start compile failed", errors); endif
+          fork (0) o:start(); endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_suspended_move_accept;
+          return {o.log, o.thing.location == o.origin, o.thing.location == o.dest, o.finished};
+        expect:
+          value: [["accept"], 1, 0, 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_suspended_move_accept;
+          return {o.log, o.stack, o.thing.location == o.dest, o.result, o.finished};
+        expect:
+          value: [["accept", "accept resumed", "exitfunc", "enterfunc"], ["move", "start", ""], 1, [0], 1]
+    cleanup:
+      - run: |
+          o = #1.conformance_suspended_move_accept;
+          delete_property(#1, "conformance_suspended_move_accept");
+          owner = o.owner;
+          for x in ({o.origin, o.dest}) while (verbs(x)) delete_verb(x, 1); endwhile endfor
+          for x in ({o.thing, o.origin, o.dest, o, owner}) recycle(x); endfor
+          return 0;

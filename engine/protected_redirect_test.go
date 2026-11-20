@@ -57,7 +57,6 @@ func TestProtectedBuiltinRedirectsVerbFrameSameTask(t *testing.T) {
 func TestProtectedBuiltinRedirectsVerbFrameInCommittingTask(t *testing.T) {
 	store := protectedRedirectStore(t)
 	verb := dbstore.NewVerb(
-		"go",
 		[]string{"go"},
 		2,
 		dbstore.VerbRead|dbstore.VerbExecute,

@@ -50,7 +50,7 @@ func TestWASMBuiltinAuthorityAndEffects(t *testing.T) {
 		t.Fatalf("uncharged guest work: %d", ctx.BuiltinTicksConsumed)
 	}
 	ctx.IsWizard = true
-	ctx.BeforeIrreversibleEffect = func() bool { return true }
+	ctx.BeforeIrreversibleEffect = func(string) bool { return true }
 	r = wasmTestCall(t, s, ctx, "wasm_unload", types.NewStr("example"))
 	if r.Flow != types.FlowAbortAttempt || ctx.IrreversibleSideEffect {
 		t.Fatalf("boundary: %+v", r)

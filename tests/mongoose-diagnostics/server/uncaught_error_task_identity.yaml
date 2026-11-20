@@ -1,0 +1,107 @@
+name: uncaught_error_task_identity
+description: >
+  A test-owned zero-delay fork records its task ID before an uncaught error.
+  The server's uncaught-error handler records its own task ID without exporting
+  exception payloads. Equality is the stock-first hypothesis under test.
+requires:
+  builtins: [create, recycle, add_property, delete_property, add_verb, delete_verb,
+    set_verb_code, verb_code, verb_info, verb_args, set_verb_info, set_verb_args,
+    task_id, kill_task, equal]
+  config: [managed_server]
+
+tests:
+  - name: uncaught_fork_handler_task_id_matches_origin
+    permission: wizard
+    steps:
+      - run: |
+          o = create($nothing);
+          for name in ({"saved_code","saved_info","saved_args","fork_id","origin_id",
+                       "origin_runs","origin_player","handler_id","handler_calls",
+                       "handler_receiver","handler_player","expected_code","driver_receiver"})
+            add_property(o, name, 0, {player, ""});
+          endfor
+          o.saved_code = verb_code(#0, "handle_uncaught_error");
+          o.saved_info = verb_info(#0, "handle_uncaught_error");
+          o.saved_args = verb_args(#0, "handle_uncaught_error");
+          add_property(#0, "uncaught_identity_fixture_20261014", o, {player, ""});
+          add_verb(o, {player, "rxd", "launch"}, {"this","none","this"});
+          errors = set_verb_code(o, "launch", {
+            "if (this != args[1]) raise(E_INVARG); endif",
+            "this.driver_receiver = this;",
+            "fork child (0)",
+            "  this.origin_id = task_id();",
+            "  this.origin_runs = this.origin_runs + 1;",
+            "  this.origin_player = player;",
+            "  raise(E_INVARG);",
+            "endfork",
+            "return child;"
+          });
+          if (errors) raise(E_INVARG, "driver compile failed", errors); endif
+          set_verb_info(#0, "handle_uncaught_error", {player, "rxd", o.saved_info[3]});
+          errors = set_verb_code(#0, "handle_uncaught_error", {
+            "o = #0.uncaught_identity_fixture_20261014;",
+            "matched = 0;",
+            "if (length(args) >= 4 && typeof(args[4]) == LIST)",
+            "  for frame in (args[4])",
+            "    if (typeof(frame) == LIST && length(frame) >= 2 && frame[1] == o && frame[2] == \"launch\") matched = 1; endif",
+            "  endfor",
+            "endif",
+            "if (matched)",
+            "  o.handler_id = task_id();",
+            "  o.handler_calls = o.handler_calls + 1;",
+            "  o.handler_receiver = this;",
+            "  o.handler_player = player;",
+            "  o.expected_code = args[1] == E_INVARG;",
+            "endif",
+            "return 1;"
+          });
+          if (errors) raise(E_INVARG, "handler compile failed", errors); endif
+          o.fork_id = o:launch(o);
+          return o.fork_id > 0;
+        expect:
+          value: 1
+      - wait: 500
+      - run: |
+          o = #0.uncaught_identity_fixture_20261014;
+          return {o.fork_id > 0, o.origin_id == o.fork_id,
+                  o.handler_id == o.origin_id, o.origin_runs == 1,
+                  o.handler_calls == 1, o.handler_receiver == #0,
+                  o.handler_player == o.origin_player, o.expected_code,
+                  o.driver_receiver == o};
+        expect:
+          value: [1, 1, 1, 1, 1, 1, 1, 1, 1]
+      - run: |
+          o = #0.uncaught_identity_fixture_20261014;
+          errors = set_verb_code(#0, "handle_uncaught_error", o.saved_code);
+          if (errors) raise(E_INVARG, "handler restoration compile failed", errors); endif
+          set_verb_args(#0, "handle_uncaught_error", o.saved_args);
+          set_verb_info(#0, "handle_uncaught_error", o.saved_info);
+          restored = equal(verb_code(#0, "handle_uncaught_error"), o.saved_code) &&
+                     equal(verb_args(#0, "handle_uncaught_error"), o.saved_args) &&
+                     equal(verb_info(#0, "handle_uncaught_error"), o.saved_info);
+          if (!restored) raise(E_INVARG, "handler restoration mismatch"); endif
+          delete_property(#0, "uncaught_identity_fixture_20261014");
+          recycle(o);
+          return restored;
+        expect:
+          value: 1
+    cleanup:
+      - run: |
+          try
+            o = #0.uncaught_identity_fixture_20261014;
+          except (E_PROPNF)
+            return 1;
+          endtry
+          if (o.fork_id)
+            try kill_task(o.fork_id); except (E_INVARG) endtry
+          endif
+          errors = set_verb_code(#0, "handle_uncaught_error", o.saved_code);
+          if (errors) raise(E_INVARG, "handler restoration compile failed", errors); endif
+          set_verb_args(#0, "handle_uncaught_error", o.saved_args);
+          set_verb_info(#0, "handle_uncaught_error", o.saved_info);
+          restored = equal(verb_code(#0, "handle_uncaught_error"), o.saved_code) &&
+                     equal(verb_args(#0, "handle_uncaught_error"), o.saved_args) &&
+                     equal(verb_info(#0, "handle_uncaught_error"), o.saved_info);
+          delete_property(#0, "uncaught_identity_fixture_20261014");
+          recycle(o);
+          return restored;

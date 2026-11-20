@@ -5,7 +5,6 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -21,8 +20,12 @@ func TestVMRootCollectorsObserveEveryValueBearingField(t *testing.T) {
 		{"argument", func(vm *VM, v types.Value) { vm.Frames[0].Args = []types.Value{v} }},
 		{"receiver", func(vm *VM, v types.Value) { vm.Frames[0].ThisValue = v }},
 		{"saved receiver", func(vm *VM, v types.Value) { vm.Frames[0].SavedThisValue = v }},
-		{"pending return", func(vm *VM, v types.Value) { vm.Frames[0].PendingReturn, vm.Frames[0].HasPendingReturn = v, true }},
-		{"pending exception", func(vm *VM, v types.Value) { vm.Frames[0].PendingError = VMException{Code: types.E_INVARG, Value: v} }},
+		{"pending return", func(vm *VM, v types.Value) {
+			vm.Frames[0].PendingReasons = []pendingReason{{Kind: task.PendingReturn, Value: v}}
+		}},
+		{"pending exception", func(vm *VM, v types.Value) {
+			vm.Frames[0].PendingReasons = []pendingReason{{Kind: task.PendingError, Error: VMException{Code: types.E_INVARG, Value: v}}}
+		}},
 		{"loop iterator", func(vm *VM, v types.Value) { vm.Frames[0].LoopStack = []bytecode.LoopState{{Iterator: v}} }},
 		{"loop end", func(vm *VM, v types.Value) { vm.Frames[0].LoopStack = []bytecode.LoopState{{End: v}} }},
 		{"move what", func(vm *VM, v types.Value) { vm.Frames[0].MoveContinuation = &task.MoveContinuationSnapshot{What: v} }},
@@ -54,7 +57,7 @@ func TestVMRootCollectorsObserveEveryValueBearingField(t *testing.T) {
 		{"context task local", func(vm *VM, v types.Value) { vm.Context.TaskLocal = v }},
 		{"task local", func(vm *VM, v types.Value) {
 			vm.Context = nil
-			vm.Task = task.NewTask(1, 1, 100, 1)
+			vm.Task = task.NewState(1, 1, 100, 1)
 			vm.Task.SetTaskLocal(v)
 		}},
 	}
@@ -64,7 +67,7 @@ func TestVMRootCollectorsObserveEveryValueBearingField(t *testing.T) {
 			anon := types.NewAnon(types.ObjID(1000 + i))
 			waif := types.NewWaif(types.ObjID(2000+i), 1)
 			value := types.NewList([]types.Value{anon, waif})
-			machine := &VM{Frames: []*StackFrame{{Program: &bytecode.Program{}}}, Context: &kernel.TaskContext{}}
+			machine := &VM{Frames: []*StackFrame{{Program: &bytecode.Program{}}}, Context: &task.Context{}}
 			tc.set(machine, value)
 
 			var waifs []types.Value
@@ -123,7 +126,9 @@ func TestPopFrameRetainsEveryFrameValueAndDiscardedOperand(t *testing.T) {
 		set  func(*StackFrame, types.Value)
 	}{
 		{"argument", func(f *StackFrame, v types.Value) { f.Args = []types.Value{v} }},
-		{"pending return", func(f *StackFrame, v types.Value) { f.PendingReturn, f.HasPendingReturn = v, true }},
+		{"pending return", func(f *StackFrame, v types.Value) {
+			f.PendingReasons = []pendingReason{{Kind: task.PendingReturn, Value: v}}
+		}},
 		{"move continuation", func(f *StackFrame, v types.Value) { f.MoveContinuation = &task.MoveContinuationSnapshot{What: v} }},
 		{"recycle continuation", func(f *StackFrame, v types.Value) {
 			f.RecycleContinuation = &recycleContinuation{request: builtins.RecycleLifecycleRequest{Object: v}}

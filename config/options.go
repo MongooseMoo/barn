@@ -6,12 +6,16 @@ const (
 	FeatureOutboundNetwork       = "option.OUTBOUND_NETWORK"
 	FeatureOpenNetworkConnection = "builtin.open_network_connection"
 	FeaturePromoteNumbers        = "option.PROMOTE_NUMBERS"
+	FeatureValidIncarnation      = "option.VALID_INCARNATION"
 )
 
 // Options holds Barn runtime options that affect Toast-compatible semantics.
 type Options struct {
 	OutboundNetwork bool
 	PromoteNumbers  bool
+	// ValidIncarnation admits valid(object, expected incarnation_id), the
+	// Mongoose ToastStunt fork's two-argument valid. Stock Toast takes one.
+	ValidIncarnation bool
 	// Operator-owned directory of pure WIT components. Empty disables loading.
 	WASMDirectory string
 	// Zero selects the runtime default; these affect scheduling, not MOO semantics.
@@ -21,6 +25,11 @@ type Options struct {
 	// Page cache given to each sqlite_open() handle, in KiB. Zero selects
 	// DefaultSQLiteCacheKiB. It bounds memory per handle and changes no result.
 	SQLiteCacheKiB int
+	// ConflictCensus switches on conflict census tracking: each lost commit
+	// also records who wrote the version it lost on, where it read the key,
+	// whether the value had changed, and the ticks it threw away. It costs
+	// time and memory on every transaction and changes no result.
+	ConflictCensus bool
 	// Nil uses Barn's default build capabilities; a pointer to zero disables all.
 	BuiltinCapabilities *Capabilities
 }
@@ -30,6 +39,10 @@ type Options struct {
 // operating system: the Mongoose sound database is 256 MB and is scanned on
 // every `say`, which cost about 125 ms of file reads per command.
 const DefaultSQLiteCacheKiB = 256 * 1024
+
+// DefaultGCPercent is the collector target the server runs at when neither its
+// -gogc flag nor the GOGC environment variable sets one.
+const DefaultGCPercent = 400
 
 const maxSQLiteCacheKiB = 64 * 1024 * 1024
 
@@ -44,8 +57,9 @@ func (o Options) SQLiteCacheSizeKiB() int {
 // DefaultOptions returns Barn's default runtime options for normal operation.
 func DefaultOptions() Options {
 	return Options{
-		OutboundNetwork: true,
-		PromoteNumbers:  false,
+		OutboundNetwork:  true,
+		PromoteNumbers:   false,
+		ValidIncarnation: false,
 	}
 }
 
@@ -76,8 +90,9 @@ func (o Options) Capabilities() Capabilities {
 // manifests and conformance metadata gates.
 func (o Options) FeatureMap() map[string]any {
 	return map[string]any{
-		FeatureOutboundNetwork: o.OutboundNetwork,
-		FeaturePromoteNumbers:  o.PromoteNumbers,
+		FeatureOutboundNetwork:  o.OutboundNetwork,
+		FeaturePromoteNumbers:   o.PromoteNumbers,
+		FeatureValidIncarnation: o.ValidIncarnation,
 	}
 }
 

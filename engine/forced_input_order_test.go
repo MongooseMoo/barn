@@ -29,7 +29,7 @@ func TestForcedInputPrecedesSourceContinuationWithoutBlockingOthers(t *testing.T
 	host.InputForcer = forcer
 	rt.Session().ConfigureHost(host)
 	done := make(chan EvalOutcome, 1)
-	source := rt.StartEval(0, []string{`force_input(#0, "injected"); suspend(0); return 9;`}, func(out EvalOutcome) { done <- out })
+	source := rt.StartEval(0, []string{`force_input(#0, "injected"); suspend(0); return 9;`}, func(out EvalOutcome) { done <- out }, nil)
 	if forcer.complete == nil || source.GetState() != task.TaskQueued {
 		t.Fatal("source did not inject input and yield")
 	}

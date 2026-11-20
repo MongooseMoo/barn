@@ -2,7 +2,9 @@ package store
 
 import (
 	"os"
+	"strings"
 
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -14,21 +16,28 @@ var debugValidation = os.Getenv("BARN_DEBUG_RETRY") != ""
 func (tx *StoreTxn) validateReads() types.ErrorCode {
 	tx.store.mu.Lock()
 	defer tx.store.mu.Unlock()
-	return tx.validateReadsLocked()
+	errCode := tx.validateReadsLocked()
+	tx.store.tasks.mu.Lock()
+	defer tx.store.tasks.mu.Unlock()
+	tx.validateTaskReadsLocked(&errCode)
+	return errCode
 }
 
 // validateReadsLocked runs every stage -- scalar, relationship, property, verb,
 // then WAIF -- recording each stale read in tx.conflicts, and returns the first
 // error code met in that order. The caller holds store.mu exclusively, or holds
-// store.mu.RLock and the numbered read/write footprint's slot locks in ascending
-// object-ID order. Callers own lock acquisition (commitGate -> store -> slots)
-// and failure classification; this helper neither marks a conflict nor makes tx
-// terminal.
+// store.mu.RLock and commitMu. Callers own lock acquisition (commitGate ->
+// store.mu -> commitMu) and failure classification; this helper neither marks a
+// conflict nor makes tx terminal.
 func (tx *StoreTxn) validateReadsLocked() types.ErrorCode {
 	tx.conflicts = tx.conflicts[:0]
 	errCode := types.E_NONE
-	tx.validateObjectReadsLocked(&errCode, ConflictScalar, tx.scalarReads)
-	tx.validateObjectReadsLocked(&errCode, ConflictRelationship, tx.relationshipReads)
+	if !isolationprobe.Fault("scalar-reads") {
+		tx.validateObjectReadsLocked(&errCode, ConflictScalar, tx.scalarReads)
+	}
+	if !isolationprobe.Fault("relationship-reads") {
+		tx.validateObjectReadsLocked(&errCode, ConflictRelationship, tx.relationshipReads)
+	}
 	earlier, firstProperty := errCode, len(tx.conflicts)
 	tx.validatePropertyReadsLocked(&errCode)
 	// A validation lost first on a property value scores that property as hot.
@@ -40,8 +49,19 @@ func (tx *StoreTxn) validateReadsLocked() types.ErrorCode {
 			tx.store.noteHotProperty(propertyReadKey{objID: c.ObjID, name: c.Name})
 		}
 	}
-	tx.validateVerbReadsLocked(&errCode)
-	tx.validateWaifsLocked(&errCode)
+	tx.validateMapKeysLocked(&errCode)
+	if tx.usedPropMemo && !tx.liveMutated {
+		if changed := tx.store.props.shapeChangeTS.Load(); changed > tx.readTS {
+			tx.noteConflict(&errCode, types.E_INVARG, ReadConflict{Kind: ConflictPropertyMemoShape, ObjID: types.ObjNothing, Read: tx.readTS, Live: changed})
+		}
+	}
+	if !isolationprobe.Fault("verb-reads") {
+		tx.validateVerbReadsLocked(&errCode)
+	}
+	if !isolationprobe.Fault("waif-reads") {
+		tx.validateWaifsLocked(&errCode)
+	}
+	tx.validateExternalReadLocked(&errCode)
 	return errCode
 }
 
@@ -88,30 +108,46 @@ func (tx *StoreTxn) validateObjectReadsLocked(first *types.ErrorCode, kind Confl
 
 func (tx *StoreTxn) validatePropertyReadsLocked(first *types.ErrorCode) {
 	for key, version := range tx.propertyReads {
+		if isolationprobe.Fault("property-reads") {
+			break
+		}
+		if isolationprobe.Fault("ring-reads") && strings.HasPrefix(key.name, "elle_ring_") {
+			continue // isolate the held four-transaction ring from the other waves
+		}
 		if tx.createdObjects[key.objID] != nil {
 			continue
 		}
 		c := ReadConflict{Kind: ConflictProperty, ObjID: key.objID, Name: key.name, Read: version}
 		errCode := types.E_INVARG
+		var liveProp Property
+		livePresent := false
 		if live := tx.store.liveObjectLocked(key.objID); !validLiveObject(live) {
 			c.Missing, errCode = true, types.E_INVIND
 		} else if _, prop, ok := live.properties.find(key.name); !ok {
 			c.Missing = true
 		} else if prop.version != version {
 			c.Live = prop.version
+			liveProp, livePresent = prop, true
 		} else {
 			continue
 		}
 		c.staleAtRead = tx.propertyWasStaleAtRead(key, version)
+		if tx.diag != nil {
+			tx.diagnosePropertyConflictLocked(&c, key, version, liveProp, livePresent)
+		}
 		tx.noteConflict(first, errCode, c)
 	}
-	tx.validateObjectReadsLocked(first, ConflictPropertyScan, tx.propertyScans)
-	tx.validateObjectReadsLocked(first, ConflictPropertyShape, tx.propertyShapeScans)
+	if !isolationprobe.Fault("property-scans") {
+		tx.validateObjectReadsLocked(first, ConflictPropertyScan, tx.propertyScans)
+	}
+	if !isolationprobe.Fault("property-shapes") {
+		tx.validateObjectReadsLocked(first, ConflictPropertyShape, tx.propertyShapeScans)
+	}
 }
 
 func (tx *StoreTxn) validateVerbReadsLocked(first *types.ErrorCode) {
-	if tx.usedVerbMemo && !tx.liveMutated {
-		if changed := tx.store.verbShapeChangeTS.Load(); changed > tx.readTS {
+	if tx.usedVerbMemo && !tx.liveMutated && !isolationprobe.Fault("verb-memo") {
+		if changed := tx.store.dispatch.shapeChangeTS.Load(); changed > tx.readTS {
 			tx.noteConflict(first, types.E_INVARG, ReadConflict{Kind: ConflictVerbShape, ObjID: types.ObjNothing, Read: tx.readTS, Live: changed})
 		}
 	}
@@ -119,20 +155,35 @@ func (tx *StoreTxn) validateVerbReadsLocked(first *types.ErrorCode) {
 		if tx.createdObjects[key.objID] != nil {
 			continue
 		}
-		c := ReadConflict{Kind: ConflictVerb, ObjID: key.objID, Name: key.name, Read: version}
+		c := ReadConflict{Kind: ConflictVerb, ObjID: key.objID, Read: version}
 		errCode := types.E_INVARG
 		if live := tx.store.liveObjectLocked(key.objID); !validLiveObject(live) {
 			c.Missing, errCode = true, types.E_INVIND
-		} else if verb := live.verbs[key.name]; verb == nil {
+		} else if verb := live.verbByID(key.id); verb == nil {
 			c.Missing = true
 		} else if verb.version != version {
 			c.Live = verb.version
 		} else {
 			continue
 		}
+		c.Name = tx.verbConflictName(key)
 		tx.noteConflict(first, errCode, c)
 	}
-	tx.validateObjectReadsLocked(first, ConflictVerbScan, tx.verbScans)
+	if !isolationprobe.Fault("verb-scans") {
+		tx.validateObjectReadsLocked(first, ConflictVerbScan, tx.verbScans)
+	}
+}
+
+// verbConflictName names a conflicting verb read for the census by the first
+// alias of the transaction's own view of that verb, or "" when the view no
+// longer has it.
+func (tx *StoreTxn) verbConflictName(key verbKey) string {
+	if obj := tx.objects[key.objID]; obj != nil {
+		if verb := obj.verbByID(key.id); verb != nil && len(verb.names) > 0 {
+			return verb.names[0]
+		}
+	}
+	return ""
 }
 
 func (tx *StoreTxn) validateVerbDeleteTargetsLocked() types.ErrorCode {

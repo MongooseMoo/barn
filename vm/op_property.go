@@ -2,11 +2,13 @@ package vm
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -25,11 +27,11 @@ func (vm *VM) executeGetPropWide() error {
 }
 
 func (vm *VM) executeGetPropStatic(index int) error {
-	propName, err := vm.staticNameFromConstant(index, "property")
+	propName, builtin, err := vm.staticPropertyName(index)
 	if err != nil {
 		return err
 	}
-	return vm.executeGetPropNamed(propName)
+	return vm.executeGetPropAccess(propName, builtin, propWhole)
 }
 
 func (vm *VM) executeGetPropDynamic() error {
@@ -37,10 +39,153 @@ func (vm *VM) executeGetPropDynamic() error {
 	if err != nil {
 		return err
 	}
-	return vm.executeGetPropNamed(propName)
+	return vm.executeGetPropAccess(propName, bytecode.IsBuiltinPropertyName(propName), propWhole)
 }
 
-func (vm *VM) executeGetPropNamed(propName string) error {
+// propAccess says how a GET_PROP-family instruction reaches a defined property.
+type propAccess uint8
+
+const (
+	propWhole   propAccess = iota // the value is the dependency
+	propKeyRead                   // obj.prop[key]: the entry is (OP_GET_PROP_KEYED)
+	propKeyBase                   // base of obj.prop[key] = v (OP_GET_PROP_KEYBASE)
+)
+
+// executeGetPropKeyed is obj.prop of obj.prop[key]. It leaves the object under
+// the value so OP_INDEX_KEYED can report the entry it reads.
+func (vm *VM) executeGetPropKeyed() error {
+	propName, builtin, err := vm.staticPropertyName(int(vm.ReadShort()))
+	if err != nil {
+		return err
+	}
+	objVal := vm.Peek(0)
+	if err := vm.executeGetPropAccess(propName, builtin, propKeyRead); err != nil {
+		// executeGetPropAccess popped the object. Put it back so a non-debug
+		// frame, which pushes the error as the value, keeps [obj, value] for
+		// OP_INDEX_KEYED instead of popping into the caller's stack.
+		vm.Push(objVal)
+		return err
+	}
+	value := vm.Pop()
+	vm.Push(objVal)
+	vm.Push(value)
+	return nil
+}
+
+// executeGetPropKeyBase fetches the base of obj.prop[key] = v.
+func (vm *VM) executeGetPropKeyBase() error {
+	propName, builtin, err := vm.staticPropertyName(int(vm.ReadShort()))
+	if err != nil {
+		return err
+	}
+	return vm.executeGetPropAccess(propName, builtin, propKeyBase)
+}
+
+// executeIndexKeyed is [key] of obj.prop[key]: OP_INDEX, after telling the
+// store which entry of obj.prop the result depends on.
+func (vm *VM) executeIndexKeyed() error {
+	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	if err != nil {
+		return err
+	}
+	index := vm.Pop()
+	coll := vm.Pop()
+	objVal := vm.Pop()
+	if coll.Type() == types.TYPE_MAP && isObjLike(objVal) && types.IsValidMapKey(index) && vm.Context != nil {
+		vm.Context.StoreTxn.ObserveMapKey(objVal.ID(), propName, coll, index)
+	}
+	vm.Push(coll)
+	vm.Push(index)
+	return vm.executeIndex()
+}
+
+// executeMaphaskeyKeyed runs between the arguments of maphaskey(obj.prop, key)
+// and the call: it tells the store the call tests the entry at key of the map
+// OP_GET_PROP_KEYED fetched, then leaves the arguments for OP_CALL_BUILTIN,
+// which computes the result as for any maphaskey call. A call that may go to
+// #0:bf_maphaskey hands that wrapper the whole map, and a key orderedLookupKey
+// rejects makes the answer depend on other keys, so either reads the slot whole.
+func (vm *VM) executeMaphaskeyKeyed() error {
+	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	if err != nil {
+		return err
+	}
+	funcID := int(vm.ReadShort())
+	key := vm.Pop()
+	coll := vm.Pop()
+	objVal := vm.Pop()
+	if coll.Type() == types.TYPE_MAP && isObjLike(objVal) && vm.Context != nil {
+		txn := vm.Context.StoreTxn
+		if orderedLookupKey(key) && !vm.Builtins.MayRedirectByID(funcID, vm.builtinExecution()) {
+			txn.ObserveMapKey(objVal.ID(), propName, coll, key)
+		} else {
+			txn.ReadMapKeyedSlotWhole(objVal.ID(), propName)
+		}
+	}
+	vm.Push(coll)
+	vm.Push(key)
+	return nil
+}
+
+// orderedLookupKey reports whether maphaskey finds key exactly when MapGet
+// does, whatever else the map holds. maphaskey walks the map's Toast-ordered
+// tree (types.Value.GetWithCase); its comparator orders integers, objects,
+// errors, strings, booleans, WAIFs and non-NaN floats totally (booleans and
+// WAIFs since Toast 2.8), but NaN against any float is unordered, so for that
+// key the walk's answer depends on the other keys. Anonymous-object keys are
+// E_TYPE here and keep the conservative whole-slot read.
+func orderedLookupKey(key types.Value) bool {
+	switch key.Type() {
+	case types.TYPE_INT, types.TYPE_OBJ, types.TYPE_ERR, types.TYPE_STR, types.TYPE_BOOL, types.TYPE_WAIF:
+		return true
+	case types.TYPE_FLOAT:
+		return !math.IsNaN(key.Float())
+	}
+	return false
+}
+
+// executeSetPropKeyed is the writeback of obj.prop[key] = v. When the base it
+// fetched was keyed and is still the task's view of the slot, it stages only
+// the entry; otherwise it is OP_SET_PROP.
+func (vm *VM) executeSetPropKeyed() error {
+	propName, builtin, err := vm.staticPropertyName(int(vm.ReadShort()))
+	if err != nil {
+		return err
+	}
+	objVal := vm.Pop()
+	key := vm.Pop()
+	value := vm.Pop()
+	if isObjLike(objVal) && vm.Store != nil && vm.Builtins != nil && !builtin {
+		txn := vm.Context.StoreTxn
+		objID := objVal.ID()
+		if errCode := objectExistsForRead(txn, objID); errCode != types.E_NONE {
+			return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
+		}
+		if view, ok := txn.KeyedWritebackView(objID, propName); ok {
+			if err := vm.checkPropertyWritePerm(view); err != nil {
+				return err
+			}
+			// OP_INDEX_SET checked value against the task's list limit; the store
+			// holds the map it builds at commit to the same limit.
+			limit := vm.Builtins.ListValueLimitForTask(vm.Context)
+			if errCode := txn.SetPropertyMapKey(objID, propName, key, value, limit); errCode != types.E_NONE {
+				return fmt.Errorf("%s: property not set: %s", errCode, propName)
+			}
+			if previous, exists := view.Value.MapGet(key); exists {
+				vm.releaseLocal(previous)
+			}
+			return nil
+		}
+	}
+	vm.Push(value)
+	vm.Push(objVal)
+	return vm.executeSetPropNamed(propName)
+}
+
+// executeGetPropAccess reads propName from the object on the stack. builtin is
+// bytecode.IsBuiltinPropertyName(propName), which the caller has: classified at
+// compile time for a static name, at run time for a dynamic one.
+func (vm *VM) executeGetPropAccess(propName string, builtin bool, access propAccess) error {
 	// Pop the object
 	objVal := vm.Pop()
 
@@ -61,31 +206,42 @@ func (vm *VM) executeGetPropNamed(propName string) error {
 		return newMooError(types.E_INVIND, "no object store available")
 	}
 
+	// The object is checked first: an invalid or recycled object is E_INVIND
+	// whatever the name. A whole read of a defined property checks it in the
+	// same store call that looks the property up, so the object is fetched
+	// once; built-in names and keyed reads check it here.
 	txn := vm.Context.StoreTxn
-	if errCode := objectExistsForRead(txn, objID); errCode != types.E_NONE {
-		return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
-	}
-
-	// Built-in property names (.name/.owner/.location/...) can never be defined
-	// properties — add_property rejects them with E_INVARG — so serve them from
-	// the built-in path directly, skipping the (always-failing) inheritance walk.
-	if builtins.IsBuiltinProperty(propName) {
-		if val, ok := getBuiltinProperty(txn, objID, propName); ok {
-			vm.Push(val)
-			return nil
-		}
-		return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName)
-	}
-
-	// Look up defined property (with inheritance via breadth-first search).
 	var prop dbstore.PropertyView
 	var errCode types.ErrorCode
-	if vm.Resumable {
-		// Only the root VM may be handed a renewed transaction: nothing above
-		// it on the Go stack holds the one it replaces.
-		prop, errCode, vm.Context.StoreTxn = txn.FindPropertyRenewing(objID, propName)
+	if builtin || access != propWhole {
+		if errCode := objectExistsForRead(txn, objID); errCode != types.E_NONE {
+			return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
+		}
+		// Built-in property names (.name/.owner/.location/...) can never be
+		// defined properties — add_property rejects them with E_INVARG — so
+		// serve them from the built-in path directly, skipping the
+		// (always-failing) inheritance walk.
+		if builtin {
+			if val, ok := getBuiltinProperty(txn, objID, propName); ok {
+				vm.Push(val)
+				return nil
+			}
+			return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName).withMessage()
+		}
+		prop, _, errCode = txn.MapPropertyForKey(objID, propName, access == propKeyBase)
 	} else {
-		prop, errCode = findPropertyForRead(txn, objID, propName)
+		// Look up the defined property (with inheritance via breadth-first
+		// search).
+		if vm.Resumable {
+			// Only the root VM may be handed a renewed transaction: nothing
+			// above it on the Go stack holds the one it replaces.
+			prop, errCode, vm.Context.StoreTxn = txn.FindLivePropertyRenewing(objID, propName)
+		} else {
+			prop, errCode = txn.FindLiveProperty(objID, propName)
+		}
+		if errCode != types.E_NONE && errCode != types.E_PROPNF {
+			return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
+		}
 	}
 	if errCode == types.E_NONE {
 		// Check read permission
@@ -97,7 +253,7 @@ func (vm *VM) executeGetPropNamed(propName string) error {
 	}
 
 	// Property not found
-	return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName)
+	return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName).withMessage()
 }
 
 // getWaifProp handles property read on a waif value.
@@ -239,6 +395,7 @@ func (vm *VM) executeSetPropNamed(propName string) error {
 		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: property not set: %s", errCode, propName)
 		}
+		vm.releaseLocal(prop.Value)
 		return nil
 	}
 
@@ -257,6 +414,7 @@ func (vm *VM) executeSetPropNamed(propName string) error {
 	if errCode != types.E_NONE {
 		return fmt.Errorf("%s: property not set: %s", errCode, propName)
 	}
+	vm.releaseLocal(inheritedProp.Value)
 	return nil
 }
 
@@ -270,15 +428,48 @@ func (vm *VM) setWaifProp(waif types.Value, propName string, value types.Value) 
 	}
 
 	// Check for self-reference (circular reference)
-	contains, ec := containsWaif(vm.Context.StoreTxn, value, waif)
+	txn := vm.Context.StoreTxn
+	contains, ec := containsWaif(txn, value, waif)
 	if ec != types.E_NONE {
 		return fmt.Errorf("%s: WAIF containment read", ec)
+	}
+
+	// A WAIF holds values only for the ":" properties its class defines, so a
+	// name it holds needs no class lookup. A name it lacks is looked up on the
+	// class (Toast waif_put_prop, waif.cc:737-830) before the containment
+	// error; the lookup is a read, so a rename or delete of the definition
+	// committed meanwhile conflicts with it.
+	key := dbstore.PropertyNameKey(propName)
+	previous, _, ec := txn.WaifProperty(waif, key)
+	if ec != types.E_NONE {
+		return fmt.Errorf("%s: WAIF property read", ec)
+	}
+	if !contains {
+		replaced, ec := txn.ReplaceWaifProperty(waif, key, value)
+		if ec != types.E_NONE {
+			return fmt.Errorf("%s: WAIF property write", ec)
+		}
+		if replaced {
+			vm.releaseLocal(previous)
+			return nil
+		}
+	}
+	if _, held, ec := txn.WaifProperty(waif, key); ec != types.E_NONE {
+		return fmt.Errorf("%s: WAIF property read", ec)
+	} else if !held {
+		classID := waif.Class()
+		if errCode := objectExistsForRead(txn, classID); errCode != types.E_NONE {
+			return newMooErrorf(types.E_INVIND, "invalid waif class #%d", classID)
+		}
+		if _, errCode := findPropertyForRead(txn, classID, ":"+propName); errCode != types.E_NONE {
+			return newMooErrorf(types.E_PROPNF, "property not found: %s", propName)
+		}
 	}
 	if contains {
 		return newMooError(types.E_RECMOVE, "value contains the waif itself")
 	}
 
-	if ec := vm.Context.StoreTxn.SetWaifProperty(waif, dbstore.PropertyNameKey(propName), value); ec != types.E_NONE {
+	if ec := txn.SetWaifProperty(waif, key, value); ec != types.E_NONE {
 		return fmt.Errorf("%s: WAIF property write", ec)
 	}
 
@@ -438,7 +629,7 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 }
 
 // setBuiltinProperty sets mutable server-maintained object properties.
-func setBuiltinProperty(session *builtins.Session, txn *dbstore.StoreTxn, objID types.ObjID, name string, value types.Value, ctx *kernel.TaskContext) (bool, types.ErrorCode) {
+func setBuiltinProperty(session *builtins.Session, txn *dbstore.StoreTxn, objID types.ObjID, name string, value types.Value, ctx *task.Context) (bool, types.ErrorCode) {
 	switch strings.ToLower(name) {
 	case "name":
 		if value.Type() != types.TYPE_STR {
@@ -486,7 +677,7 @@ func setBuiltinProperty(session *builtins.Session, txn *dbstore.StoreTxn, objID 
 	}
 }
 
-func checkBuiltinPropertyOwner(session *builtins.Session, txn *dbstore.StoreTxn, objID types.ObjID, name string, ctx *kernel.TaskContext, rejectUser bool) types.ErrorCode {
+func checkBuiltinPropertyOwner(session *builtins.Session, txn *dbstore.StoreTxn, objID types.ObjID, name string, ctx *task.Context, rejectUser bool) types.ErrorCode {
 	if ctx == nil || ctx.IsWizard {
 		return types.E_NONE
 	}

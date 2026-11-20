@@ -1,36 +1,50 @@
+// toast_oracle evaluates one MOO expression in ToastStunt's emergency wizard
+// mode against a scratch copy of a database and prints the result.
+//
+//	toast_oracle --bin /path/to/moo --db Test.db '1 + 2'
 package main
 
 import (
 	"bufio"
 	"bytes"
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/MongooseMoo/barn/internal/cli"
 )
 
 func main() {
-	binPath := flag.String("bin", envOr("TOAST_ORACLE_BIN", ""), "path to the ToastStunt moo binary (required; or set $TOAST_ORACLE_BIN)")
-	dbPath := flag.String("db", envOr("TOAST_ORACLE_DB", ""), "path to the database file to load (required; or set $TOAST_ORACLE_DB)")
-	flag.Parse()
+	os.Exit(cli.Execute(newRootCommand(), os.Args[1:], os.Stdout, os.Stderr))
+}
 
-	args := flag.Args()
-	if *binPath == "" || *dbPath == "" || len(args) != 1 {
-		fmt.Fprintf(os.Stderr, "Usage: %s -bin PATH -db PATH '<moo-expression>'\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  -bin: path to ToastStunt moo binary (or set $TOAST_ORACLE_BIN)\n")
-		fmt.Fprintf(os.Stderr, "  -db:  path to database file (or set $TOAST_ORACLE_DB)\n")
-		os.Exit(1)
-	}
-
-	expr := args[0]
-	result, err := evaluateExpression(*binPath, *dbPath, expr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println(result)
+func newRootCommand() *cobra.Command {
+	var binPath, dbPath string
+	root := cli.NewRoot("toast_oracle", "Evaluate a MOO expression on ToastStunt")
+	root.Use = "toast_oracle <moo-expression>"
+	root.Long = `Evaluate one MOO expression in ToastStunt's emergency wizard mode (-e) against a
+scratch copy of the database, and print the result. The database itself is
+never touched.`
+	root.Example = `  toast_oracle --bin /root/src/toaststunt/build/moo --db Test.db '1 + 2'
+  TOAST_ORACLE_BIN=... TOAST_ORACLE_DB=... toast_oracle 'server_version()'`
+	root.Args = cobra.ExactArgs(1)
+	root.Flags().StringVar(&binPath, "bin", envOr("TOAST_ORACLE_BIN", ""), "ToastStunt moo `binary` (required; or set $TOAST_ORACLE_BIN)")
+	root.Flags().StringVar(&dbPath, "db", envOr("TOAST_ORACLE_DB", ""), "Database `file` to load (required; or set $TOAST_ORACLE_DB)")
+	root.RunE = cli.RunE(func(cmd *cobra.Command, args []string) error {
+		if binPath == "" || dbPath == "" {
+			return cli.UsageErrorf("--bin and --db are required (or set $TOAST_ORACLE_BIN and $TOAST_ORACLE_DB)")
+		}
+		result, err := evaluateExpression(binPath, dbPath, args[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), result)
+		return nil
+	})
+	return root
 }
 
 func envOr(name, fallback string) string {

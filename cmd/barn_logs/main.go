@@ -5,8 +5,8 @@
 // view would bury: the MOO traceback and, for a panic, the Go stack.
 //
 //	barn_logs                 # warnings and errors from the last run
-//	barn_logs -level error    # only the failures
-//	barn_logs -run run-20260711-234422.jsonl
+//	barn_logs --level error   # only the failures
+//	barn_logs --run run-20260711-234422.jsonl
 //
 // It exits 1 when the run logged an error, so it can be used as a check.
 package main
@@ -14,12 +14,15 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/MongooseMoo/barn/internal/cli"
 )
 
 // levels order the records; a record is shown when it is at least as severe as
@@ -47,38 +50,86 @@ type frame struct {
 }
 
 func main() {
-	dir := flag.String("dir", "logs", "Directory holding the log files")
-	run := flag.String("run", "latest.jsonl", "Log file to read, or \"list\" to show available runs")
-	level := flag.String("level", "warn", "Minimum level to report: debug, info, warn, error")
-	limit := flag.Int("n", 0, "Show only the last N records (0 = all)")
-	raw := flag.Bool("json", false, "Print the matching records as JSON instead of formatting them")
-	flag.Parse()
+	os.Exit(cli.Execute(newRootCommand(), os.Args[1:], os.Stdout, os.Stderr))
+}
 
-	if *run == "list" {
-		listRuns(*dir)
-		return
+// options are what the flags of one invocation set.
+type options struct {
+	dir, run, level    string
+	limit              int
+	raw, runtimeReport bool
+	taskID, commandID  int64
+}
+
+func newRootCommand() *cobra.Command {
+	var o options
+	root := cli.NewRoot("barn_logs", "Report what went wrong on a Barn server run")
+	root.Long = `Read the JSON log a Barn run leaves behind and print the records worth reading,
+with the MOO traceback and, for a panic, the Go stack indented beneath each one.
+Exits 1 when the run logged an error, so it can be used as a check; 2 when the
+log cannot be read.`
+	root.Example = `  barn_logs                 # warnings and errors from the last run
+  barn_logs --level error   # only the failures
+  barn_logs --run list      # available runs
+  barn_logs --run run-20260711-234422.jsonl -n 20`
+	root.Args = cobra.NoArgs
+	flags := root.Flags()
+	flags.StringVar(&o.dir, "dir", "logs", "`Directory` holding the log files")
+	flags.StringVar(&o.run, "run", "latest.jsonl", "Log `file` to read, or \"list\" to show available runs")
+	flags.StringVarP(&o.level, "level", "l", "warn", "Minimum `level` to report: debug, info, warn, error")
+	flags.IntVarP(&o.limit, "last", "n", 0, "Show only the last `N` records (0 = all)")
+	flags.BoolVar(&o.raw, "json", false, "Print the matching records as JSON instead of formatting them")
+	flags.BoolVar(&o.runtimeReport, "runtime", false, "Summarize runtime phases, terminal exceptions and threaded lifecycle (ignores --level and -n)")
+	flags.Int64Var(&o.taskID, "task", -1, "With --runtime, select one task `id` (-1 = all)")
+	flags.Int64Var(&o.commandID, "command", -1, "With --runtime, select one received command `id` (-1 = all)")
+	root.RunE = cli.RunE(func(*cobra.Command, []string) error { return report(o) })
+	return root
+}
+
+func report(o options) error {
+	if o.run == "list" {
+		listRuns(o.dir)
+		return nil
+	}
+	if o.runtimeReport {
+		summary, err := readRuntimeSummary(filepath.Join(o.dir, o.run), o.taskID, o.commandID)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return cli.Exit(2)
+		}
+		if o.raw {
+			if err := json.NewEncoder(os.Stdout).Encode(summary); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return cli.Exit(2)
+			}
+		} else {
+			printRuntimeSummary(os.Stdout, summary)
+		}
+		if summary.Errors != 0 {
+			return cli.Exit(1)
+		}
+		return nil
 	}
 
-	minLevel, ok := levels[strings.ToUpper(*level)]
+	minLevel, ok := levels[strings.ToUpper(o.level)]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "unknown level %q (want debug, info, warn, or error)\n", *level)
-		os.Exit(2)
+		return cli.UsageErrorf("unknown level %q (want debug, info, warn, or error)", o.level)
 	}
 
-	path := filepath.Join(*dir, *run)
+	path := filepath.Join(o.dir, o.run)
 	records, err := readRecords(path, minLevel)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(2)
+		return cli.Exit(2)
 	}
 
-	if *limit > 0 && len(records) > *limit {
-		records = records[len(records)-*limit:]
+	if o.limit > 0 && len(records) > o.limit {
+		records = records[len(records)-o.limit:]
 	}
 
 	if len(records) == 0 {
-		fmt.Printf("nothing at or above %s in %s\n", strings.ToUpper(*level), path)
-		return
+		fmt.Printf("nothing at or above %s in %s\n", strings.ToUpper(o.level), path)
+		return nil
 	}
 
 	failed := false
@@ -86,7 +137,7 @@ func main() {
 		if rec.Level == "ERROR" {
 			failed = true
 		}
-		if *raw {
+		if o.raw {
 			line, _ := json.Marshal(rec.Extra)
 			fmt.Printf("%s %s %s %s\n", rec.Time, rec.Level, rec.Msg, line)
 			continue
@@ -95,8 +146,9 @@ func main() {
 	}
 
 	if failed {
-		os.Exit(1)
+		return cli.Exit(1)
 	}
+	return nil
 }
 
 // print renders one record: a headline, its attributes, and then the traceback

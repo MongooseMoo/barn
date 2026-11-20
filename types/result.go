@@ -20,12 +20,27 @@ const (
 // Result represents the outcome of evaluating an expression or statement
 // This unifies normal values, control flow (return/break/continue), and errors
 type Result struct {
-	Val       Value             // The value (if Flow == FlowNormal or FlowReturn)
-	Flow      ControlFlow       // Control flow state
-	Error     ErrorCode         // Only set when Flow == FlowException
-	Label     string            // Loop label for break/continue (empty = innermost loop)
-	ForkInfo  *ForkInfo         // Only set when Flow == FlowFork
-	CallStack []ActivationFrame // Only set on exception from synchronous verb calls
+	Val    Value           // The value (if Flow == FlowNormal or FlowReturn)
+	Flow   ControlFlow     // Control flow state
+	Error  ErrorCode       // Only set when Flow == FlowException
+	Reason ExceptionReason // Native origin metadata; never part of a MOO exception value
+	// Unreported, with FlowException, is a task ending on an abort that holds
+	// no error (task.PendingAbort): there is nothing to hand
+	// #0:handle_uncaught_error or to print.
+	Unreported bool
+	Label      string            // Loop label for break/continue (empty = innermost loop)
+	ForkInfo   *ForkInfo         // Only set when Flow == FlowFork
+	CallStack  []ActivationFrame // Only set on exception from synchronous verb calls
+}
+
+// ErrorMessage preserves a raise() message carried by the exception value.
+func (r Result) ErrorMessage() string {
+	if r.Val.Type() == TYPE_LIST && r.Val.Len() >= 3 {
+		if message := r.Val.Get(2); message.Type() == TYPE_STR {
+			return message.Str()
+		}
+	}
+	return r.Error.Message()
 }
 
 // Ok creates a Result for normal execution with a value

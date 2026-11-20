@@ -1,0 +1,27 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                                    │ experiments/object-lifecycle/retained-base.txt │ experiments/object-lifecycle/retained-candidate.txt │
+                                    │                     sec/op                     │           sec/op             vs base                │
+RetainedCreatedObjects/anon=false-4                                     87.86m ± 21%                  17.80m ± 11%  -79.74% (p=0.000 n=10)
+RetainedCreatedObjects/anon=true-4                                      59.49m ± 19%                  12.61m ± 85%  -78.80% (p=0.000 n=10)
+geomean                                                                 72.30m                        14.98m        -79.28%
+
+                                    │ experiments/object-lifecycle/retained-base.txt │ experiments/object-lifecycle/retained-candidate.txt │
+                                    │               retained-B/object                │      retained-B/object        vs base               │
+RetainedCreatedObjects/anon=false-4                                       555.2 ± 0%                     555.2 ± 0%       ~ (p=0.980 n=10)
+RetainedCreatedObjects/anon=true-4                                        631.2 ± 0%                     631.2 ± 0%       ~ (p=0.219 n=10)
+geomean                                                                   592.0                          592.0       -0.00%
+
+                                    │ experiments/object-lifecycle/retained-base.txt │ experiments/object-lifecycle/retained-candidate.txt │
+                                    │                      B/op                      │            B/op              vs base                │
+RetainedCreatedObjects/anon=false-4                                     70.70Mi ± 0%                  30.52Mi ± 0%  -56.83% (p=0.000 n=10)
+RetainedCreatedObjects/anon=true-4                                      58.53Mi ± 0%                  18.35Mi ± 0%  -68.64% (p=0.000 n=10)
+geomean                                                                 64.33Mi                       23.67Mi       -63.21%
+
+                                    │ experiments/object-lifecycle/retained-base.txt │ experiments/object-lifecycle/retained-candidate.txt │
+                                    │                   allocs/op                    │          allocs/op           vs base                │
+RetainedCreatedObjects/anon=false-4                                      58.76k ± 0%                   42.37k ± 0%  -27.88% (p=0.000 n=10)
+RetainedCreatedObjects/anon=true-4                                       33.13k ± 0%                   16.74k ± 0%  -49.46% (p=0.000 n=10)
+geomean                                                                  44.12k                        26.64k       -39.63%

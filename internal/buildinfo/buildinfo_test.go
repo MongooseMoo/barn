@@ -1,6 +1,7 @@
 package buildinfo
 
 import (
+	"runtime"
 	"runtime/debug"
 	"testing"
 )
@@ -63,6 +64,31 @@ func TestResolveGoPseudoVersionPreservesVCSMetadata(t *testing.T) {
 	}, "")
 	if got.String != "0.0.0-20260918010000-0123456789ab+dirty" || got.Prerelease != "20260918010000-0123456789ab" || got.VCS != "git" || !got.Modified {
 		t.Fatalf("Resolve() = %#v, want Go pseudo-version and VCS metadata", got)
+	}
+}
+
+func TestLineNamesRevisionCommitTimeAndToolchain(t *testing.T) {
+	got := Resolve(&debug.BuildInfo{
+		GoVersion: "go1.27.1",
+		Main:      debug.Module{Version: "(devel)"},
+		Settings: []debug.BuildSetting{
+			{Key: "vcs", Value: "git"},
+			{Key: "vcs.revision", Value: "0123456789abcdef"},
+			{Key: "vcs.time", Value: "2026-11-15T03:04:05Z"},
+			{Key: "vcs.modified", Value: "true"},
+		},
+	}, "").Line("barn")
+	want := "barn 0.0.0-dev+0123456789ab.dirty (git 0123456789abcdef (modified), 2026-11-15T03:04:05Z, go1.27.1, " + runtime.GOOS + "/" + runtime.GOARCH + ")"
+	if got != want {
+		t.Fatalf("Line() = %q, want %q", got, want)
+	}
+}
+
+func TestLineWithoutVCSSaysUnknownRevision(t *testing.T) {
+	got := Resolve(nil, "").Line("moo")
+	want := "moo 0.0.0-dev+unknown (unknown revision, " + runtime.Version() + ", " + runtime.GOOS + "/" + runtime.GOARCH + ")"
+	if got != want {
+		t.Fatalf("Line() = %q, want %q", got, want)
 	}
 }
 

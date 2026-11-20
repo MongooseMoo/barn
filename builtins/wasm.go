@@ -45,14 +45,14 @@ func wasmManager(ctx *Execution) *wasmbuiltins.Manager {
 }
 
 func builtinWASMLoad(ctx *Execution, args []types.Value) types.Result {
-	if ctx == nil || ctx.TaskContext == nil || !ctx.IsWizard {
+	if ctx == nil || ctx.Context == nil || !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
 	m := wasmManager(ctx)
 	if m == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if !beginIrreversible(ctx) {
+	if !beginIrreversible(ctx, "wasm_load") {
 		return abortedAttempt()
 	}
 	ctx.IrreversibleSideEffect = true
@@ -72,14 +72,14 @@ func builtinWASMLoad(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(wasmInfo(info))
 }
 func builtinWASMUnload(ctx *Execution, args []types.Value) types.Result {
-	if ctx == nil || ctx.TaskContext == nil || !ctx.IsWizard {
+	if ctx == nil || ctx.Context == nil || !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
 	m := wasmManager(ctx)
 	if m == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if !beginIrreversible(ctx) {
+	if !beginIrreversible(ctx, "wasm_unload") {
 		return abortedAttempt()
 	}
 	ctx.IrreversibleSideEffect = true
@@ -104,13 +104,13 @@ func builtinWASMCall(ctx *Execution, args []types.Value) types.Result {
 	if m == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if ctx.TaskContext != nil && !ctx.ChargeBuiltinTicks(1000) {
+	if ctx.Context != nil && !ctx.ChargeBuiltinTicks(1000) {
 		return types.Err(types.E_QUOTA)
 	}
 	callCtx, cancel := wasmContext(ctx)
 	defer cancel()
 	principal := int64(0)
-	if ctx.TaskContext != nil {
+	if ctx.Context != nil {
 		principal = int64(ctx.Player)
 	}
 	result := m.Call(callCtx, principal, args[0].Str(), args[1:])
@@ -125,9 +125,9 @@ func builtinWASMCall(ctx *Execution, args []types.Value) types.Result {
 func wasmValueLimit(ctx *Execution, v types.Value) types.ErrorCode {
 	switch v.Type() {
 	case types.TYPE_STR:
-		return ctx.Session.CheckStringLimitForTask(ctx.TaskContext, v.Str())
+		return ctx.Session.CheckStringLimitForTask(ctx.Context, v.Str())
 	case types.TYPE_LIST:
-		if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, v); err != types.E_NONE {
+		if err := ctx.Session.CheckListLimitForTask(ctx.Context, v); err != types.E_NONE {
 			return err
 		}
 		for _, e := range v.Elements() {
@@ -136,7 +136,7 @@ func wasmValueLimit(ctx *Execution, v types.Value) types.ErrorCode {
 			}
 		}
 	case types.TYPE_MAP:
-		if err := ctx.Session.CheckMapLimitForTask(ctx.TaskContext, v); err != types.E_NONE {
+		if err := ctx.Session.CheckMapLimitForTask(ctx.Context, v); err != types.E_NONE {
 			return err
 		}
 		for _, pair := range v.Pairs() {

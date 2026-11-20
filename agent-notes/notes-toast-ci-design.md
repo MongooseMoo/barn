@@ -1,0 +1,17 @@
+# Toast CI design research checkpoint
+
+- Scope: read-only design for a moo-conformance-tests PR workflow that builds current ToastStunt and runs the packaged suite through the managed harness.
+- Current state: inspected current ToastStunt `CMakeLists.txt` and server CLI source, plus current conformance `pyproject.toml`, CLI, plugin, managed-server code, packaged DB tree, and YAML `server_db` references. No server was launched and no target repository was edited.
+- Findings so far: Toast builds a `moo` target; CMake requires Bison, Perl, gperf, Nettle, and Argon2, with PCRE2/cURL/Aspell/SQLite/OpenSSL optional. The harness accepts `{port}`, `{db}`, `{manifest}`, and `{server_dir}`, copies the baseline DB into a temp directory, and supports canned startup DBs via `--server-db-dir`. The packaged suite is selected by invoking `moo-conformance` without a YAML selector.
+- Observation: package data currently includes `_db/*.db` but the startup fixtures are nested under `_db/startup`; a source-checkout path may need to be passed explicitly to cover those tests.
+- Blocker/unknown: exact Toast command template/profile manifest support, current live GitHub workflow state, suite collection/pass/skip totals, and build/runtime measurements still need evidence.
+- Next action: inspect remaining current source/config, query live GitHub metadata, use collection-only/read-only commands where safe, and synthesize the concrete workflow and risks with file-line evidence.
+
+## Second checkpoint
+
+- Live state: `MongooseMoo/moo-conformance-tests` has no workflows, default branch `main`, repository-level default workflow permission `write`, and unprotected `main`; PR #19 is the inspected worktree branch. `MongooseMoo/toaststunt` likewise has no workflows; live `master` is `0f95290f770522efd1d04c7e0ae3081a114e5692`.
+- Important source split: the local Toast checkout is `json-v20-db` at `e8a3536...` and materially differs from live `master`, including `CMakeLists.txt`, DB/server code, and new JSON backend files. Workflow recommendations must be based on live `master`, not the local feature-branch additions; current local tracked build/server files are unmodified.
+- Current conformance collection: read-only collection found exactly 11,566 cases in 2.72 seconds. Static source accounting found 81 literal test skips plus capability/feature/option-dependent skips. `--fail-on-unexpected-skip` permits literal and declared `skip_if` skips but converts undeclared config/capability skips to failures.
+- Managed coverage requirements: 27 cases require `managed_server`, 18 `server_dir`, 17 `log_file`, 11 `server_db_dir`; 14 cases use managed restart. The 11 startup tests reference `Anon1.db` through `Anon6.db` and `Broken1.db` through `Broken5.db` under `_db/startup`.
+- Security observation: Toast source defaults `OUTBOUND_NETWORK` on, and the harness probes the compiled option rather than runtime `-O`; using `-O` would misclassify profile-sensitive tests unless the harness/profile interface changes. PR YAML plus packaged executable fixtures execute under wizard authority, so the workflow must use `pull_request`, no secrets, explicit `contents: read`, checkout credential persistence disabled, and preferably pinned action/source SHAs.
+- Next action: inspect live Toast master build/server files directly, establish exact package/build command and safe command template, measure current source/build artifact/runtime where possible without launching a server, then produce the concrete YAML design and explicitly bounded unknowns.

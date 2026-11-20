@@ -40,8 +40,8 @@ func builtinCurl(ctx *Execution, args []types.Value) types.Result {
 	if threadedCall(ctx) {
 		return runInBackground(ctx, request)
 	}
-	if ctx.TaskContext != nil {
-		if !beginIrreversible(ctx) {
+	if ctx.Context != nil {
+		if !beginIrreversible(ctx, "curl") {
 			return abortedAttempt()
 		}
 		ctx.IrreversibleSideEffect = true

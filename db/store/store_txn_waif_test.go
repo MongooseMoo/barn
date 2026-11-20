@@ -174,15 +174,15 @@ func TestWaifHistoryReleasedAfterLastOldReader(t *testing.T) {
 	if ec := s.DirectTxn().SetWaifProperty(w, "n", types.NewInt(1)); ec != types.E_NONE {
 		t.Fatal(ec)
 	}
-	if len(s.waifHistory) != 1 {
-		t.Fatalf("history tracked = %d", len(s.waifHistory))
+	if len(s.waifs.history) != 1 {
+		t.Fatalf("history tracked = %d", len(s.waifs.history))
 	}
 	waifNumber(t, tx, w, 0)
 	tx.Release()
-	if len(s.waifHistory) != 0 {
-		t.Fatalf("history remains after release = %d", len(s.waifHistory))
+	if len(s.waifs.history) != 0 {
+		t.Fatalf("history remains after release = %d", len(s.waifs.history))
 	}
-	if _, ok := w.WaifImageAt(s.waifDomain, 0); ok {
+	if _, ok := w.WaifImageAt(s.waifs.domain, 0); ok {
 		t.Fatal("obsolete version retained")
 	}
 }
@@ -292,7 +292,7 @@ func TestWaifPublicationDoesNotMissLastReaderRelease(t *testing.T) {
 
 	// Stop the publisher after it samples the reader's shard, but before its
 	// floor scan finishes. No production hook or timing delay is needed.
-	lastShard := &s.readTSShards[readTSShardCount-1]
+	lastShard := &s.readers.shards[readTSShardCount-1]
 	lastShard.mu.Lock()
 	shardLocked := true
 	t.Cleanup(func() {
@@ -337,9 +337,9 @@ func TestWaifPublicationDoesNotMissLastReaderRelease(t *testing.T) {
 		}
 		return blockedIn("(*StoreTxn).release(")
 	})
-	s.readTSShards[0].mu.Lock()
-	remainingReaders := s.readTSShards[0].counts[readerTS]
-	s.readTSShards[0].mu.Unlock()
+	s.readers.shards[0].mu.Lock()
+	remainingReaders := s.readers.shards[0].counts[readerTS]
+	s.readers.shards[0].mu.Unlock()
 	if remainingReaders != 0 || !reader.released.Load() {
 		t.Fatal("reader did not deregister while the publisher's floor was stale")
 	}
@@ -359,68 +359,133 @@ func TestWaifPublicationDoesNotMissLastReaderRelease(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("reader release did not finish")
 	}
-	if _, found := w.WaifImageAt(s.waifDomain, readerTS); found {
+	if _, found := w.WaifImageAt(s.waifs.domain, readerTS); found {
 		t.Error("last reader released, but its obsolete WAIF image remains")
 	}
-	if len(s.waifHistory) != 0 || s.waifHistoryPending.Load() {
-		t.Errorf("last reader released, but history registry has %d entries, pending=%v", len(s.waifHistory), s.waifHistoryPending.Load())
+	if len(s.waifs.history) != 0 || s.waifs.pending.Load() {
+		t.Errorf("last reader released, but history registry has %d entries, pending=%v", len(s.waifs.history), s.waifs.pending.Load())
 	}
 }
 
-// A WAIF dependency routes a commit through the coarse path. A value write to an
-// existing property slot must not move the object's property shape there either,
-// or every concurrent ancestry walk through the object fails validation.
-func TestWaifCoarseCommitValueWriteKeepsPropertyShape(t *testing.T) {
-	s := NewStore()
-	if err := s.Add(NewObject(0, 0)); err != nil {
-		t.Fatal(err)
-	}
-	if ec := s.DirectTxn().DefineProperty(0, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
-		t.Fatal(ec)
-	}
-	shape := s.liveObjectLocked(0).propertyShapeVersion
-	w := types.NewWaif(0, 0).SetProperty("n", types.NewInt(0))
-	tx := s.BeginSnapshot(0)
-	defer tx.Release()
-	waifNumber(t, tx, w, 0)
-	if ec := tx.SetPropertyValue(0, "p", types.NewInt(1)); ec != types.E_NONE {
-		t.Fatal(ec)
-	}
-	if ec := tx.Commit(); ec != types.E_NONE {
-		t.Fatal(ec)
-	}
-	live := s.liveObjectLocked(0)
-	if got, ec := s.DirectTxn().PropertyValue(0, "p"); ec != types.E_NONE || got.Int() != 1 {
-		t.Fatalf("p = %v, %v; want 1", got, ec)
-	}
-	if live.propertyShapeVersion != shape {
-		t.Fatalf("propertyShapeVersion moved %d -> %d on a value write", shape, live.propertyShapeVersion)
+// commitRoutes runs a WAIF-dependent commit on each commit path: as it is, which
+// is the decentralized path, and marked live-mutated, which is the coarse one.
+var commitRoutes = []struct {
+	name    string
+	prepare func(*StoreTxn)
+}{
+	{"decentralized", func(*StoreTxn) {}},
+	{"coarse", (*StoreTxn).MarkLiveMutated},
+}
+
+// A value write to an existing property slot must not move the object's property
+// shape on either commit path, or every concurrent ancestry walk through the
+// object fails validation.
+func TestWaifDependentValueWriteKeepsPropertyShape(t *testing.T) {
+	for _, route := range commitRoutes {
+		t.Run(route.name, func(t *testing.T) {
+			s := NewStore()
+			if err := s.Add(NewObject(0, 0)); err != nil {
+				t.Fatal(err)
+			}
+			if ec := s.DirectTxn().DefineProperty(0, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			shape := s.liveObjectLocked(0).propertyShapeVersion
+			w := types.NewWaif(0, 0).SetProperty("n", types.NewInt(0))
+			tx := s.BeginSnapshot(0)
+			defer tx.Release()
+			waifNumber(t, tx, w, 0)
+			if ec := tx.SetPropertyValue(0, "p", types.NewInt(1)); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			route.prepare(tx)
+			if ec := tx.Commit(); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			live := s.liveObjectLocked(0)
+			if got, ec := s.DirectTxn().PropertyValue(0, "p"); ec != types.E_NONE || got.Int() != 1 {
+				t.Fatalf("p = %v, %v; want 1", got, ec)
+			}
+			if live.propertyShapeVersion != shape {
+				t.Fatalf("propertyShapeVersion moved %d -> %d on a value write", shape, live.propertyShapeVersion)
+			}
+		})
 	}
 }
 
-// Coarse commits reshape verb dispatch only through verb edits or recycling, as on
-// the decentralized path. A WAIF-dependent value write must leave the memo clock
-// alone, or every in-flight task that resolved a verb through the memo aborts.
-func TestWaifCoarseCommitValueWriteKeepsVerbShape(t *testing.T) {
-	s := NewStore()
-	if err := s.Add(NewObject(0, 0)); err != nil {
-		t.Fatal(err)
+// Both commit paths reshape verb dispatch only through verb edits or recycling. A
+// WAIF-dependent value write must leave the memo clock alone, or every in-flight
+// task that resolved a verb through the memo aborts.
+func TestWaifDependentValueWriteKeepsVerbShape(t *testing.T) {
+	for _, route := range commitRoutes {
+		t.Run(route.name, func(t *testing.T) {
+			s := NewStore()
+			if err := s.Add(NewObject(0, 0)); err != nil {
+				t.Fatal(err)
+			}
+			if ec := s.DirectTxn().DefineProperty(0, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			verbShape := s.dispatch.shapeChangeTS.Load()
+			w := types.NewWaif(0, 0).SetProperty("n", types.NewInt(0))
+			tx := s.BeginSnapshot(0)
+			defer tx.Release()
+			waifNumber(t, tx, w, 0)
+			if ec := tx.SetPropertyValue(0, "p", types.NewInt(1)); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			route.prepare(tx)
+			if ec := tx.Commit(); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			if got := s.dispatch.shapeChangeTS.Load(); got != verbShape {
+				t.Fatalf("dispatch.shapeChangeTS moved %d -> %d on a value write", verbShape, got)
+			}
+		})
 	}
-	if ec := s.DirectTxn().DefineProperty(0, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
-		t.Fatal(ec)
-	}
-	verbShape := s.verbShapeChangeTS.Load()
-	w := types.NewWaif(0, 0).SetProperty("n", types.NewInt(0))
-	tx := s.BeginSnapshot(0)
-	defer tx.Release()
-	waifNumber(t, tx, w, 0)
-	if ec := tx.SetPropertyValue(0, "p", types.NewInt(1)); ec != types.E_NONE {
-		t.Fatal(ec)
-	}
-	if ec := tx.Commit(); ec != types.E_NONE {
-		t.Fatal(ec)
-	}
-	if got := s.verbShapeChangeTS.Load(); got != verbShape {
-		t.Fatalf("verbShapeChangeTS moved %d -> %d on a value write", verbShape, got)
+}
+
+// A commit that reads or writes a WAIF takes the decentralized path, which holds
+// store.mu shared, so it does not wait for readers holding it. The coarse path's
+// exclusive lock would wait until the reader below lets go.
+func TestWaifCommitDoesNotWaitForStoreReaders(t *testing.T) {
+	for _, kind := range []string{"waif-write", "waif-read-object-write"} {
+		t.Run(kind, func(t *testing.T) {
+			s := NewStore()
+			if err := s.Add(NewObject(0, 0)); err != nil {
+				t.Fatal(err)
+			}
+			w := types.NewWaif(0, 0).SetProperty("n", types.NewInt(0))
+			tx := s.BeginSnapshot(0)
+			defer tx.Release()
+			waifNumber(t, tx, w, 0)
+			if kind == "waif-write" {
+				if ec := tx.SetWaifProperty(w, "n", types.NewInt(1)); ec != types.E_NONE {
+					t.Fatal(ec)
+				}
+			} else if ec := tx.SetObjectName(0, "renamed"); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+
+			s.mu.RLock()
+			done := make(chan types.ErrorCode, 1)
+			go func() { done <- tx.Commit() }()
+			select {
+			case ec := <-done:
+				s.mu.RUnlock()
+				if ec != types.E_NONE {
+					t.Fatal(ec)
+				}
+			case <-time.After(2 * time.Second):
+				s.mu.RUnlock()
+				<-done
+				t.Fatal("WAIF commit waited for a reader holding store.mu")
+			}
+			if kind == "waif-write" {
+				waifNumber(t, s.DirectTxn(), w, 1)
+			} else if got, ec := s.DirectTxn().ObjectName(0); ec != types.E_NONE || got != "renamed" {
+				t.Fatalf("name = %q, %v", got, ec)
+			}
+		})
 	}
 }

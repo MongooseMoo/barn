@@ -56,7 +56,7 @@ func (s *Runtime) runDeferredGCMaintenance() {
 			timer.Stop()
 		case <-due:
 			// An opportunistic sweep may have drained this batch, or replaced it
-			// with a later one, since the timer was armed. Never pause input for
+			// with a later one, since the timer was armed. Never park VMs for
 			// an empty or no-longer-due batch.
 			if deadline := s.deferredGCDeadline(); !deadline.IsZero() && !deadline.After(time.Now()) {
 				s.rendezvousDeferredGC()
@@ -67,19 +67,13 @@ func (s *Runtime) runDeferredGCMaintenance() {
 
 func (s *Runtime) rendezvousDeferredGC() {
 	// This goroutine never owns an admission reservation or physical VM lease.
-	// Pause stops fresh grants and readmits preempted owners until they reach a
-	// true handoff. Taking VMStartMu before this drain would deadlock an owner
-	// that has admission but has not acquired its execution lease yet.
-	resume, err := s.admission.Pause(s.ctx)
-	if err != nil {
-		return
-	}
-	defer resume()
-	s.flushDeferredGCBarrier(maintenanceBarrierPatience)
+	// Admission keeps flowing: executing VMs park at their tick checkpoint for
+	// the walk and sweep only, and new VM starts wait for the sweep only.
+	s.flushDeferredGCBarrier(maintenanceBarrierPatience, true)
 	s.lifecycle.Mu.Lock()
-	// A checkpoint or another sweep may own the barriers, or an explicit lease
-	// outside admission may still be live. Release the pause instead of spinning
-	// or blocking cancellation; the next deadline retries that pending batch.
+	// A checkpoint or another sweep may own the barriers, or a lease may not
+	// have parked. Give up instead of spinning or blocking cancellation; the
+	// next deadline retries that pending batch.
 	if len(s.lifecycle.PendingWaifs) != 0 || len(s.lifecycle.PendingAnonGC) != 0 {
 		s.lifecycle.RetryAfter = time.Now().Add(gcSweepInterval)
 	}

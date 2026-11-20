@@ -3,9 +3,9 @@ package builtins
 import (
 	"testing"
 
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/parser"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 func TestVerbCodeEditRecompilePreservesStringBytes(t *testing.T) {
@@ -27,7 +27,7 @@ func TestVerbCodeEditRecompilePreservesStringBytes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		literal := program.Statements[0].(*verb.ReturnStmt).Value.(*verb.LiteralExpr)
+		literal := program.Statements[0].(*ir.ReturnStmt).Value.(*ir.LiteralExpr)
 		if literal.StringValue != value {
 			t.Fatalf("literal changed: %q; want %q", literal.StringValue, value)
 		}

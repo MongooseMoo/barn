@@ -1,0 +1,26 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/int_arith_1M-4         	       7	  46941914 ns/op	   16344 B/op	      19 allocs/op
+BenchmarkVM/int_arith_1M-4         	       7	  43905029 ns/op	   16344 B/op	      19 allocs/op
+BenchmarkVM/int_arith_1M-4         	       7	  49191586 ns/op	   16344 B/op	      19 allocs/op
+BenchmarkVM/int_arith_1M-4         	       8	  41363125 ns/op	   16344 B/op	      19 allocs/op
+BenchmarkVM/int_arith_1M-4         	       8	  46510825 ns/op	   16344 B/op	      19 allocs/op
+BenchmarkVM/int_arith_1M-4         	       8	  42299175 ns/op	   16344 B/op	      19 allocs/op
+BenchmarkVM/int_arith_1M-4         	       8	  46886575 ns/op	   16344 B/op	      19 allocs/op
+BenchmarkVM/int_arith_1M-4         	       7	  44509557 ns/op	   16344 B/op	      19 allocs/op
+BenchmarkVM/int_arith_1M-4         	       7	  43063357 ns/op	   16344 B/op	      19 allocs/op
+BenchmarkVM/int_arith_1M-4         	       8	  39974750 ns/op	   16344 B/op	      19 allocs/op
+BenchmarkVM/builtin_abs_200k-4     	      12	  28442975 ns/op	   16552 B/op	      26 allocs/op
+BenchmarkVM/builtin_abs_200k-4     	      12	  28188700 ns/op	   16552 B/op	      26 allocs/op
+BenchmarkVM/builtin_abs_200k-4     	      12	  27855542 ns/op	   16552 B/op	      26 allocs/op
+BenchmarkVM/builtin_abs_200k-4     	      12	  27823108 ns/op	   16552 B/op	      26 allocs/op
+BenchmarkVM/builtin_abs_200k-4     	      12	  28169342 ns/op	   16552 B/op	      26 allocs/op
+BenchmarkVM/builtin_abs_200k-4     	      12	  28061500 ns/op	   16552 B/op	      26 allocs/op
+BenchmarkVM/builtin_abs_200k-4     	      12	  28183875 ns/op	   16552 B/op	      26 allocs/op
+BenchmarkVM/builtin_abs_200k-4     	      12	  29253508 ns/op	   16552 B/op	      26 allocs/op
+BenchmarkVM/builtin_abs_200k-4     	      12	  30250658 ns/op	   16552 B/op	      26 allocs/op
+BenchmarkVM/builtin_abs_200k-4     	      12	  32973025 ns/op	   16552 B/op	      26 allocs/op
+PASS
+ok  	github.com/MongooseMoo/barn/vm	11.420s

@@ -1,9 +1,10 @@
 package vm
 
 import (
-	"fmt"
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
+	"strings"
 )
 
 // executeIterPrepColumns retains list snapshots directly. Map values and keys
@@ -12,29 +13,13 @@ import (
 // persistence use the same mechanisms as other compiler temporaries.
 func (vm *VM) executeIterPrepColumns() error {
 	container := vm.Pop()
-	keys := types.NewInt(0)
-	var values types.Value
-	switch container.Type() {
-	case types.TYPE_LIST:
-		values = container
-	case types.TYPE_MAP:
-		valueColumn, keyColumn := container.MapColumns()
-		values = types.NewList(valueColumn)
-		// Keys remain roots even in a value-only loop, just as they did in
-		// the pair representation. Dropping them could finalize WAIF/anon keys.
-		keys = types.NewList(keyColumn)
-	case types.TYPE_STR:
-		chars := types.SplitChars(container.Str())
-		elements := make([]types.Value, len(chars))
-		for i, c := range chars {
-			elements[i] = types.NewStr(c)
-		}
-		values = types.NewList(elements)
-	default:
+	values, keys, code := container.IterationColumns()
+	if code != types.E_NONE {
 		if frame := vm.CurrentFrame(); frame == nil || frame.VerbDebug {
 			return newMooError(types.E_TYPE, "for loop requires list, map, or string")
 		}
 		values = types.NewList(nil)
+		keys = types.NewInt(0)
 	}
 	vm.Push(values)
 	vm.Push(keys)
@@ -164,70 +149,85 @@ func (vm *VM) executeIterPrep() error {
 	return nil
 }
 
-// executeScatter handles OP_SCATTER: validate that the top of stack is a list
-// with the right number of elements for the scatter pattern.
+// executeScatter handles OP_SCATTER, Toast's EOP_SCATTER (execute.cc): it pops
+// the list and binds every target in one instruction, before any optional
+// target's default expression runs.
 //
-// Bytecode format: OP_SCATTER <numRequired:byte> <numOptional:byte> <hasRest:byte>
+// Bytecode format: OP_SCATTER <targets:byte> <required:byte> <rest:byte>, then
+// per target <local:byte> <optional:byte>. Rest is the 1-based position of the
+// @rest target, or targets+1 when there is none.
 //
-// Pops the list value from the stack.
-// Validates:
-//   - Value is a list (E_TYPE if not)
-//   - length >= numRequired (E_ARGS if too few)
-//   - If !hasRest: length <= numRequired + numOptional (E_ARGS if too many)
+// A list shorter than the required targets, or longer than the targets when
+// there is no @rest, is E_ARGS. The elements beyond the required ones go to
+// the optional targets from the left; an optional target left without one
+// keeps its value, and the compiled code after this instruction gives it its
+// default. @rest takes what the other targets leave.
 func (vm *VM) executeScatter() error {
-	numRequired := int(vm.FetchByte())
-	numOptional := int(vm.FetchByte())
-	hasRest := vm.FetchByte() != 0
+	targets := int(vm.FetchByte())
+	required := int(vm.FetchByte())
+	rest := int(vm.FetchByte())
+	frame := vm.CurrentFrame()
+	operands := frame.Program.Code[frame.IP : frame.IP+2*targets]
+	frame.IP += 2 * targets
+	hasRest := rest <= targets
 
 	val := vm.Pop()
 	if val.Type() != types.TYPE_LIST {
-		return newMooErrorf(types.E_TYPE, "%s", typeMismatchMessage(types.TYPE_LIST, val.Type()))
+		return newMooErrorf(types.E_TYPE, "%s", typeMismatchMessage(types.TYPE_LIST, val.Type())).withMessage()
 	}
 
 	length := val.Len()
 	// Toast raises E_ARGS with its default message for either count mismatch.
-	if length < numRequired || (!hasRest && length > numRequired+numOptional) {
+	if length < required || (!hasRest && length > targets) {
 		return MooError{Code: types.E_ARGS}
 	}
 
-	return nil
-}
-
-// executeScatterTake handles OP_SCATTER_TAKE <listVar> <cursorVar> <targetVar>
-// <step>: target = list[cursor], then the cursor moves one element toward the
-// middle (step 0: forward, step 1: backward). OP_SCATTER has already checked
-// the list's length, so the cursor is always in range. Like the rest of the
-// binding Toast's EOP_SCATTER performs, it costs no tick.
-func (vm *VM) executeScatterTake() error {
-	listIdx := vm.FetchByte()
-	cursorIdx := vm.FetchByte()
-	targetIdx := vm.FetchByte()
-	step := vm.FetchByte()
-	frame := vm.CurrentFrame()
-	list := frame.Locals[listIdx]
-	cursor := frame.Locals[cursorIdx].Int()
-	if list.Type() != types.TYPE_LIST || cursor < 1 || cursor > int64(list.Len()) {
-		return fmt.Errorf("internal error: scatter cursor %d outside list", cursor)
+	available := length - required
+	restLength := 0
+	if hasRest && length >= targets {
+		restLength = length - targets + 1
 	}
-	vm.releaseLocal(frame.Locals[targetIdx])
-	frame.Locals[targetIdx] = list.Get(int(cursor))
-	if step == 0 {
-		cursor++
-	} else {
-		cursor--
+	offset := 0
+	for position := 1; position <= targets; position++ {
+		local, optional := operands[2*position-2], operands[2*position-1] != 0
+		var value types.Value
+		switch {
+		case position == rest:
+			elements := make([]types.Value, restLength)
+			for index := range elements {
+				elements[index] = val.Get(position + offset + index)
+			}
+			value = types.NewList(elements)
+			offset += restLength - 1
+		case optional && available == 0:
+			offset--
+			continue
+		default:
+			if optional {
+				available--
+			}
+			value = val.Get(position + offset)
+		}
+		vm.releaseLocal(frame.Locals[local])
+		frame.Locals[local] = value
 	}
-	frame.Locals[cursorIdx] = types.NewInt(cursor)
 	return nil
 }
 
 // SetLocalByName sets a local variable in a stack frame by name.
 // Looks up the name in the program's VarNames table and sets the corresponding
-// slot in frame.Locals. If the name is not found (verb doesn't reference it),
-// silently does nothing.
+// slot in frame.Locals. Command variables absent from source locals are retained
+// separately for inheritance by callees; other absent names are ignored.
 func SetLocalByName(frame *StackFrame, prog *bytecode.Program, name string, value types.Value) {
 	for i, varName := range prog.VarNames {
-		if varName == name {
+		if strings.EqualFold(varName, name) {
 			frame.Locals[i] = value
+			return
+		}
+	}
+	for index, commandName := range task.CommandVariableNames {
+		if strings.EqualFold(name, commandName) {
+			frame.CommandEnvironment[index] = value
 			return
 		}
 	}

@@ -5,7 +5,6 @@ import (
 
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -21,11 +20,11 @@ func TestValueOnlyMapIterationRetainsKeyRoots(t *testing.T) {
 		t.Fatal(diagnostics)
 	}
 	store := dbstore.NewStore()
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Store = store
 	m := NewVM(store, newTestSessionWithTaskManager(registry))
 	m.Context = ctx
-	m.Task = task.NewTask(1, 0, ctx.TicksRemaining, 1)
+	m.Task = task.NewState(1, 0, ctx.TicksRemaining, 1)
 	result := m.RunWithVerbContext(program, 0, 0, 0, "roots", 0, []types.Value{input})
 	if result.Flow != types.FlowSuspend {
 		t.Fatalf("result = %+v", result)
@@ -34,13 +33,13 @@ func TestValueOnlyMapIterationRetainsKeyRoots(t *testing.T) {
 	if frame == nil {
 		t.Fatal("no active frame")
 	}
-	var roots []types.Value
+	roots := types.NewWaifSet(nil)
 	// Inspect the hidden iteration state itself, excluding the original args.
 	for _, value := range frame.Locals[len(program.VarNames):] {
-		collectWaifsForGC(value, &roots)
+		roots.AddReachable(value, true)
 	}
-	if len(roots) != 1 || !roots[0].Equal(key) {
-		t.Fatalf("hidden iteration roots = %v, want map key", roots)
+	if roots.Len() != 1 || !roots.Values[0].Equal(key) {
+		t.Fatalf("hidden iteration roots = %v, want map key", roots.Values)
 	}
 }
 

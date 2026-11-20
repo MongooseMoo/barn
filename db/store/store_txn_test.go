@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
@@ -19,7 +20,7 @@ func TestReadOnlyTransactionSeesStableSnapshot(t *testing.T) {
 	if errCode := store.DirectTxn().DefineProperty(0, "scratch", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
@@ -498,7 +499,7 @@ func TestTransactionRenumberLeavesOldObjectIDInvalid(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject renumber source failed: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(oldID, NewVerb("test", []string{"test"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return \"test\";"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(oldID, NewVerb([]string{"test"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return \"test\";"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -723,10 +724,17 @@ func TestTransactionClearPropertyOverrideStagesUntilCommit(t *testing.T) {
 	if errCode := store.DirectTxn().SetPropertyValue(child, "a", types.NewInt(2)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue override failed: %v", errCode)
 	}
+	owner, perms := types.ObjID(7), PropRead
+	if ec := store.DirectTxn().SetPropertyInfo(child, "a", &owner, &perms); ec != types.E_NONE {
+		t.Fatal(ec)
+	}
 
 	tx := store.BeginSnapshot(0)
 	if errCode := tx.ClearPropertyOverride(child, "a"); errCode != types.E_NONE {
 		t.Fatalf("ClearPropertyOverride failed: %v", errCode)
+	}
+	if prop, found, ec := tx.LocalProperty(child, "a"); ec != types.E_NONE || !found || !prop.Clear || prop.Owner != owner || prop.Perms != perms {
+		t.Fatalf("clear lost transaction metadata: %+v found=%v error=%v", prop, found, ec)
 	}
 	txValue, errCode := tx.PropertyValue(child, "a")
 	if errCode != types.E_NONE {
@@ -745,6 +753,9 @@ func TestTransactionClearPropertyOverrideStagesUntilCommit(t *testing.T) {
 
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
+	}
+	if prop, found, ec := store.DirectTxn().LocalProperty(child, "a"); ec != types.E_NONE || !found || !prop.Clear || prop.Owner != owner || prop.Perms != perms {
+		t.Fatalf("clear lost committed metadata: %+v found=%v error=%v", prop, found, ec)
 	}
 	liveValue, errCode = store.DirectTxn().PropertyValue(child, "a")
 	if errCode != types.E_NONE {
@@ -1102,7 +1113,7 @@ func TestTransactionReseedInheritedPropertiesUsesStagedParents(t *testing.T) {
 	if errCode := tx.AdoptLiveRelationships(child, 0, left); errCode != types.E_NONE {
 		t.Fatalf("AdoptLiveRelationships left failed: %v", errCode)
 	}
-	if errCode := tx.ReseedInheritedProperties(child); errCode != types.E_NONE {
+	if errCode := tx.ReseedInheritedProperties(child, []types.ObjID{0}); errCode != types.E_NONE {
 		t.Fatalf("ReseedInheritedProperties left failed: %v", errCode)
 	}
 	if errCode := tx.SetPropertyValue(child, "foo", types.NewStr("override")); errCode != types.E_NONE {
@@ -1115,7 +1126,7 @@ func TestTransactionReseedInheritedPropertiesUsesStagedParents(t *testing.T) {
 	if errCode := tx.AdoptLiveRelationships(child, left, right); errCode != types.E_NONE {
 		t.Fatalf("AdoptLiveRelationships right failed: %v", errCode)
 	}
-	if errCode := tx.ReseedInheritedProperties(child); errCode != types.E_NONE {
+	if errCode := tx.ReseedInheritedProperties(child, []types.ObjID{left}); errCode != types.E_NONE {
 		t.Fatalf("ReseedInheritedProperties right failed: %v", errCode)
 	}
 
@@ -1223,6 +1234,37 @@ func TestTransactionDeleteDefinedPropertyStagesAndRemovesInheritedOnCommit(t *te
 	}
 }
 
+func TestTransactionDeleteDefinedPropertyRemovesCommittedChildOverride(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+	if errCode := store.DirectTxn().SetPropertyValue(child, "a", types.NewInt(99)); errCode != types.E_NONE {
+		t.Fatalf("child SetPropertyValue failed: %v", errCode)
+	}
+
+	tx := store.BeginSnapshot(0)
+	if errCode := tx.DeleteDefinedProperty(0, "a"); errCode != types.E_NONE {
+		t.Fatalf("DeleteDefinedProperty failed: %v", errCode)
+	}
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+	if _, ok, errCode := store.DirectTxn().LocalProperty(child, "a"); errCode != types.E_NONE || ok {
+		t.Fatalf("live child LocalProperty ok=%v err=%v, want no local slot", ok, errCode)
+	}
+	if value, errCode := store.DirectTxn().PropertyValue(child, "a"); errCode != types.E_PROPNF {
+		t.Fatalf("live child PropertyValue after commit = %v, %v, want E_PROPNF", value, errCode)
+	}
+}
+
 func TestTransactionDeleteThenRedefinePropertyCommitsReplacement(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
@@ -1256,6 +1298,139 @@ func TestTransactionDeleteThenRedefinePropertyCommitsReplacement(t *testing.T) {
 		if got := value.Int(); got != 2 {
 			t.Fatalf("PropertyValue #%d.a = %d, want replacement 2", id, got)
 		}
+	}
+}
+
+func TestDeleteDefinedPropertyRemovesAnonymousChildOverride(t *testing.T) {
+	for _, snapshot := range []bool{true, false} {
+		store := NewStore()
+		if err := store.Add(NewObject(0, 0)); err != nil {
+			t.Fatalf("Add root failed: %v", err)
+		}
+		if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+			t.Fatalf("DefineProperty failed: %v", errCode)
+		}
+		anon, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, true)
+		if errCode != types.E_NONE {
+			t.Fatalf("CreateObject anonymous failed: %v", errCode)
+		}
+		if errCode := store.DirectTxn().SetPropertyValue(anon, "a", types.NewInt(99)); errCode != types.E_NONE {
+			t.Fatalf("anonymous SetPropertyValue failed: %v", errCode)
+		}
+
+		if snapshot {
+			tx := store.BeginSnapshot(0)
+			if errCode := tx.DeleteDefinedProperty(0, "a"); errCode != types.E_NONE {
+				t.Fatalf("DeleteDefinedProperty failed: %v", errCode)
+			}
+			if value, errCode := tx.PropertyValue(anon, "a"); errCode != types.E_PROPNF {
+				t.Fatalf("txn anonymous PropertyValue = %v, %v, want E_PROPNF", value, errCode)
+			}
+			if errCode := tx.Commit(); errCode != types.E_NONE {
+				t.Fatalf("Commit failed: %v", errCode)
+			}
+		} else if errCode := store.DirectTxn().DeleteDefinedProperty(0, "a"); errCode != types.E_NONE {
+			t.Fatalf("direct DeleteDefinedProperty failed: %v", errCode)
+		}
+
+		if value, errCode := store.DirectTxn().PropertyValue(anon, "a"); errCode != types.E_PROPNF {
+			t.Fatalf("snapshot=%v: anonymous PropertyValue after delete = %v, %v, want E_PROPNF", snapshot, value, errCode)
+		}
+	}
+}
+
+func TestDefinePropertyGivesAnonymousDescendantsOwnSlot(t *testing.T) {
+	const anonOwner = types.ObjID(5)
+	for _, snapshot := range []bool{true, false} {
+		store := NewStore()
+		if err := store.Add(NewObject(0, 0)); err != nil {
+			t.Fatalf("Add root failed: %v", err)
+		}
+		mid, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0)
+		if errCode != types.E_NONE {
+			t.Fatalf("CreateObject failed: %v", errCode)
+		}
+		var anons []types.ObjID
+		for _, parent := range []types.ObjID{0, mid} {
+			anon, errCode := store.DirectTxn().CreateObject([]types.ObjID{parent}, anonOwner, true)
+			if errCode != types.E_NONE {
+				t.Fatalf("CreateObject anonymous failed: %v", errCode)
+			}
+			anons = append(anons, anon)
+		}
+		prop := NewProperty(types.NewInt(1), 0, PropRead|PropChown, false, true)
+
+		checkSlots := func(tx *StoreTxn, when string) {
+			t.Helper()
+			for _, anon := range anons {
+				view, ok, errCode := tx.LocalProperty(anon, "x")
+				if errCode != types.E_NONE || !ok || view.Owner != anonOwner || !view.Clear {
+					t.Fatalf("snapshot=%v %s: anonymous %v slot = %+v, %v, %v; want clear slot owned by %v", snapshot, when, anon, view, ok, errCode, anonOwner)
+				}
+			}
+		}
+		if snapshot {
+			tx := store.BeginSnapshot(0)
+			if errCode := tx.DefineProperty(0, "x", prop); errCode != types.E_NONE {
+				t.Fatalf("DefineProperty failed: %v", errCode)
+			}
+			checkSlots(tx, "in txn")
+			if errCode := tx.Commit(); errCode != types.E_NONE {
+				t.Fatalf("Commit failed: %v", errCode)
+			}
+		} else if errCode := store.DirectTxn().DefineProperty(0, "x", prop); errCode != types.E_NONE {
+			t.Fatalf("direct DefineProperty failed: %v", errCode)
+		}
+		checkSlots(store.DirectTxn(), "after")
+	}
+}
+
+func TestTransactionDeleteMixedCasePropertyRemovesOrderEntry(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		define string
+		want   []string
+	}{
+		{name: "redefine same name", define: "Foo", want: []string{"bar", "Foo"}},
+		{name: "define other name", define: "baz", want: []string{"bar", "baz"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewStore()
+			if err := store.Add(NewObject(0, 0)); err != nil {
+				t.Fatalf("Add root failed: %v", err)
+			}
+			for _, name := range []string{"Foo", "bar"} {
+				if errCode := store.DirectTxn().DefineProperty(0, name, NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+					t.Fatalf("DefineProperty %q failed: %v", name, errCode)
+				}
+			}
+
+			tx := store.BeginSnapshot(0)
+			defer tx.Release()
+			if errCode := tx.DeleteDefinedProperty(0, "Foo"); errCode != types.E_NONE {
+				t.Fatalf("DeleteDefinedProperty failed: %v", errCode)
+			}
+			if errCode := tx.DefineProperty(0, tc.define, NewProperty(types.NewInt(2), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+				t.Fatalf("DefineProperty %q failed: %v", tc.define, errCode)
+			}
+			names, errCode := tx.DefinedPropertyNames(0)
+			if errCode != types.E_NONE {
+				t.Fatalf("tx DefinedPropertyNames failed: %v", errCode)
+			}
+			if !slices.Equal(names, tc.want) {
+				t.Fatalf("tx DefinedPropertyNames = %q, want %q", names, tc.want)
+			}
+			if errCode := tx.Commit(); errCode != types.E_NONE {
+				t.Fatalf("Commit failed: %v", errCode)
+			}
+			names, errCode = store.DirectTxn().DefinedPropertyNames(0)
+			if errCode != types.E_NONE {
+				t.Fatalf("live DefinedPropertyNames failed: %v", errCode)
+			}
+			if !slices.Equal(names, tc.want) {
+				t.Fatalf("live DefinedPropertyNames = %q, want %q", names, tc.want)
+			}
+		})
 	}
 }
 
@@ -1599,7 +1774,7 @@ func TestTransactionFindVerbTracksReadAndScan(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -1609,8 +1784,8 @@ func TestTransactionFindVerbTracksReadAndScan(t *testing.T) {
 	}
 
 	live := store.load(0)
-	verb := live.verbs["look"]
-	if got := tx.verbReads[verbReadKey{objID: 0, name: "look"}]; got != verb.version {
+	verb := live.verbList[0]
+	if got, ok := tx.verbReads[verbKey{objID: 0, id: verb.id}]; !ok || got != verb.version {
 		t.Fatalf("verb read version = %d, want %d", got, verb.version)
 	}
 	if got := tx.verbScans[0]; got != live.verbVersion {
@@ -1623,7 +1798,7 @@ func TestTransactionVerbByIndexTracksReadAndScan(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -1633,8 +1808,8 @@ func TestTransactionVerbByIndexTracksReadAndScan(t *testing.T) {
 	}
 
 	live := store.load(0)
-	verb := live.verbs["look"]
-	if got := tx.verbReads[verbReadKey{objID: 0, name: "look"}]; got != verb.version {
+	verb := live.verbList[0]
+	if got, ok := tx.verbReads[verbKey{objID: 0, id: verb.id}]; !ok || got != verb.version {
 		t.Fatalf("verb read version = %d, want %d", got, verb.version)
 	}
 	if got := tx.verbScans[0]; got != live.verbVersion {
@@ -1650,7 +1825,7 @@ func TestTransactionVerbReadInvalidatesCommit(t *testing.T) {
 	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -1685,7 +1860,7 @@ func TestTransactionSetVerbCodeStagesUntilCommit(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -1721,6 +1896,38 @@ func TestTransactionSetVerbCodeStagesUntilCommit(t *testing.T) {
 	}
 }
 
+// set_verb_code by name resolves only verbs defined on the named object (Toast
+// verbs.cc:229-236 find_described_verb -> db_find_defined_verb). A verb the
+// object only inherits is E_VERBNF, and the ancestor keeps its code.
+func TestTransactionSetVerbCodeInheritedVerbIsVerbNotFound(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"return 1;"})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+	childID, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject child failed: %v", errCode)
+	}
+
+	tx := store.BeginSnapshot(0)
+	if errCode := tx.SetVerbCode(childID, "look", []string{"return 9;"}); errCode != types.E_VERBNF {
+		t.Fatalf("tx SetVerbCode on inherited verb = %v, want E_VERBNF", errCode)
+	}
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("tx Commit failed: %v", errCode)
+	}
+	parentVerb, err := store.DirectTxn().FindVerbOnObject(0, "look")
+	if err != nil {
+		t.Fatalf("parent FindVerbOnObject failed: %v", err)
+	}
+	if len(parentVerb.Code) != 1 || parentVerb.Code[0] != "return 1;" {
+		t.Fatalf("parent verb code = %#v, want original code", parentVerb.Code)
+	}
+}
+
 func TestTransactionAdoptLiveVerbsSeesAddedVerb(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
@@ -1735,7 +1942,7 @@ func TestTransactionAdoptLiveVerbsSeesAddedVerb(t *testing.T) {
 	if len(names) != 0 {
 		t.Fatalf("tx VerbNames before add = %#v, want none", names)
 	}
-	verb := NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)
+	verb := NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)
 	if _, errCode := store.AddVerb(0, verb); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
@@ -1765,7 +1972,7 @@ func TestTransactionCallableLookupDoesNotExposeWaifOnlyVerbToObjectCall(t *testi
 
 	tx := store.BeginSnapshot(0)
 	defer tx.Release()
-	if _, errCode := store.AddVerb(0, NewVerb(":foo", []string{":foo"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"return 99;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{":foo"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"return 99;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 	if errCode := tx.AdoptLiveVerbs(0); errCode != types.E_NONE {
@@ -1787,7 +1994,7 @@ func TestTransactionAdoptLiveVerbsPreservesStagedCode(t *testing.T) {
 	}
 
 	tx := store.BeginSnapshot(0)
-	if _, errCode := store.AddVerb(0, NewVerb("first", []string{"first"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"first"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb first failed: %v", errCode)
 	}
 	if errCode := tx.AdoptLiveVerbs(0); errCode != types.E_NONE {
@@ -1796,7 +2003,7 @@ func TestTransactionAdoptLiveVerbsPreservesStagedCode(t *testing.T) {
 	if errCode := tx.SetVerbCode(0, "first", []string{"return 1;"}); errCode != types.E_NONE {
 		t.Fatalf("tx SetVerbCode first failed: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("second", []string{"second"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"second"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb second failed: %v", errCode)
 	}
 	if errCode := tx.AdoptLiveVerbs(0); errCode != types.E_NONE {
@@ -1834,7 +2041,7 @@ func TestTransactionLiveMutationDoesNotRebaseUnrelatedReads(t *testing.T) {
 		t.Fatalf("PropertyValue read failed: %v", errCode)
 	}
 
-	if _, errCode := store.AddVerb(other, NewVerb("live", []string{"live"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(other, NewVerb([]string{"live"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 	tx.MarkLiveMutated()
@@ -1876,7 +2083,7 @@ func TestTransactionForgetObjectDropsStagedVerbCode(t *testing.T) {
 	}
 
 	tx := store.BeginSnapshot(0)
-	if _, errCode := store.AddVerb(0, NewVerb("scratch", []string{"scratch"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"scratch"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 	if errCode := tx.AdoptLiveVerbs(0); errCode != types.E_NONE {
@@ -1899,7 +2106,7 @@ func TestTransactionSetVerbCodeByIndexStagesUntilCommit(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -1940,7 +2147,7 @@ func TestTransactionSetVerbCodeConflicts(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -1967,7 +2174,7 @@ func TestTransactionSetVerbCodeConflicts(t *testing.T) {
 	}
 }
 
-func TestTransactionPropertyValuesSeeStagedWrites(t *testing.T) {
+func TestTransactionVisitPropertyValuesSeesStagedWrites(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
@@ -1980,15 +2187,18 @@ func TestTransactionPropertyValuesSeeStagedWrites(t *testing.T) {
 	if errCode := tx.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue failed: %v", errCode)
 	}
-	values, errCode := tx.PropertyValues(0)
+	var values []types.Value
+	errCode := tx.VisitPropertyValues(0, func(value types.Value) {
+		values = append(values, value)
+	})
 	if errCode != types.E_NONE {
-		t.Fatalf("PropertyValues failed: %v", errCode)
+		t.Fatalf("VisitPropertyValues failed: %v", errCode)
 	}
 	if len(values) != 1 {
-		t.Fatalf("len(PropertyValues) = %d, want 1", len(values))
+		t.Fatalf("visited %d values, want 1", len(values))
 	}
 	if got := values[0].Int(); got != 2 {
-		t.Fatalf("PropertyValues[0] = %d, want 2", got)
+		t.Fatalf("visited value = %d, want 2", got)
 	}
 }
 
@@ -2090,7 +2300,7 @@ func TestStoreTxnCommitAndRenewPublishesAndPreservesGateExemption(t *testing.T) 
 // numbered-aware, so create($object, 1) (-> tx.AdoptLiveObject on the anon id) and
 // any commit whose write footprint targets the anon returned E_INVIND, cascading to
 // 95 conformance failures. This test exercises both the adoption resolver and the
-// commit apply path (coarse routing via writeFootprintHasAnon).
+// commit apply path (coarse routing via writesTouchAnon).
 func TestTransactionAdoptAndCommitAnonymousObject(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
@@ -2128,7 +2338,7 @@ func TestTransactionAdoptAndCommitAnonymousObject(t *testing.T) {
 
 	// (3) SIBLING COVERAGE: stage a property-value write on the anon, then commit.
 	// This exercises the commit apply path; the anon write footprint must route to
-	// the coarse exclusive path (writeFootprintHasAnon) instead of commitDecentralized,
+	// the coarse exclusive path (writesTouchAnon) instead of the shared-lock route,
 	// which has no slot for the anon id and previously returned E_INVIND.
 	if errCode := tx.SetPropertyValue(anon, "a", types.NewInt(2)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue(anon, a) = %v, want E_NONE", errCode)

@@ -1,11 +1,58 @@
 package task
 
 import (
+	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/types"
 )
+
+// CommandVariableNames are inherited even by verbs that do not reference them.
+var CommandVariableNames = [...]string{"argstr", "dobjstr", "iobjstr", "prepstr", "dobj", "iobj"}
+
+// RestoreForkEnvironment reorders the saved parent environment for a recompiled
+// isolated fork body. Unmatched program locals remain unbound; unused parent
+// locals disappear, while the implicit command environment is retained.
+func RestoreForkEnvironment(program *bytecode.Program, saved map[string]types.Value) (map[string]types.Value, error) {
+	lookup := func(name string) (types.Value, bool, error) {
+		value, matched := types.Unbound, false
+		for savedName, savedValue := range saved {
+			if strings.EqualFold(savedName, name) {
+				// Serialized order is unavailable in the reader's map. Do not
+				// guess which ambiguous spelling native's first match would use.
+				if matched {
+					return types.None, false, fmt.Errorf("ambiguous saved local %q", name)
+				}
+				value, matched = savedValue, true
+			}
+		}
+		return value, matched, nil
+	}
+	variables := make(map[string]types.Value, len(program.VarNames))
+	for _, name := range program.VarNames {
+		value, _, err := lookup(name)
+		if err != nil {
+			return nil, err
+		}
+		variables[name] = value
+	}
+	for _, name := range CommandVariableNames {
+		if slices.ContainsFunc(program.VarNames, func(sourceName string) bool { return strings.EqualFold(name, sourceName) }) {
+			continue
+		}
+		value, present, err := lookup(name)
+		if err != nil {
+			return nil, err
+		}
+		if present {
+			variables[name] = value
+		}
+	}
+	return variables, nil
+}
 
 // ForkSnapshot is the persistence-relevant portion of a forked task.
 type ForkSnapshot struct {
@@ -40,6 +87,32 @@ type Snapshot struct {
 type VMSnapshot struct {
 	MaxStackDepth int
 	Frames        []VMFrameSnapshot
+	// NativeRootVector is meaningful only when Frames contain native metadata.
+	// Toast uses -1 for its main vector and nonnegative fork-vector indexes.
+	NativeRootVector int
+	NativeFunctionID int
+}
+
+// NativeFrameSnapshot retains the state which cannot be interpreted as Barn
+// bytecode until the compiler has converted a native call continuation.
+// Source, named locals, operand values and PC remain in the owning frame;
+// OperandTypes distinguishes native control-stack markers from MOO integers.
+type NativeFrameSnapshot struct {
+	LanguageVersion int
+	Programmer      types.ObjID
+	ErrorPC         int
+	OperandTypes    []int
+	Sentinel        types.Value
+	Temporary       types.Value
+	Builtin         *NativeBuiltinSnapshot
+}
+
+// NativeBuiltinSnapshot is Toast's recursively serialized builtin call state.
+// State is kept verbatim until a builtin-specific converter validates it.
+type NativeBuiltinSnapshot struct {
+	Name  string
+	State string
+	Inner *NativeBuiltinSnapshot
 }
 
 // MoveContinuationSnapshot is the persistent native state retained while a
@@ -56,18 +129,70 @@ type MoveContinuationSnapshot struct {
 // RecycleContinuationSnapshot is the persistent native state retained while
 // an object's recycle verb is suspended on the owning VM.
 type RecycleContinuationSnapshot struct {
-	Object      types.Value
-	OldParents  []types.ObjID
-	OldChildren []types.ObjID
-	OldContents []types.ObjID
-	OldLocation types.ObjID
+	ExitCallback bool
+	Object       types.Value
+	OldParents   []types.ObjID
+	OldChildren  []types.ObjID
+	OldContents  []types.ObjID
+	OldLocation  types.ObjID
+}
+
+type PendingReasonKind uint8
+
+const (
+	PendingReturn PendingReasonKind = iota + 1
+	PendingError
+	PendingJump
+	// PendingAbort is an error that had no handler when it was raised and
+	// whose finally body then suspended. Toast keeps such an error outside
+	// the task, for #0:handle_uncaught_error, and forgets it when the task
+	// blocks (execute.cc raise_error, run_interpreter), so after the finally
+	// body the task goes on ending: enclosing finally bodies run, nothing
+	// catches it, and nothing is reported.
+	PendingAbort
+)
+
+// PendingReasonSnapshot owns one unwind reason while its cleanup executes.
+type PendingReasonSnapshot struct {
+	Kind         PendingReasonKind
+	Value        types.Value
+	Error        VMErrorSnapshot
+	TargetIP     int
+	HandlerDepth int
+	FinallyIP    int
+	Stack        []types.Value
+}
+
+// RebuildSnapshot marks a Barn frame read from a database. Its program is not
+// stored: restore compiles Program.Source as Program.Origin names and runs
+// that program, or refuses the task when it is not what the frame ran.
+type RebuildSnapshot struct {
+	// Legacy marks a frame written with its bytecode (marker v1). Program
+	// holds that bytecode, and Origin is unknown: restore accepts the frame
+	// only when a compile of the source has equal Code and Constants.
+	Legacy bool
+	// Fingerprint is bytecode.Program.Fingerprint of the program the frame
+	// ran (marker v2).
+	Fingerprint [32]byte
+	// Internal holds the bound compiler temporaries by slot (marker v2).
+	// Named locals are in Program.VarNames and Locals, in saved order.
+	Internal []LocalSlot
+}
+
+// LocalSlot is one zero-based local slot and its value.
+type LocalSlot struct {
+	Slot  int
+	Value types.Value
 }
 
 // VMFrameSnapshot is one activation and its operand-stack segment.
 type VMFrameSnapshot struct {
+	Native              *NativeFrameSnapshot
+	Rebuild             *RebuildSnapshot
 	Program             bytecode.Program
 	IP                  int
 	Locals              []types.Value
+	CommandEnvironment  [6]types.Value
 	Stack               []types.Value
 	This                types.ObjID
 	ThisValue           types.Value
@@ -78,11 +203,12 @@ type VMFrameSnapshot struct {
 	VerbLoc             types.ObjID
 	Args                []types.Value
 	ExceptStack         []bytecode.Handler
-	PendingError        VMErrorSnapshot
-	PendingReturn       types.Value
-	HasPendingReturn    bool
+	PendingReasons      []PendingReasonSnapshot
 	VerbDebug           bool
 	DiscardReturn       bool
+	ReturnLocal         int
+	BuiltinCaller       string
+	BuiltinPC           int
 	IsVerbCall          bool
 	IsEvalFrame         bool
 	ThreadMode          bool // this activation's own set_thread_mode() state; Toast persists it as the threaded flag
@@ -100,6 +226,14 @@ type VMErrorSnapshot struct {
 	Present bool
 	Code    types.ErrorCode
 	Value   types.Value
+	Reason  types.ExceptionReason
+}
+
+// ValidExceptionReason rejects metadata that cannot originate at these guards.
+// Legacy or manually raised errors have an unknown reason, for any error code.
+func (s VMErrorSnapshot) ValidExceptionReason() bool {
+	return s.Reason <= types.ExceptionReasonSecondsBudget &&
+		(s.Reason == types.ExceptionReasonUnknown || (s.Present && s.Code == types.E_MAXREC))
 }
 
 // IsInterruptedForPersistence reports whether the database writer emits this
@@ -135,22 +269,38 @@ func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.
 	s.TaskLocal = transform(s.TaskLocal)
 	for frameIndex := range s.VM.Frames {
 		frame := &s.VM.Frames[frameIndex]
+		if frame.Native != nil {
+			frame.Native.Sentinel = transform(frame.Native.Sentinel)
+			frame.Native.Temporary = transform(frame.Native.Temporary)
+		}
 		for index, value := range frame.Program.Constants {
 			frame.Program.Constants[index] = transform(value)
 		}
 		for index, value := range frame.Locals {
 			frame.Locals[index] = transform(value)
 		}
+		if frame.Rebuild != nil {
+			for index := range frame.Rebuild.Internal {
+				frame.Rebuild.Internal[index].Value = transform(frame.Rebuild.Internal[index].Value)
+			}
+		}
 		for index, value := range frame.Stack {
 			frame.Stack[index] = transform(value)
 		}
 		frame.ThisValue = transform(frame.ThisValue)
+		for index, value := range frame.CommandEnvironment {
+			frame.CommandEnvironment[index] = transform(value)
+		}
 		for index, value := range frame.Args {
 			frame.Args[index] = transform(value)
 		}
-		frame.PendingError.Value = transform(frame.PendingError.Value)
-		if frame.HasPendingReturn {
-			frame.PendingReturn = transform(frame.PendingReturn)
+		for pendingIndex := range frame.PendingReasons {
+			pending := &frame.PendingReasons[pendingIndex]
+			pending.Value = transform(pending.Value)
+			pending.Error.Value = transform(pending.Error.Value)
+			for valueIndex, value := range pending.Stack {
+				pending.Stack[valueIndex] = transform(value)
+			}
 		}
 		frame.SavedThisValue = transform(frame.SavedThisValue)
 		if frame.MoveContinuation != nil {
@@ -164,20 +314,14 @@ func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.
 	}
 }
 
-type vmSnapshotter interface {
-	PersistenceVMSnapshot() *VMSnapshot
-}
-
-// PersistenceSnapshot copies the task fields needed for checkpoint output while
-// holding the task lock.
-func (t *Task) PersistenceSnapshot() Snapshot {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
+// PersistenceSnapshotLocked copies task metadata for checkpoint output. The
+// caller holds Mu or owns unpublished state; the engine captures its saved
+// interpreter under the same lock.
+func (t *State) PersistenceSnapshotLocked() Snapshot {
 	snapshot := Snapshot{
 		ID:                  t.ID,
 		Owner:               t.Owner,
-		State:               t.State,
+		State:               t.Status,
 		StartTime:           t.StartTime,
 		WakeValue:           t.WakeValue,
 		TaskLocal:           t.TaskLocal,
@@ -191,7 +335,7 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 		ExecCommandName:     t.ExecCommandName,
 		IsHTTPReadSuspended: t.IsHTTPReadSuspended,
 	}
-	if t.State == TaskSuspended && !t.WakeTime.IsZero() {
+	if t.Status == TaskSuspended && !t.WakeTime.IsZero() {
 		snapshot.StartTime = t.WakeTime
 	}
 	if t.ForkInfo != nil {
@@ -200,19 +344,39 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 		if t.Program != nil {
 			variableNames = append(variableNames, t.Program.VarNames...)
 			firstLine = t.Program.LineForIP(0)
+			if firstLine <= 0 && len(t.Program.LineInfo) == 0 {
+				// An empty fork body compiles to a program with no
+				// statements and so no line entries. Its first line is
+				// the program default of 1, as Toast's new_program
+				// sets first_lineno and the queued-task reader assumes.
+				firstLine = 1
+			}
 		} else if body := t.ForkInfo.Body; body != nil {
 			variableNames = append(variableNames, body.VariableNames()...)
 			firstLine = body.FirstLine()
 		}
+		for _, name := range CommandVariableNames {
+			if _, ok := t.ForkInfo.Variables[name]; ok && !slices.Contains(variableNames, name) {
+				variableNames = append(variableNames, name)
+			}
+		}
+		variables := cloneValueMap(t.ForkInfo.Variables)
+		if name := t.ForkInfo.VarName; name != "" {
+			// The child's `fork name` variable holds its own task id
+			// (vm.NewForkVM), not the parent's value captured at the
+			// fork, as in the environment Toast's enqueue_forked_task2
+			// saves for the queued child.
+			if variables == nil {
+				variables = make(map[string]types.Value, 1)
+			}
+			variables[name] = types.NewInt(t.ID)
+		}
 		snapshot.Fork = &ForkSnapshot{
-			Variables:     cloneValueMap(t.ForkInfo.Variables),
+			Variables:     variables,
 			VariableNames: variableNames,
 			SourceLines:   append([]string(nil), t.ForkInfo.SourceLines...),
 			FirstLine:     firstLine,
 		}
-	}
-	if machine, ok := t.BytecodeVM.(vmSnapshotter); ok && machine != nil {
-		snapshot.VM = machine.PersistenceVMSnapshot()
 	}
 	return snapshot
 }

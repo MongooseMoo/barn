@@ -42,7 +42,7 @@ func builtinListappend(ctx *Execution, args []types.Value) types.Result {
 	result := list.InsertAt(index+1, value)
 
 	// Check size limit
-	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -77,7 +77,7 @@ func builtinListinsert(ctx *Execution, args []types.Value) types.Result {
 	result := list.InsertAt(index, value)
 
 	// Check size limit
-	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -101,7 +101,7 @@ func builtinListdelete(ctx *Execution, args []types.Value) types.Result {
 	result := list.DeleteAt(index)
 
 	// Check size limit (even for deletions, to be thorough)
-	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -127,7 +127,7 @@ func builtinListset(ctx *Execution, args []types.Value) types.Result {
 	result := list.Set(index, value)
 
 	// Check size limit
-	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -152,7 +152,7 @@ func builtinSetadd(ctx *Execution, args []types.Value) types.Result {
 	result := list.Append(value)
 
 	// Check size limit
-	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -166,22 +166,21 @@ func builtinSetremove(ctx *Execution, args []types.Value) types.Result {
 
 	value := args[1]
 
-	// Find first occurrence
+	// Remove the first occurrence; an absent value leaves the list unchanged.
+	result := list
 	for i := 1; i <= list.Len(); i++ {
 		if list.Get(i).Equal(value) {
-			result := list.DeleteAt(i)
-
-			// Check size limit
-			if err := ctx.Session.CheckListLimit(result); err != types.E_NONE {
-				return types.Err(err)
-			}
-
-			return types.Ok(result)
+			result = list.DeleteAt(i)
+			break
 		}
 	}
 
-	// Not found, return unchanged
-	return types.Ok(list)
+	// Toast list.cc bf_setremove checks the returned list whether or not the
+	// value was found.
+	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
+		return types.Err(err)
+	}
+	return types.Ok(result)
 }
 
 // builtinIsMember tests if value is in list
@@ -214,10 +213,10 @@ func promoteMemberEqual(ctx *Execution, a, b types.Value) (equal bool, handled b
 func builtinIsMember(ctx *Execution, args []types.Value) types.Result {
 	caseMatters := true
 	if len(args) == 3 {
-		if args[2].Type() != types.TYPE_INT {
+		var ok bool
+		if caseMatters, ok = flagArg(args[2]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		caseMatters = args[2].Int() != 0
 	}
 
 	value := args[0]
@@ -280,13 +279,13 @@ func memberEqual(a, b types.Value, caseMatters bool) bool {
 // Signature (toaststunt src/list.cc:1779, sort_callback 947-1020):
 //
 //		sort(list [, keys] [, natural] [, reverse]) -> list
-//		register_function("sort", 1, 4, ..., TYPE_LIST, TYPE_LIST, TYPE_INT, TYPE_INT)
+//		register_function("sort", 1, 4, ..., TYPE_LIST, TYPE_LIST, TYPE_FLAG, TYPE_FLAG)
 //
 //	  - keys (LIST):    parallel list to sort BY; an empty list means "sort by the
 //	    list itself". When non-empty it must have the same length as list, else
 //	    E_INVARG, and the returned elements come from list (not keys).
-//	  - natural (INT):  when true, strings compare with natural order (strnatcasecmp).
-//	  - reverse (INT):  when true, the sorted order is reversed.
+//	  - natural (FLAG): when true, strings compare with natural order (strnatcasecmp).
+//	  - reverse (FLAG): when true, the sorted order is reversed.
 //
 // Errors: bad arity -> E_ARGS; wrong arg types -> E_TYPE (Toast enforces these via
 // register_function's type tokens); the sort-key list must be homogeneous and made
@@ -311,20 +310,17 @@ func builtinSort(ctx *Execution, args []types.Value) types.Result {
 		useKeys = keys.Len() > 0
 	}
 
-	// arg 3: natural flag (INT). arg 4: reverse flag (INT). is_true == nonzero.
-	natural := false
+	// arg 3: natural flag. arg 4: reverse flag. Both is_true.
+	var natural, reverse, ok bool
 	if len(args) >= 3 {
-		if args[2].Type() != types.TYPE_INT {
+		if natural, ok = flagArg(args[2]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		natural = args[2].Int() != 0
 	}
-	reverse := false
 	if len(args) >= 4 {
-		if args[3].Type() != types.TYPE_INT {
+		if reverse, ok = flagArg(args[3]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		reverse = args[3].Int() != 0
 	}
 	return backgroundValue(ctx, func() types.Value {
 		return sortCallback(list, keys, useKeys, natural, reverse)
@@ -906,6 +902,22 @@ func builtinSlice(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewList(result))
 }
 
+// builtinValidateStringLines implements the Mongoose fork's
+// validate_string_lines(LIST): 1 when every row is a string without LF or CR.
+// Rows are checked in order, so the first offending row decides: E_TYPE for a
+// non-string, E_INVARG for a line break.
+func builtinValidateStringLines(ctx *Execution, args []types.Value) types.Result {
+	for _, row := range args[0].Elements() {
+		if row.Type() != types.TYPE_STR {
+			return types.Err(types.E_TYPE)
+		}
+		if strings.ContainsAny(row.Str(), "\n\r") {
+			return types.Err(types.E_INVARG)
+		}
+	}
+	return types.Ok(types.NewInt(1))
+}
+
 func listsDescriptors() []Descriptor {
 	return []Descriptor{
 		function("listappend", builtinListappend, 2, 3, 4, -1, 0),
@@ -914,10 +926,11 @@ func listsDescriptors() []Descriptor {
 		function("listset", builtinListset, 3, 3, 4, -1, 0),
 		function("setadd", builtinSetadd, 2, 2, 4, -1),
 		function("setremove", builtinSetremove, 2, 2, 4, -1),
-		function("is_member", builtinIsMember, 2, 3, -1, -1, 0),
-		function("sort", builtinSort, 1, 4, 4, 4, 0, 0),
+		function("is_member", builtinIsMember, 2, 3, -1, -1, argFlag),
+		function("sort", builtinSort, 1, 4, 4, 4, argFlag, argFlag),
 		function("reverse", builtinReverse, 1, 1, -1),
 		function("unique", builtinUnique, 1, 1, 4).plainArityError().hidden().withCapability(config.BarnExtensions),
 		function("slice", builtinSlice, 1, 3, 4, -1, -1),
+		function("validate_string_lines", builtinValidateStringLines, 1, 1, 4).withCapability(config.BarnExtensions),
 	}
 }

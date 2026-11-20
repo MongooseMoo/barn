@@ -56,6 +56,20 @@ func TestGenerateJsonModeAndBinaryEscapes(t *testing.T) {
 	}
 }
 
+// Distinct MOO keys can share a JSON member name; generate_json writes both,
+// as Toast does, even though parse_json rejects such a document.
+func TestGenerateJsonWritesRepeatedMemberNames(t *testing.T) {
+	ctx := newTestExecution()
+	value := types.NewMap([][2]types.Value{
+		{types.NewInt(1), types.NewStr("number")},
+		{types.NewStr("1"), types.NewStr("string")},
+	})
+	res := admitTestBuiltin("generate_json", ctx, []types.Value{value})
+	if want := `{"1":"number","1":"string"}`; !res.IsNormal() || res.Val.Str() != want {
+		t.Fatalf("generate_json = flow %v error %v value %v, want %s", res.Flow, res.Error, res.Val, want)
+	}
+}
+
 func TestParseJsonNullMapsToENone(t *testing.T) {
 	ctx := newTestExecution()
 
@@ -83,6 +97,83 @@ func TestParseJsonNullMapsToENone(t *testing.T) {
 	}
 }
 
+// ToastStunt 2.8 parse_json fails when two members of one object map to the
+// same MOO key (handle_end_map in json.cc). These are its test_json.rb cases,
+// less the two whose collision depends on Toast decoding escapes to byte
+// escape text; Barn's keys are compared as Barn decodes them.
+func TestParseJsonRejectsDuplicateObjectKeys(t *testing.T) {
+	tests := []struct {
+		json string
+		mode string
+	}{
+		{json: `{"a": 1, "a": 2}`},
+		{json: `{"roles": [], "roles": ["_admin"]}`},
+		{json: `{"a": 1, "b": 2, "a": 3}`},
+		{json: `{"x": {"a": 1, "a": 2}}`},
+		{json: `[1, {"a": 1, "a": 2}]`},
+		{json: `{"a": 1, "A": 2}`},
+		{json: `{"/": 1, "\/": 2}`},
+		{json: `{"a": 1, "a": 2}`, mode: "common-subset"},
+		{json: `{"a": 1, "a|str": 2}`, mode: "embedded-types"},
+		{json: `{"#5|obj": 1, "5|obj": 2}`, mode: "embedded-types"},
+	}
+
+	ctx := newTestExecution()
+	for _, test := range tests {
+		t.Run(test.json+" "+test.mode, func(t *testing.T) {
+			args := []types.Value{types.NewStr(test.json)}
+			if test.mode != "" {
+				args = append(args, types.NewStr(test.mode))
+			}
+			res := admitTestBuiltin("parse_json", ctx, args)
+			if res.Flow != types.FlowException || res.Error != types.E_INVARG {
+				t.Fatalf("parse_json(%q, %q) = flow %v error %v value %v, want E_INVARG", test.json, test.mode, res.Flow, res.Error, res.Val)
+			}
+		})
+	}
+}
+
+func TestParseJsonAcceptsDistinctObjectKeys(t *testing.T) {
+	tests := []struct {
+		json string
+		mode string
+		want types.Value
+	}{
+		{json: `{"a": 1, "b": 2}`, want: types.NewMap([][2]types.Value{
+			{types.NewStr("a"), types.NewInt(1)},
+			{types.NewStr("b"), types.NewInt(2)},
+		})},
+		{json: `[{"a": 1}, {"a": 2}]`, want: types.NewList([]types.Value{
+			types.NewMap([][2]types.Value{{types.NewStr("a"), types.NewInt(1)}}),
+			types.NewMap([][2]types.Value{{types.NewStr("a"), types.NewInt(2)}}),
+		})},
+		{json: `{"a": {"a": 1}}`, want: types.NewMap([][2]types.Value{
+			{types.NewStr("a"), types.NewMap([][2]types.Value{{types.NewStr("a"), types.NewInt(1)}})},
+		})},
+		{json: `{"1|int": 1, "1": 2}`, mode: "embedded-types", want: types.NewMap([][2]types.Value{
+			{types.NewInt(1), types.NewInt(1)},
+			{types.NewStr("1"), types.NewInt(2)},
+		})},
+		{json: `{"5|obj": 1}`, mode: "embedded-types", want: types.NewMap([][2]types.Value{
+			{types.NewObj(5), types.NewInt(1)},
+		})},
+	}
+
+	ctx := newTestExecution()
+	for _, test := range tests {
+		t.Run(test.json+" "+test.mode, func(t *testing.T) {
+			args := []types.Value{types.NewStr(test.json)}
+			if test.mode != "" {
+				args = append(args, types.NewStr(test.mode))
+			}
+			res := admitTestBuiltin("parse_json", ctx, args)
+			if !res.IsNormal() || !res.Val.Equal(test.want) {
+				t.Fatalf("parse_json(%q, %q) = flow %v error %v value %v, want %v", test.json, test.mode, res.Flow, res.Error, res.Val, test.want)
+			}
+		})
+	}
+}
+
 func TestParseJsonToastEscapeSemantics(t *testing.T) {
 	tests := []struct {
 		name string
@@ -99,6 +190,9 @@ func TestParseJsonToastEscapeSemantics(t *testing.T) {
 		{name: "carriage return short escape", json: `"a\rb"`, want: "a~0Db"},
 		{name: "surrogate pair", json: `"\uD83D\uDE00"`, want: "~F0~9F~98~80"},
 		{name: "private use character", json: `"\uE000"`, want: "~EE~80~80"},
+		// The v1 decoder's internal escape marker began with this text and
+		// decoded such a string to "~0A"; it is ordinary text.
+		{name: "old escape marker text", json: `"\uE000barn-json-control-0-n~0A"`, want: "~EE~80~80barn-json-control-0-n~7E0A"},
 	}
 
 	ctx := newTestExecution()

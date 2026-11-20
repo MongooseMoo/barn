@@ -2,6 +2,7 @@ package format
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/MongooseMoo/barn/bytecode"
@@ -81,28 +82,26 @@ func TestSuspendedFrameRoundTripsCompilerTemporarySlots(t *testing.T) {
 	if frame.Program.BuiltinLayout != [32]byte{1, 2, 3} {
 		t.Fatal("checkpoint lost builtin layout")
 	}
-	if frame.Program.NumLocals != bytecode.MaxLocals {
-		t.Fatalf("NumLocals = %d, want %d", frame.Program.NumLocals, bytecode.MaxLocals)
+	// The program is rebuilt at restore (vm.RestoreVMSnapshot places these
+	// in its slots); the reader holds bound named locals by name, in saved
+	// order, and the temporaries by slot.
+	if frame.Rebuild == nil || frame.Rebuild.Legacy {
+		t.Fatalf("rebuild = %+v, want v2", frame.Rebuild)
 	}
-	if len(frame.Locals) != bytecode.MaxLocals {
-		t.Fatalf("len(Locals) = %d, want %d", len(frame.Locals), bytecode.MaxLocals)
+	if !slices.Equal(frame.Program.VarNames, []string{"a", "c"}) || len(frame.Locals) != 2 ||
+		!frame.Locals[0].Equal(types.NewInt(7)) || !frame.Locals[1].Equal(types.NewStr("named")) {
+		t.Fatalf("named locals = %v %v", frame.Program.VarNames, frame.Locals)
 	}
-	if err := bytecode.VerifyProgram(&frame.Program); err != nil {
-		t.Fatalf("restored program failed verification: %v", err)
+	want := []task.LocalSlot{
+		{Slot: 254, Value: types.NewList([]types.Value{types.NewInt(1), types.NewInt(2)})},
+		{Slot: 255, Value: types.NewInt(3)},
 	}
-	for slot, want := range map[int]types.Value{
-		0:   types.NewInt(7),
-		2:   types.NewStr("named"),
-		254: types.NewList([]types.Value{types.NewInt(1), types.NewInt(2)}),
-		255: types.NewInt(3),
-	} {
-		if !frame.Locals[slot].Equal(want) {
-			t.Errorf("Locals[%d] = %v, want %v", slot, frame.Locals[slot], want)
-		}
+	if len(frame.Rebuild.Internal) != len(want) {
+		t.Fatalf("temporaries = %+v, want %+v", frame.Rebuild.Internal, want)
 	}
-	for _, slot := range []int{1, 3, 100, 253} {
-		if !frame.Locals[slot].IsUnbound() {
-			t.Errorf("Locals[%d] = %v, want unbound", slot, frame.Locals[slot])
+	for i, slot := range want {
+		if got := frame.Rebuild.Internal[i]; got.Slot != slot.Slot || !got.Value.Equal(slot.Value) {
+			t.Errorf("temporary %d = %+v, want %+v", i, got, slot)
 		}
 	}
 }

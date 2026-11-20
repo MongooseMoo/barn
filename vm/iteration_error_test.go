@@ -18,7 +18,7 @@ func TestNonDebugInvalidCollectionSkipsLoop(t *testing.T) {
 						for %s in (%s) count = count + 1; endfor
 					endfor
 					return {item, key, count};`, variables, container)
-				store.AddVerb(0, dbstore.NewVerb("probe", []string{"probe"}, 0,
+				store.AddVerb(0, dbstore.NewVerb([]string{"probe"}, 0,
 					dbstore.VerbRead|dbstore.VerbExecute, dbstore.VerbArgs{}, []string{code}))
 				result := runBytecodeProgram(t, `return {"before", #0:probe({}), "after"};`, store, nil)
 				if result.Flow != types.FlowReturn || result.Val.String() != `{"before", {7, 9, 0}, "after"}` {

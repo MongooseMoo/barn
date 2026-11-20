@@ -70,13 +70,36 @@ func TestOperatorMuxDoesNotExposeDebugRoutes(t *testing.T) {
 }
 
 func TestDebugMuxRetainsPrivilegedRoutes(t *testing.T) {
-	mux := debugMux()
-	for _, path := range []string{"/debug/vars", "/debug/pprof/", "/debug/loglevel"} {
+	mux := debugMux(nil)
+	for _, path := range []string{"/debug/vars", "/debug/pprof/", "/debug/loglevel", "/debug/conflict-census"} {
 		res := httptest.NewRecorder()
 		mux.ServeHTTP(res, httptest.NewRequest(http.MethodGet, path, nil))
 		if res.Code == http.StatusNotFound {
 			t.Errorf("GET %s unexpectedly returned 404", path)
 		}
+	}
+}
+
+// The debug endpoint binds an ephemeral port; debug.addr in the log directory
+// names the bound address so tools need not scrape the log.
+func TestDebugAddrFileNamesBoundEndpoint(t *testing.T) {
+	e, err := startHTTPEndpoint("debug", "127.0.0.1:0", debugMux(nil))
+	if err != nil {
+		t.Fatalf("start endpoint: %v", err)
+	}
+	defer e.shutdown()
+	if strings.HasSuffix(e.addr, ":0") || e.addr == "" {
+		t.Fatalf("endpoint addr = %q, want the bound address", e.addr)
+	}
+
+	dir := t.TempDir()
+	writeDebugAddr(dir, e.addr)
+	data, err := os.ReadFile(filepath.Join(dir, "debug.addr"))
+	if err != nil {
+		t.Fatalf("read debug.addr: %v", err)
+	}
+	if strings.TrimSpace(string(data)) != e.addr {
+		t.Errorf("debug.addr = %q, want %q", data, e.addr)
 	}
 }
 

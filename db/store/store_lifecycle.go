@@ -4,29 +4,29 @@ import (
 	"fmt"
 	"github.com/MongooseMoo/barn/types"
 	"slices"
+	"weak"
 )
 
-func (s *Store) createObject(parents []types.ObjID, owner types.ObjID, anonymous bool) (types.ObjID, types.ErrorCode) {
+// createAnonymous creates an anonymous object as a child of parents, owned by owner.
+func (s *Store) createAnonymous(parents []types.ObjID, owner types.ObjID) (types.ObjID, types.ErrorCode) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	newID := s.allocateID()
+	newID := s.allocateAnonymousID()
 	if owner == types.ObjNothing {
 		owner = newID
 	}
 
 	obj := NewObject(newID, owner)
 	obj.parents = append([]types.ObjID(nil), parents...)
-	obj.anonymous = anonymous
-	if anonymous {
-		obj.flags = obj.flags.Set(FlagAnonymous)
-		// Record that an anonymous object was created so the orphan-anon GC
-		// fast-path can detect creations since a task's floor without s.mu.
-		s.anonCreations.Add(1)
-	}
-	obj.properties = s.copyInheritedPropertiesLocked(obj.parents)
+	obj.anonymous = true
+	obj.flags = obj.flags.Set(FlagAnonymous)
+	// Record that an anonymous object was created so the orphan-anon GC
+	// fast-path can detect creations since a task's floor without s.mu.
+	s.anonCreations.Add(1)
+	obj.properties = s.copyInheritedPropertiesLocked(obj.parents, obj.owner)
+	s.shareCreatedProperties(obj.properties)
 	stampObjectAll(obj, ts)
 
 	// Snapshot the numbered parents before attachChildToParentsLocked mutates
@@ -35,127 +35,34 @@ func (s *Store) createObject(parents []types.ObjID, owner types.ObjID, anonymous
 	for _, parentID := range obj.parents {
 		s.republishForMutation(s.load(parentID))
 	}
-	if anonymous {
-		// Anonymous objects live out-of-band in s.anonObjects, never in the
-		// numbered s.objects map (see the field comment in store_core.go and
-		// AddAnonymous). This mirrors ToastStunt, where a live anonymous object
-		// has id == NOTHING and is removed from the numbered objects[] array
-		// (db_make_anonymous, db_objects.cc:449); it is only assigned an
-		// above-max serialization id at dump time (dbpriv_assign_anonymous_object,
-		// db_objects.cc:415). Routing runtime creation here keeps the planner, GC
-		// scan, and serializer over a single set of anonymous objects, so a
-		// runtime-created anon survives a checkpoint just like a loaded one.
-		//
-		// allocateID already bumped highWaterID so the identity id (newID) is never
-		// handed out again; we do NOT touch maxObjID (anonymous objects must not affect
-		// max_object()).
-		s.anonObjects[newID] = obj
-	} else {
-		s.insertObjectLocked(obj)
-	}
-	s.attachChildToParentsLocked(newID, obj.parents, anonymous, false)
+	// Anonymous objects live out-of-band in s.anonObjects, never in the
+	// numbered directory (see the field comment in store_core.go and
+	// AddAnonymous). This mirrors ToastStunt, where a live anonymous object
+	// has id == NOTHING and is removed from the numbered objects[] array
+	// (db_make_anonymous, db_objects.cc:449); it is only assigned an
+	// above-max serialization id at dump time (dbpriv_assign_anonymous_object,
+	// db_objects.cc:415). Routing runtime creation here keeps the planner, GC
+	// scan, and serializer over a single set of anonymous objects, so a
+	// runtime-created anon survives a checkpoint just like a loaded one.
+	//
+	// The identity comes from the anonymous counter (AnonymousIdentityBase), so
+	// neither max_object() nor the next numbered create() moves.
+	s.anonObjects[newID] = obj
+	s.attachChildToParentsLocked(newID, obj.parents, true, false)
 	for _, parentID := range obj.parents {
 		stampObjectRelationship(s.load(parentID), ts)
 	}
 	return newID, types.E_NONE
 }
 
+// NextID returns the next numbered id the allocator will hand out: one past the
+// highest numbered id ever allocated. Recycled ids are not reused.
 func (s *Store) NextID() types.ObjID {
 	return s.highWater() + 1
 }
 
-// MaxObject returns the highest allocated object ID
-// Includes recycled objects (high-water mark)
-
-func (s *Store) maxObject() types.ObjID {
-	return s.maxObjectID()
-}
-
-// Valid checks if an object exists and is not recycled
-
-func (s *Store) valid(id types.ObjID) bool {
-	// Negative IDs are sentinels (nothing, ambiguous, failed_match)
-	if id < 0 {
-		return false
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Check if ID exceeds high water mark (includes anonymous objects)
-	if id > s.highWater() {
-		return false
-	}
-
-	// Resolve through liveObjectLocked so a valid anonymous value (loaded or
-	// runtime-created via create(...,1), which now lives only in s.anonObjects)
-	// is reported valid, not just numbered objects. liveObjectLocked already
-	// excludes recycled/invalidated objects.
-	return s.liveObjectLocked(id) != nil
-}
-
-// IsRecycled checks if an object ID was recycled (vs never existed)
-// Returns true only if the object existed and was recycled
-
-func (s *Store) isRecycled(id types.ObjID) bool {
-	if id < 0 {
-		return false
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.load(id)
-	if obj == nil {
-		return false
-	}
-
-	return obj.recycled
-}
-
-// invalidateAnonymousChildrenLocked marks anonymous children under rootID as invalid.
-// Includes the root object's own anonymous children and all descendants' anonymous children.
-// Caller must hold s.mu lock.
-
-func (s *Store) invalidateAnonymousChildrenLocked(rootID types.ObjID) {
-	queue := []types.ObjID{rootID}
-	visited := make(map[types.ObjID]bool)
-
-	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-
-		current := s.load(currentID)
-		if current == nil || current.recycled {
-			continue
-		}
-
-		for _, childID := range current.anonymousChildren {
-			child := s.load(childID)
-			if child != nil && child.anonymous {
-				child = s.republishForMutation(child)
-				child.flags = child.flags.Set(FlagInvalid)
-				stampObjectScalar(child, ts)
-			}
-		}
-		current = s.republishForMutation(current)
-		current.anonymousChildren = nil
-		stampObjectRelationship(current, ts)
-
-		queue = append(queue, current.children...)
-	}
-}
-
-// Recycle marks an object as recycled
-// Returns error if object doesn't exist or is already recycled
-
+// Recycle marks an object as recycled.
+// Returns error if object doesn't exist or is already recycled.
 func (s *Store) Recycle(id types.ObjID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -182,7 +89,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	s.noteWaifRootsChanged()
-	s.noteVerbShapeChanged()
+	s.noteResolutionShapeChanged()
 	objParents := append([]types.ObjID(nil), obj.parents...)
 	for _, childID := range obj.children {
 		child := s.load(childID)
@@ -208,8 +115,15 @@ func (s *Store) Recycle(id types.ObjID) error {
 			}
 		}
 		child = s.republishForMutation(child)
+		oldChildParents := child.parents
 		child.parents = newChildParents
+		// Toast reparents each child through db_change_parents (bf_recycle,
+		// objects.cc), so the child and its descendants lose the slots of the
+		// properties the recycled object defined. Reseed while obj is still
+		// live so its defined names count as lost ancestry.
+		s.reseedInheritedPropertiesLocked(child, oldChildParents, ts)
 		stampObjectRelationship(child, ts)
+		stampObjectProperties(child, ts)
 
 		for _, newParentID := range objParents {
 			newParent := s.load(newParentID)
@@ -242,7 +156,6 @@ func (s *Store) Recycle(id types.ObjID) error {
 	obj.location = types.ObjNothing
 
 	obj.properties = newPropTable(0)
-	obj.verbs = make(map[string]*Verb)
 
 	for _, parentID := range obj.parents {
 		parent := s.load(parentID)
@@ -258,15 +171,18 @@ func (s *Store) Recycle(id types.ObjID) error {
 	obj.flags = obj.flags.Set(FlagRecycled | FlagInvalid)
 	stampObjectAll(obj, ts)
 
-	// Track for potential reuse
-	s.recycledID = append(s.recycledID, id)
+	// Track for potential reuse. An anonymous object's id is its permanent
+	// identity (see AddAnonymous), so it is never reused.
+	if !obj.anonymous {
+		s.ids.recycled = append(s.ids.recycled, id)
+	}
+	s.refreshDirectRefs(id)
 
 	return nil
 }
 
-// Recreate recreates a recycled object slot (wizard only)
-// Returns error if object is not recycled
-
+// Recreate recreates a recycled object slot.
+// Returns error if object is not recycled.
 func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -283,8 +199,7 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 	// Reset object to fresh state
 	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	s.noteVerbShapeChanged()
+	s.noteResolutionShapeChanged()
 	newObj := NewObject(id, owner)
 	if parent != types.ObjNothing {
 		parentObj := s.load(parent)
@@ -293,11 +208,12 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 		}
 		newObj.parents = []types.ObjID{parent}
 	}
-	newObj.properties = s.copyInheritedPropertiesLocked(newObj.parents)
+	newObj.properties = s.copyInheritedPropertiesLocked(newObj.parents, newObj.owner)
+	s.shareCreatedProperties(newObj.properties)
 	stampObjectAll(newObj, ts)
 
 	s.publishLocked(id, newObj)
-	s.recycledID = removeRecycledID(s.recycledID, id)
+	s.ids.recycled = removeRecycledID(s.ids.recycled, id)
 	if parent != types.ObjNothing {
 		s.republishForMutation(s.load(parent))
 		s.attachChildToParentsLocked(id, newObj.parents, false, false)
@@ -318,7 +234,6 @@ func removeRecycledID(ids []types.ObjID, id types.ObjID) []types.ObjID {
 
 // All returns flat, read-only ObjectViews for every valid (non-recycled)
 // object. The store never hands out live *Object values to external callers.
-
 func (s *Store) All() []ObjectView {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -334,6 +249,7 @@ func (s *Store) All() []ObjectView {
 	return result
 }
 
+// Players returns all objects with the player flag set.
 func (s *Store) Players() []types.ObjID {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -349,33 +265,37 @@ func (s *Store) Players() []types.ObjID {
 	return result
 }
 
-// LowestFreeID finds the lowest available object ID
-// Checks recycled slots and gaps in the ID sequence
-
+// LowestFreeID finds the lowest available object ID.
+// Checks recycled slots and gaps in the ID sequence.
 func (s *Store) LowestFreeID() types.ObjID {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// First check for recycled slots (lowest first). recycledMu guards against a
+	// First check for recycled slots (lowest first). ids.recycledMu guards against a
 	// concurrent decentralized recycle append (also under store.mu.RLock).
 	lowestRecycled := types.ObjID(-1)
-	s.recycledMu.Lock()
-	for _, id := range s.recycledID {
+	s.ids.recycledMu.Lock()
+	for _, id := range s.ids.recycled {
 		if lowestRecycled == -1 || id < lowestRecycled {
 			lowestRecycled = id
 		}
 	}
-	s.recycledMu.Unlock()
+	s.ids.recycledMu.Unlock()
 	if lowestRecycled != -1 {
 		return lowestRecycled
 	}
 
-	// Check for gaps in ID sequence (0 to maxObjID)
+	// Check for gaps in ID sequence (0 to ids.max)
 	maxID := s.maxObjectID()
 	for id := types.ObjID(0); id <= maxID; id++ {
 		obj := s.load(id)
 		if obj == nil {
-			return id
+			// An id with no numbered slot may belong to an anonymous object,
+			// which never gives up its id to a numbered object.
+			if s.anonObjects[id] == nil {
+				return id
+			}
+			continue
 		}
 		if obj.recycled {
 			return id
@@ -386,9 +306,8 @@ func (s *Store) LowestFreeID() types.ObjID {
 	return maxID + 1
 }
 
-// Renumber moves an object from oldID to newID, updating all references
-// Returns the new ID, or error if object doesn't exist
-
+// Renumber moves an object from oldID to newID, updating all references.
+// Returns an error if the object doesn't exist or newID is taken.
 func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -422,7 +341,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
 	s.noteWaifRootsChanged()
-	s.noteVerbShapeChanged()
+	s.noteResolutionShapeChanged()
 	tombstone := NewObject(oldID, obj.owner)
 	tombstone.recycled = true
 	tombstone.flags = tombstone.flags.Set(FlagRecycled | FlagInvalid)
@@ -437,16 +356,18 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	// Move in store
 	s.publishLocked(oldID, tombstone)
 	s.publishLocked(newID, renumbered)
+	s.refreshDirectRefs(oldID)
+	s.refreshDirectRefs(newID)
 
-	// Update recycledID list - remove newID if present, add oldID
+	// Update ids.recycled list - remove newID if present, add oldID
 	newRecycled := []types.ObjID{}
-	for _, rid := range s.recycledID {
+	for _, rid := range s.ids.recycled {
 		if rid != newID {
 			newRecycled = append(newRecycled, rid)
 		}
 	}
 	newRecycled = append(newRecycled, oldID)
-	s.recycledID = newRecycled
+	s.ids.recycled = newRecycled
 
 	// rewriteOwner mirrors ToastStunt's owner-fix rule in db_renumber_object
 	// (src/db_objects.cc:666-669, applied identically to verbdef owners at
@@ -519,7 +440,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		// re-stamp other under COW only when an owner reference actually changes.
 		ownerTouched := other.owner == oldID || other.owner == newID
 		if !ownerTouched {
-			for _, v := range other.verbs {
+			for _, v := range other.verbList {
 				if v.owner == oldID || v.owner == newID {
 					ownerTouched = true
 					break
@@ -537,92 +458,124 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		if ownerTouched {
 			other = s.republishForMutation(other)
 			other.owner = rewriteOwner(other.owner)
-			for _, v := range other.verbs {
-				v.owner = rewriteOwner(v.owner)
+			// A rewritten verb or slot gets a new version, as a committed write
+			// of it does, so a transaction that read the old owner fails
+			// validation instead of committing over the rewrite.
+			for _, v := range other.verbList {
+				if owner := rewriteOwner(v.owner); owner != v.owner {
+					v.owner = owner
+					stampVerb(v, ts)
+				}
 			}
-			for name, p := range other.properties.all() {
-				p.owner = rewriteOwner(p.owner)
-				other.properties.put(name, p)
-			}
+			rewritePropertyOwners(other, rewriteOwner, ts)
 			stampObjectAll(other, ts)
 		}
 		return true
 	})
 
-	// Fix references in anonymous objects as well. Before F2 (commit 7318d24)
-	// runtime anonymous objects lived in the numbered s.objects map, so the
-	// structural walk above rewrote their parent/location/etc. references to a
-	// renumbered object. F2 moved them out-of-band into s.anonObjects, so they
-	// must be walked here to preserve that behavior — otherwise an anonymous
-	// child of a renumbered object keeps a stale parent id and property access
-	// through it fails (E_PROPNF). Toast walks anonymous_objects in
+	// Fix references in anonymous objects as well. They live in s.anonObjects,
+	// not the directory walked above, so without this an anonymous child of a
+	// renumbered object keeps a stale parent id and property access through it
+	// fails (E_PROPNF). Toast walks anonymous_objects in
 	// db_renumber_object for the same reason (db_objects.cc:686-705); anonymous
 	// objects carry no verbdefs, so only object/propval owners are rewritten for
 	// ownership, alongside the structural parent/child/location/contents refs.
+	//
+	// An anonymous object is changed in place, as a commit writing it is
+	// (ownImage), and each rewrite moves the versions an ordinary committed
+	// write of that field moves, so a transaction that read the old value fails
+	// validation.
 	for _, anon := range s.anonObjects {
 		if anon == nil {
 			continue
 		}
-		for i, pid := range anon.parents {
-			if pid == oldID {
-				anon.parents[i] = newID
-			}
-		}
-		for i, cid := range anon.children {
-			if cid == oldID {
-				anon.children[i] = newID
-			}
-		}
-		for i, cid := range anon.anonymousChildren {
-			if cid == oldID {
-				anon.anonymousChildren[i] = newID
-			}
-		}
+		relationship := replaceObjID(anon.parents, oldID, newID)
+		relationship = replaceObjID(anon.children, oldID, newID) || relationship
+		relationship = replaceObjID(anon.anonymousChildren, oldID, newID) || relationship
 		if anon.chparentChildren != nil && anon.chparentChildren[oldID] {
 			delete(anon.chparentChildren, oldID)
 			anon.chparentChildren[newID] = true
+			relationship = true
 		}
 		if anon.location == oldID {
 			anon.location = newID
+			relationship = true
 		}
-		for i, cid := range anon.contents {
-			if cid == oldID {
-				anon.contents[i] = newID
-			}
+		relationship = replaceObjID(anon.contents, oldID, newID) || relationship
+		if relationship {
+			stampObjectRelationship(anon, ts)
 		}
-		anon.owner = rewriteOwner(anon.owner)
-		for name, p := range anon.properties.all() {
-			p.owner = rewriteOwner(p.owner)
-			anon.properties.put(name, p)
+		if owner := rewriteOwner(anon.owner); owner != anon.owner {
+			anon.owner = owner
+			stampObjectScalar(anon, ts)
+		}
+		if rewritePropertyOwners(anon, rewriteOwner, ts) {
+			anon.propertyVersion = ts
 		}
 	}
 
 	return nil
 }
 
-// FindProperty looks up a property on an object, following the inheritance chain
-// breadth-first. Permission metadata comes from the nearest property slot, while
-// a clear slot inherits the first non-clear value from an ancestor.
+// replaceObjID replaces every oldID in ids with newID in place and reports
+// whether it replaced any.
+func replaceObjID(ids []types.ObjID, oldID, newID types.ObjID) bool {
+	replaced := false
+	for i, id := range ids {
+		if id == oldID {
+			ids[i] = newID
+			replaced = true
+		}
+	}
+	return replaced
+}
 
+// rewritePropertyOwners rewrites the owner of each of obj's slots through
+// rewrite and reports whether any changed. A changed slot gets version ts, as a
+// committed write of the slot does (applyTailWrites), so a transaction that
+// read the slot fails validation; the caller stamps the object's versions.
+func rewritePropertyOwners(obj *Object, rewrite func(types.ObjID) types.ObjID, ts uint64) bool {
+	changed := false
+	for name, p := range obj.properties.all() {
+		if owner := rewrite(p.owner); owner != p.owner {
+			p.owner = owner
+			p.version = ts
+			obj.properties.put(name, p)
+			changed = true
+		}
+	}
+	return changed
+}
+
+// RegisterWaif registers a waif with its class object, and unregisters it when
+// the waif is collected.
 func (s *Store) RegisterWaif(classID types.ObjID, waif types.Value) {
 	identity := waif.WaifIdentity()
 	s.mu.Lock()
 	if s.waifRegistry == nil {
-		s.waifRegistry = make(map[types.ObjID]map[types.WaifIdentity]struct{})
+		s.waifRegistry = make(map[types.ObjID]map[types.WaifIdentity]types.WeakWaif)
 	}
 
 	if s.waifRegistry[classID] == nil {
-		s.waifRegistry[classID] = make(map[types.WaifIdentity]struct{})
+		s.waifRegistry[classID] = make(map[types.WaifIdentity]types.WeakWaif)
 	}
 
 	if _, registered := s.waifRegistry[classID][identity]; registered {
 		s.mu.Unlock()
 		return
 	}
-	s.waifRegistry[classID][identity] = struct{}{}
+	s.waifRegistry[classID][identity] = waif.WeakWaif()
 	s.mu.Unlock()
 
-	waif.AddWaifCleanup(func() { s.unregisterWaif(classID, identity) })
+	// The cleanup must not reach the waif (AddWaifCleanup's contract), and the
+	// store reaches every waif it holds, so the cleanup refers to the store
+	// weakly. A strong reference pinned the store and the waif forever.
+	registry := weak.Make(s)
+	waif.AddWaifCleanup(func() {
+		if s := registry.Value(); s != nil {
+			s.unregisterWaif(classID, identity)
+		}
+	})
 }
 
 func (s *Store) unregisterWaif(classID types.ObjID, identity types.WaifIdentity) {
@@ -635,8 +588,7 @@ func (s *Store) unregisterWaif(classID types.ObjID, identity types.WaifIdentity)
 	}
 }
 
-// WaifCount returns the total number of live waifs across all classes
-
+// WaifCount returns the total number of live waifs across all classes.
 func (s *Store) WaifCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -648,8 +600,7 @@ func (s *Store) WaifCount() int {
 	return count
 }
 
-// WaifCountByClass returns a map of class ID to waif count
-
+// WaifCountByClass returns a map of class ID to waif count.
 func (s *Store) WaifCountByClass() map[types.ObjID]int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -663,14 +614,19 @@ func (s *Store) WaifCountByClass() map[types.ObjID]int {
 	return result
 }
 
-// InvalidateAnonymousChildren marks all anonymous children of an object as invalid
-// This is called when the parent hierarchy changes (recycle, chparents, add_property, delete_property, renumber)
+// WaifCountByOwner returns how many registered waifs that are still reachable
+// have the given owner.
+func (s *Store) WaifCountByOwner(owner types.ObjID) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-func (s *Store) InvalidateAnonymousChildren(parentID types.ObjID) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.invalidateAnonymousChildrenLocked(parentID)
+	count := 0
+	for _, waifs := range s.waifRegistry {
+		for _, weak := range waifs {
+			if waif, alive := weak.Value(); alive && waif.Owner() == owner {
+				count++
+			}
+		}
+	}
+	return count
 }
-
-// NoteVerbCacheClear increments the compatibility clear counter used by verb_cache_stats().

@@ -46,13 +46,17 @@ func builtinPcreMatch(ctx *Execution, args []types.Value) types.Result {
 
 	text := subject.Str()
 	offsets := pcreByteOffsets(text)
-	mapped, _, ok := pcreSubjectRunes(text)
+	mapped, ok := pcreSubjectRunes(text)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
 	out := make([]types.Value, 0)
+	maxLoops := pcreMatchMaxIterations(ctx)
 	m, merr := re.re.FindStringMatch(mapped)
-	for m != nil && merr == nil {
+	for loops := uint32(1); m != nil && merr == nil; loops++ {
+		if loops >= maxLoops {
+			return pcreTooManyIterations(loops)
+		}
 		entryPairs := make([][2]types.Value, 0, len(re.groups)+1)
 		entryPairs = append(entryPairs, [2]types.Value{
 			types.NewStr("0"),
@@ -87,6 +91,34 @@ func builtinPcreMatch(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewList(out))
 }
 
+// Toast's bf_pcre_match counts every pass of its match loop against
+// $server_options.pcre_match_max_iterations (pcre_moo.cc:198-202): default
+// DEFAULT_LOOPS, at least 100, at most 100000000. Toast assigns the option's
+// C int to an unsigned int, so a negative option wraps and takes the maximum.
+const (
+	pcreMatchDefaultLoops = 1000
+	pcreMatchMinLoops     = 100
+	pcreMatchMaxLoops     = 100000000
+)
+
+func pcreMatchMaxIterations(ctx *Execution) uint32 {
+	loops := uint32(serverIntOption(ctx, "pcre_match_max_iterations", pcreMatchDefaultLoops))
+	return min(max(loops, pcreMatchMinLoops), pcreMatchMaxLoops)
+}
+
+// pcreTooManyIterations is Toast's raise when a pass of the match loop finds a
+// match and the pass count has reached the limit (pcre_moo.cc:226-233). It
+// comes before that match is added, so limit-1 matches is the most a call
+// returns.
+func pcreTooManyIterations(loops uint32) types.Result {
+	message := "Too many iterations of matching loop: " + strconv.FormatUint(uint64(loops), 10)
+	return types.Result{
+		Flow:  types.FlowException,
+		Error: types.E_MAXREC,
+		Val:   types.NewList([]types.Value{types.NewErr(types.E_MAXREC), types.NewStr(message), types.NewInt(0)}),
+	}
+}
+
 // pcreByteOffsets maps regexp2's rune indices, which are MOO character
 // positions, to byte offsets for cutting the matched text. It returns nil for
 // pure-ASCII subjects, where the two coincide.
@@ -103,28 +135,25 @@ func pcreByteOffsets(text string) []int {
 
 // regexp2 decodes its input to runes, turning every invalid UTF-8 byte into
 // U+FFFD. pcreSubjectRunes instead maps each invalid byte b to base+b, where
-// base starts a 256-rune private-use block that neither the subject nor the
-// extra strings (a replacement template) use, so restoreInvalidBytes can put
-// the original bytes back. Each invalid byte stays one rune, one character.
-// base is 0 when the subject is valid UTF-8 and needs no mapping.
-func pcreSubjectRunes(subject string, extra ...string) (mapped string, base rune, ok bool) {
+// base starts a 256-rune private-use block the subject does not use, so an
+// invalid byte matches only itself. Each invalid byte stays one rune, one
+// character, and callers cut matched text from the original subject.
+func pcreSubjectRunes(subject string) (mapped string, ok bool) {
 	if utf8.ValidString(subject) {
-		return subject, 0, true
+		return subject, true
 	}
 	const firstBlock, lastBlock = 0xf0000 >> 8, 0x10ff00 >> 8
 	var used [lastBlock - firstBlock + 1]bool
-	for _, s := range append(extra, subject) {
-		for _, r := range s {
-			if b := int(r >> 8); b >= firstBlock && b <= lastBlock {
-				used[b-firstBlock] = true
-			}
+	for _, r := range subject {
+		if b := int(r >> 8); b >= firstBlock && b <= lastBlock {
+			used[b-firstBlock] = true
 		}
 	}
 	for i, taken := range used {
 		if taken {
 			continue
 		}
-		base = rune((firstBlock + i) << 8)
+		base := rune((firstBlock + i) << 8)
 		var out strings.Builder
 		out.Grow(len(subject) + len(subject)/2)
 		for j := 0; j < len(subject); {
@@ -136,26 +165,9 @@ func pcreSubjectRunes(subject string, extra ...string) (mapped string, base rune
 			}
 			j += size
 		}
-		return out.String(), base, true
+		return out.String(), true
 	}
-	return "", 0, false
-}
-
-// restoreInvalidBytes undoes pcreSubjectRunes' mapping.
-func restoreInvalidBytes(s string, base rune) string {
-	if base == 0 {
-		return s
-	}
-	var out strings.Builder
-	out.Grow(len(s))
-	for _, r := range s {
-		if r >= base && r <= base+0xff {
-			out.WriteByte(byte(r - base))
-		} else {
-			out.WriteRune(r)
-		}
-	}
-	return out.String()
+	return "", false
 }
 
 func buildPcreCapture(subject string, offsets []int, g *regexp2.Group) types.Value {
@@ -209,33 +221,149 @@ func builtinPcreReplace(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	replacement = normalizePcreReplacement(replacement)
-
-	count := 1
-	if global {
-		count = -1
-	}
-	text, base, ok := pcreSubjectRunes(subject.Str(), replacement)
+	parts, ok := parsePcrsReplacement(replacement, len(re.groups))
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
-	out, rerr := re.re.Replace(text, replacement, -1, count)
-	if rerr != nil {
-		return types.Err(types.E_INVARG)
-	}
-	out = restoreInvalidBytes(out, base)
 	if ctx == nil || ctx.Session == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if errCode := ctx.Session.CheckStringLimitForTask(ctx.TaskContext, out); errCode != types.E_NONE {
+
+	source := subject.Str()
+	text, ok := pcreSubjectRunes(source)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+	offsets := pcreByteOffsets(source)
+	byteAt := func(i int) int {
+		if offsets == nil {
+			return i
+		}
+		return offsets[i]
+	}
+	// Build from the original bytes, so invalid UTF-8 needs no restoring and
+	// the string limit applies as the result grows, not after an unbounded
+	// result has been built.
+	var out strings.Builder
+	quota := func() types.ErrorCode {
+		return ctx.Session.CheckStringLengthForTask(ctx.Context, out.Len())
+	}
+	last := 0
+	m, merr := re.re.FindStringMatch(text)
+	for m != nil && merr == nil {
+		start := byteAt(m.Index)
+		out.WriteString(source[last:start])
+		for _, part := range parts {
+			out.WriteString(part.text)
+			if part.group < 0 {
+				continue
+			}
+			if g := pcreGroupByNumber(re, m, part.group); g != nil && len(g.Captures) > 0 {
+				out.WriteString(source[byteAt(g.Index):byteAt(g.Index+g.Length)])
+			}
+		}
+		if errCode := quota(); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		last = byteAt(m.Index + m.Length)
+		if !global {
+			break
+		}
+		m, merr = re.re.FindNextMatch(m)
+	}
+	if merr != nil {
+		return types.Err(types.E_INVARG)
+	}
+	out.WriteString(source[last:])
+	if errCode := quota(); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	return types.Ok(types.NewStr(out))
+	return types.Ok(types.NewStr(out.String()))
 }
 
-func normalizePcreReplacement(replacement string) string {
-	// MOO PCRE replacement supports $& for whole-match; Go uses $0.
-	return strings.ReplaceAll(replacement, "$&", "$0")
+// pcrsPart is one literal run of a replacement template followed by the
+// capture group it references, or by nothing when group is -1.
+type pcrsPart struct {
+	text  string
+	group int
+}
+
+// Toast's pcre_replace runs pcrs (src/dependencies/pcrs.c). Its template
+// compiler (pcrs_compile_replacement, pcrs.c:309-371) recognises $N (all the
+// digits, an error when N exceeds the pattern's capture count), $& (group 0),
+// $+ (the highest-numbered group) and $` / $'; any other '$' is a plain
+// character, so "$_", "$$" and "${name}" are literal text. A template may
+// reference at most PCRS_MAX_SUBMATCHES-1 (32) groups. pcrs_execute
+// (pcrs.c:900-916) copies $` and $' only when their slot number (33, 34) is
+// below the match's submatch count, which it never is, so they insert nothing.
+const pcrsMaxSubmatches = 33
+
+func parsePcrsReplacement(replacement string, captureCount int) ([]pcrsPart, bool) {
+	var parts []pcrsPart
+	var lit strings.Builder
+	for i := 0; i < len(replacement); {
+		if replacement[i] != '$' || i+1 >= len(replacement) {
+			lit.WriteByte(replacement[i])
+			i++
+			continue
+		}
+		var group int
+		next := replacement[i+1]
+		switch {
+		case next >= '0' && next <= '9':
+			n, j := 0, i+1
+			for ; j < len(replacement) && replacement[j] >= '0' && replacement[j] <= '9'; j++ {
+				if n <= captureCount {
+					n = n*10 + int(replacement[j]-'0')
+				}
+			}
+			if n > captureCount || n >= pcrsMaxSubmatches+2 {
+				return nil, false
+			}
+			group, i = n, j
+		case next == '&':
+			group, i = 0, i+2
+		case next == '+':
+			group, i = captureCount, i+2
+		case next == '`' || next == '\'':
+			group, i = pcrsMaxSubmatches, i+2
+		default:
+			lit.WriteByte('$')
+			i++
+			continue
+		}
+		if len(parts) >= pcrsMaxSubmatches-1 {
+			return nil, false
+		}
+		if group >= pcrsMaxSubmatches {
+			group = -1 // pcrs copies nothing for these slots
+		}
+		parts = append(parts, pcrsPart{text: lit.String(), group: group})
+		lit.Reset()
+	}
+	return append(parts, pcrsPart{text: lit.String(), group: -1}), true
+}
+
+// pcreGroupByNumber returns PCRE capture group n of m. regexp2 numbers named
+// groups after the unnamed ones, so a PCRE number is mapped through the
+// pattern's group list, as pcre_match does.
+func pcreGroupByNumber(re *pcrePattern, m *regexp2.Match, n int) *regexp2.Group {
+	if n == 0 {
+		return &m.Group
+	}
+	if n > len(re.groups) {
+		return nil
+	}
+	if name := re.groups[n-1]; name != "" {
+		return m.GroupByName(name)
+	}
+	unnamed := 0
+	for _, name := range re.groups[:n] {
+		if name == "" {
+			unnamed++
+		}
+	}
+	return m.GroupByNumber(unnamed)
 }
 
 func parseSedReplaceSpec(spec string) (pattern, replacement, flags string, ok bool) {
@@ -290,7 +418,7 @@ func builtinPcreCacheStats(ctx *Execution, args []types.Value) types.Result {
 func pcreDescriptors() []Descriptor {
 	return []Descriptor{
 		function("pcre_cache_stats", builtinPcreCacheStats, 0, 0),
-		function("pcre_match", builtinPcreMatch, 2, 4, 2, 2, 0, 0),
+		function("pcre_match", builtinPcreMatch, 2, 4, 2, 2, argFlag, argFlag),
 		function("pcre_replace", builtinPcreReplace, 2, 2, 2, 2),
 	}
 }

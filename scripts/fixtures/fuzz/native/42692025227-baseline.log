@@ -1,0 +1,23 @@
+go version go1.27.1 linux/amd64
+fuzz: elapsed: 0s, gathering baseline coverage: 0/306 completed
+fuzz: minimizing 889-byte failing input file
+fuzz: elapsed: 3s, gathering baseline coverage: 151/306 completed
+fuzz: elapsed: 6s, gathering baseline coverage: 151/306 completed
+fuzz: elapsed: 9s, gathering baseline coverage: 151/306 completed
+fuzz: elapsed: 12s, gathering baseline coverage: 151/306 completed
+fuzz: elapsed: 15s, gathering baseline coverage: 151/306 completed
+fuzz: elapsed: 18s, gathering baseline coverage: 151/306 completed
+fuzz: elapsed: 21s, gathering baseline coverage: 151/306 completed
+fuzz: elapsed: 24s, gathering baseline coverage: 151/306 completed
+fuzz: elapsed: 27s, gathering baseline coverage: 151/306 completed
+fuzz: elapsed: 29s, gathering baseline coverage: 151/306 completed
+--- FAIL: FuzzReadDatabase (28.93s)
+    --- FAIL: FuzzReadDatabase (0.00s)
+        reader_fuzz_test.go:82: round-trip verification failed: suspended task 0 frame 0 locals differs
+    
+    Failing input written to testdata/fuzz/FuzzReadDatabase/6b8992e5372061cb
+    To re-run:
+    go test -run=FuzzReadDatabase/6b8992e5372061cb
+FAIL
+exit status 1
+FAIL	github.com/MongooseMoo/barn/db/format	28.968s

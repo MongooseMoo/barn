@@ -1,0 +1,302 @@
+name: empty_notifications
+description: Mongoose notification traversal skips empty generic leaves while retaining custom callbacks and cooperative scheduling.
+requires:
+  builtins: [create, recycle, move, chparent, pass, raise, respond_to, suspend, yin, ticks_left, add_property, delete_property, add_verb, set_verb_code, set_verb_info]
+
+tests:
+  - name: empty_generic_notifications_do_not_yield
+    permission: wizard
+    steps:
+      - &new_generic
+        run: create($nothing)
+        capture: generic
+      - &declare_generic
+        run: |
+          add_property(#0, "root_class", {generic}, {player, "rw"});
+          add_property({generic}, "owned", {{generic}}, {player, "rw"});
+          add_property({generic}, "events", {}, {player, "rw"});
+          add_property({generic}, "done", 0, {player, "rw"});
+          add_property({generic}, "label", "", {player, "rw"});
+          return 1;
+      - &fixture_factory
+        verb_setup:
+          object: "{generic}"
+          name: "new_fixture"
+          args: ["this", "none", "this"]
+          code: |
+            obj = create(this);
+            this.owned = {@this.owned, obj};
+            return obj;
+      - &generic_notification
+        verb_setup:
+          object: "{generic}"
+          name: "loc_enter"
+          args: ["this", "none", "this"]
+          code: |
+            "Notify descendants, yielding after real hooks and when the scan needs budget.";
+            {what, where, ?level = 0} = args;
+            for c in (this.contents)
+              if (valid(c))
+                handler = respond_to(c, verb);
+                if (handler && ((handler[1] != $root_class) || c.contents))
+                  c:(verb)(what, where, level + 1);
+                  suspend(0);
+                endif
+              endif
+              yin();
+            endfor
+        expect:
+          value: []
+      - &generic_aliases
+        run: 'set_verb_info({generic}, "loc_enter", {player, "xd", "loc_enter loc_exit"}); return 1;'
+      - &new_container
+        run: "{generic}:new_fixture()"
+        capture: container
+      - &new_observer
+        run: "{generic}:new_fixture()"
+        capture: observer
+      - run: |
+          for i in [1..8]
+            leaf = {generic}:new_fixture();
+            move(leaf, {container});
+          endfor
+          fork (0)
+            {observer}.done = 1;
+          endfork
+          {container}:loc_enter({observer}, {container});
+          yielded = {observer}.done;
+          while (!{observer}.done)
+            suspend(0);
+          endwhile
+          return {yielded, length({container}.contents)};
+        expect:
+          value: [0, 8]
+    cleanup: &cleanup_fixtures
+      - run: |
+          delete_property(#0, "root_class");
+          if (valid({generic}))
+            owned = {generic}.owned;
+            i = length(owned);
+            while (i > 0)
+              if (valid(owned[i]))
+                recycle(owned[i]);
+              endif
+              i = i - 1;
+            endwhile
+          endif
+          return 1;
+
+  - name: custom_empty_notifications_keep_fork_before_next_hook
+    permission: wizard
+    steps:
+      - *new_generic
+      - *declare_generic
+      - *fixture_factory
+      - *generic_notification
+      - *generic_aliases
+      - *new_container
+      - *new_observer
+      - &new_custom
+        run: "{generic}:new_fixture()"
+        capture: custom
+      - verb_setup:
+          object: "{custom}"
+          name: "loc_enter"
+          args: ["this", "none", "this"]
+          code: |
+            observer = args[1];
+            observer.events = {@observer.events, this.label};
+            fork (0)
+              observer.events = {@observer.events, "fork-" + this.label};
+            endfork
+        expect:
+          value: []
+      - run: 'set_verb_info({custom}, "loc_enter", {player, "xd", "loc_enter loc_exit"}); return 1;'
+      - run: |
+          first = {generic}:new_fixture();
+          second = {generic}:new_fixture();
+          chparent(first, {custom});
+          chparent(second, {custom});
+          first.label = "first";
+          second.label = "second";
+          move(first, {container});
+          move(second, {container});
+          {container}:loc_enter({observer}, {container});
+          return {observer}.events;
+        expect:
+          value: [first, fork-first, second, fork-second]
+    cleanup: *cleanup_fixtures
+
+  - name: nested_notifications_keep_arguments_levels_alias_and_order
+    permission: wizard
+    steps:
+      - *new_generic
+      - *declare_generic
+      - *fixture_factory
+      - *generic_notification
+      - *generic_aliases
+      - *new_container
+      - *new_observer
+      - *new_custom
+      - verb_setup:
+          object: "{custom}"
+          name: "loc_enter"
+          args: ["this", "none", "this"]
+          code: |
+            {what, where, level} = args;
+            what.events = {@what.events, {this.label, verb, level, where == what}};
+            pass(@args);
+        expect:
+          value: []
+      - run: 'set_verb_info({custom}, "loc_enter", {player, "xd", "loc_enter loc_exit"}); return 1;'
+      - run: |
+          branch = {generic}:new_fixture();
+          leaf = {generic}:new_fixture();
+          chparent(branch, {custom});
+          chparent(leaf, {custom});
+          branch.label = "branch";
+          leaf.label = "leaf";
+          move(branch, {container});
+          move(leaf, branch);
+          {container}:loc_enter({observer}, {observer});
+          {container}:loc_exit({observer}, {observer});
+          return {observer}.events;
+        expect:
+          value: [[branch, loc_enter, 1, 1], [leaf, loc_enter, 2, 1], [branch, loc_exit, 1, 1], [leaf, loc_exit, 2, 1]]
+    cleanup: *cleanup_fixtures
+
+  - name: generic_nonempty_branch_reaches_custom_leaf
+    permission: wizard
+    steps:
+      - *new_generic
+      - *declare_generic
+      - *fixture_factory
+      - *generic_notification
+      - *generic_aliases
+      - *new_container
+      - *new_observer
+      - *new_custom
+      - verb_setup:
+          object: "{custom}"
+          name: "loc_enter"
+          args: ["this", "none", "this"]
+          code: |
+            {what, where, level} = args;
+            what.events = {@what.events, {this.label, level, where == what}};
+        expect:
+          value: []
+      - run: |
+          branch = {generic}:new_fixture();
+          leaf = {generic}:new_fixture();
+          chparent(leaf, {custom});
+          leaf.label = "leaf";
+          move(branch, {container});
+          move(leaf, branch);
+          {container}:loc_enter({observer}, {observer});
+          return {observer}.events;
+        expect:
+          value: [[leaf, 2, 1]]
+    cleanup: *cleanup_fixtures
+
+  - name: notification_scan_ignores_sibling_recycled_during_custom_yield
+    permission: wizard
+    steps:
+      - *new_generic
+      - *declare_generic
+      - *fixture_factory
+      - *generic_notification
+      - *generic_aliases
+      - *new_container
+      - *new_observer
+      - *new_custom
+      - verb_setup:
+          object: "{custom}"
+          name: "loc_enter"
+          args: ["this", "none", "this"]
+          code: |
+            observer = args[1];
+            observer.events = {@observer.events, this.label};
+            if (this.label == "first")
+              fork (0)
+                recycle(observer.victim);
+              endfork
+            endif
+        expect:
+          value: []
+      - run: 'set_verb_info({custom}, "loc_enter", {player, "xd", "loc_enter loc_exit"}); return 1;'
+      - run: |
+          first = {generic}:new_fixture();
+          victim = {generic}:new_fixture();
+          second = {generic}:new_fixture();
+          chparent(first, {custom});
+          chparent(second, {custom});
+          first.label = "first";
+          second.label = "second";
+          add_property({observer}, "victim", victim, {player, "rw"});
+          move(first, {container});
+          move(victim, {container});
+          move(second, {container});
+          {container}:loc_enter({observer}, {container});
+          return {{observer}.events, !valid(victim)};
+        expect:
+          value: [[first, second], 1]
+    cleanup: *cleanup_fixtures
+
+  - name: custom_notification_errors_remain_native
+    permission: wizard
+    steps:
+      - *new_generic
+      - *declare_generic
+      - *fixture_factory
+      - *generic_notification
+      - *generic_aliases
+      - *new_container
+      - *new_observer
+      - *new_custom
+      - verb_setup:
+          object: "{custom}"
+          name: "loc_enter"
+          args: ["this", "none", "this"]
+          code: "raise(E_DIV);"
+        expect:
+          value: []
+      - run: 'set_verb_info({custom}, "loc_enter", {player, "xd", "loc_enter loc_exit"}); return 1;'
+      - run: |
+          leaf = {generic}:new_fixture();
+          chparent(leaf, {custom});
+          move(leaf, {container});
+          return {container}:loc_enter({observer}, {container});
+        expect:
+          error: E_DIV
+    cleanup: *cleanup_fixtures
+
+  - name: skipped_notifications_yield_when_tick_budget_is_low
+    permission: wizard
+    steps:
+      - *new_generic
+      - *declare_generic
+      - *fixture_factory
+      - *generic_notification
+      - *generic_aliases
+      - *new_container
+      - *new_observer
+      - run: |
+          for i in [1..32]
+            leaf = {generic}:new_fixture();
+            move(leaf, {container});
+            yin();
+          endfor
+          fork (0)
+            {observer}.done = 1;
+          endfork
+          while (ticks_left() > 2100)
+          endwhile
+          {container}:loc_enter({observer}, {container});
+          yielded = {observer}.done;
+          while (!{observer}.done)
+            suspend(0);
+          endwhile
+          return {yielded, length({container}.contents)};
+        expect:
+          value: [1, 32]
+    cleanup: *cleanup_fixtures

@@ -10,7 +10,14 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-const barnVMFrameMarker = "__barn_vm_frame_v1"
+// barnVMFrameMarker heads a Barn frame's metadata. A v2 frame stores no
+// bytecode: element 2 names the compile of the frame's source that produced
+// its program and that program's fingerprint, and every later element is a
+// v1 element from 7 on. A v1 frame stored the bytecode in elements 2-6.
+const (
+	barnVMFrameMarker   = "__barn_vm_frame_v2"
+	barnVMFrameMarkerV1 = "__barn_vm_frame_v1"
+)
 
 func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 	start := snapshot.StartTime
@@ -32,7 +39,7 @@ func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 	if snapshot.State == task.TaskQueued {
 		ready = 1
 	}
-	if _, err := fmt.Fprintf(w.w, "%d -1 %d %d\n", len(machine.Frames)-1, ready, machine.MaxStackDepth); err != nil {
+	if err := w.writeVMHeader(machine, ready); err != nil {
 		return err
 	}
 	for i, frame := range machine.Frames {
@@ -58,15 +65,36 @@ func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 	return nil
 }
 
-func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.ActivationFrame) error {
-	if len(frame.Program.Source) == 0 {
-		return fmt.Errorf("activation has no source program")
+// writeVMHeader writes "top vector func_id max_stack". A VM in Toast's form
+// carries its root vector and Toast's func_id 0 (execute.cc: "shouldn't need
+// func_id"), which Barn's import also requires; a Barn VM writes main vector
+// -1 and its ready flag.
+func (w *Writer) writeVMHeader(machine *task.VMSnapshot, ready int) error {
+	vector := -1
+	if machine.Frames[0].Native != nil {
+		vector, ready = machine.NativeRootVector, 0
 	}
+	_, err := fmt.Fprintf(w.w, "%d %d %d %d\n", len(machine.Frames)-1, vector, ready, machine.MaxStackDepth)
+	return err
+}
+
+func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.ActivationFrame) error {
+	if frame.Native != nil {
+		return w.writeNativeVMFrame(frame, activation)
+	}
+	for _, reason := range frame.PendingReasons {
+		if !reason.Error.ValidExceptionReason() {
+			return fmt.Errorf("invalid pending error reason")
+		}
+	}
+	// An empty source is an empty program, which Toast writes as the "."
+	// terminator alone (execute.cc write_activ -> dbio_write_program).
+	// Restore runs the compile of this source that vmFrameMetadata names.
 	if err := w.writeString("language version 17"); err != nil {
 		return err
 	}
 	for _, line := range frame.Program.Source {
-		if err := w.writeString(line); err != nil {
+		if err := w.writeSourceLine(line); err != nil {
 			return err
 		}
 	}
@@ -105,6 +133,97 @@ func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.Activ
 	}
 	_, err := fmt.Fprintf(w.w, "%d 0 %d\n", frame.IP, frame.IP)
 	return err
+}
+
+// writeNativeVMFrame writes a frame in Toast's form, as Toast's write_activ
+// does (execute.cc): its variables, its operand stack with Toast's type codes,
+// its temporary and its pc. The reader reads it back as a native frame.
+func (w *Writer) writeNativeVMFrame(frame task.VMFrameSnapshot, activation types.ActivationFrame) error {
+	native := frame.Native
+	if len(native.OperandTypes) != len(frame.Stack) || len(frame.Locals) != len(frame.Program.VarNames) || (native.Builtin != nil) != (frame.BuiltinPC != 0) {
+		return fmt.Errorf("native frame is incomplete")
+	}
+	if err := w.writeString(fmt.Sprintf("language version %d", native.LanguageVersion)); err != nil {
+		return err
+	}
+	for _, line := range frame.Program.Source {
+		if err := w.writeSourceLine(line); err != nil {
+			return err
+		}
+	}
+	if err := w.writeString("."); err != nil {
+		return err
+	}
+	if err := w.writeString(fmt.Sprintf("%d variables", len(frame.Program.VarNames))); err != nil {
+		return err
+	}
+	for index, name := range frame.Program.VarNames {
+		if err := w.writeString(name); err != nil {
+			return err
+		}
+		if err := w.writeValue(frame.Locals[index]); err != nil {
+			return err
+		}
+	}
+	if err := w.writeString(fmt.Sprintf("%d rt_stack slots in use", len(frame.Stack))); err != nil {
+		return err
+	}
+	for index, value := range frame.Stack {
+		if kind := native.OperandTypes[index]; kind == TypeCatch || kind == TypeFinally {
+			// A control marker: Toast's type code, then its integer.
+			if value.Type() != types.TYPE_INT {
+				return fmt.Errorf("native control marker %d is not an integer", index)
+			}
+			if err := w.writeInt(kind); err != nil {
+				return err
+			}
+			if err := w.writeInt64(value.Int()); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := w.writeValue(value); err != nil {
+			return err
+		}
+	}
+	if err := w.writeVMActivationAsPI(frame, activation); err != nil {
+		return err
+	}
+	if err := w.writeValue(native.Temporary); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w.w, "%d %d %d\n", frame.IP, frame.BuiltinPC, native.ErrorPC); err != nil {
+		return err
+	}
+	if native.Builtin == nil {
+		return nil
+	}
+	// A frame suspended inside a builtin: its name, then the state Toast's
+	// write_bi_func_data wrote, as readNativeBuiltin reads them back.
+	if err := w.writeString(native.Builtin.Name); err != nil {
+		return err
+	}
+	return w.writeNativeBuiltinData(native.Builtin)
+}
+
+// writeNativeBuiltinData writes the builtin state readNativeBuiltinFor
+// retained: one line for create, recreate, recycle and move, and for
+// call_function its line naming the inner builtin followed by that builtin's
+// own state. Other builtins wrote no state.
+func (w *Writer) writeNativeBuiltinData(saved *task.NativeBuiltinSnapshot) error {
+	switch saved.Name {
+	case "create", "recreate", "recycle", "move":
+		return w.writeString(saved.State)
+	case "call_function":
+		if saved.Inner == nil {
+			return fmt.Errorf("native call_function continuation lacks its inner builtin")
+		}
+		if err := w.writeString(saved.State); err != nil {
+			return err
+		}
+		return w.writeNativeBuiltinData(saved.Inner)
+	}
+	return nil
 }
 
 // orderedBoundLocalIndices keeps ordinary environment order while moving a
@@ -214,10 +333,6 @@ func (w *Writer) writeVMActivationAsPI(frame task.VMFrameSnapshot, activation ty
 	if err := w.writeInt(threaded); err != nil {
 		return err
 	}
-	debug := 0
-	if frame.VerbDebug {
-		debug = 1
-	}
 	if _, err := fmt.Fprintf(
 		w.w,
 		"%d -7 -8 %d -9 %d %d -10 %d\n",
@@ -225,7 +340,7 @@ func (w *Writer) writeVMActivationAsPI(frame task.VMFrameSnapshot, activation ty
 		frame.Player,
 		programmer,
 		frame.VerbLoc,
-		debug,
+		activationDefinerType,
 	); err != nil {
 		return err
 	}
@@ -240,13 +355,9 @@ func (w *Writer) writeVMActivationAsPI(frame task.VMFrameSnapshot, activation ty
 func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 	return types.NewList([]types.Value{
 		types.NewStr(barnVMFrameMarker),
-		bytesValue(frame.Program.Code),
-		types.NewList(frame.Program.Constants),
-		stringsValue(frame.Program.VarNames),
-		lineInfoValue(frame.Program.LineInfo),
-		types.NewInt(int64(frame.Program.NumLocals)),
+		programIdentityValue(&frame.Program),
 		handlersValue(frame.ExceptStack),
-		pendingErrorValue(frame.PendingError),
+		pendingErrorValue(task.VMErrorSnapshot{}), // fixed legacy slot, no duplicate reason state
 		types.NewList([]types.Value{
 			types.NewBool(frame.VerbDebug),
 			types.NewBool(frame.DiscardReturn),
@@ -262,10 +373,48 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 		types.NewStr(frame.SavedVerb),
 		types.NewObj(frame.SavedProgrammer),
 		moveContinuationValue(frame.MoveContinuation),
-		pendingReturnValue(frame.PendingReturn, frame.HasPendingReturn),
+		pendingReturnValue(types.None, false), // fixed legacy slot
 		recycleContinuationValue(frame.RecycleContinuation),
 		internalLocalsValue(frame),
 		types.NewStr(hex.EncodeToString(frame.Program.BuiltinLayout[:])),
+		types.NewList(frame.CommandEnvironment[:]),
+		types.NewInt(int64(frame.ReturnLocal)),
+		types.NewList([]types.Value{types.NewStr(frame.BuiltinCaller), types.NewInt(int64(frame.BuiltinPC))}),
+		pendingControlValue(frame),
+	})
+}
+
+// programIdentityValue is {fork, native, fingerprint} or, for a program
+// numbered from a line other than 1, {fork, native, fingerprint, first line}:
+// the program's bytecode.Origin, with native {} or {vector, language
+// version}, and the hex SHA-256 bytecode.Program.Fingerprint.
+func programIdentityValue(program *bytecode.Program) types.Value {
+	native := types.NewList(nil)
+	if program.Origin.Native {
+		native = types.NewList([]types.Value{types.NewInt(int64(program.Origin.NativeVector)), types.NewInt(int64(program.Origin.LanguageVersion))})
+	}
+	fingerprint := program.Fingerprint()
+	identity := []types.Value{
+		types.NewInt(int64(program.Origin.Fork)),
+		native,
+		types.NewStr(hex.EncodeToString(fingerprint[:])),
+	}
+	if program.Origin.FirstLine != 0 {
+		identity = append(identity, types.NewInt(int64(program.Origin.FirstLine)))
+	}
+	return types.NewList(identity)
+}
+
+func pendingControlValue(frame task.VMFrameSnapshot) types.Value {
+	reasons := make([]types.Value, len(frame.PendingReasons))
+	for index, pending := range frame.PendingReasons {
+		reasons[index] = types.NewList([]types.Value{
+			types.NewInt(int64(pending.Kind)), types.NewInt(int64(pending.FinallyIP)), pending.Value,
+			pendingErrorValue(pending.Error), types.NewInt(int64(pending.TargetIP)), types.NewInt(int64(pending.HandlerDepth)), types.NewList(pending.Stack),
+		})
+	}
+	return types.NewList([]types.Value{
+		types.NewStr("pending-reasons-v1"), types.NewList(reasons),
 	})
 }
 
@@ -316,6 +465,7 @@ func recycleContinuationValue(state *task.RecycleContinuationSnapshot) types.Val
 		objectIDsValue(state.OldChildren),
 		objectIDsValue(state.OldContents),
 		types.NewObj(state.OldLocation),
+		types.NewBool(state.ExitCallback),
 	})
 }
 
@@ -325,33 +475,6 @@ func objectIDsValue(ids []types.ObjID) types.Value {
 		values[i] = types.NewObj(id)
 	}
 	return types.NewList(values)
-}
-
-func bytesValue(values []byte) types.Value {
-	result := make([]types.Value, len(values))
-	for i, value := range values {
-		result[i] = types.NewInt(int64(value))
-	}
-	return types.NewList(result)
-}
-
-func stringsValue(values []string) types.Value {
-	result := make([]types.Value, len(values))
-	for i, value := range values {
-		result[i] = types.NewStr(value)
-	}
-	return types.NewList(result)
-}
-
-func lineInfoValue(entries []bytecode.LineEntry) types.Value {
-	result := make([]types.Value, len(entries))
-	for i, entry := range entries {
-		result[i] = types.NewList([]types.Value{
-			types.NewInt(int64(entry.StartIP)),
-			types.NewInt(int64(entry.Line)),
-		})
-	}
-	return types.NewList(result)
 }
 
 func handlersValue(handlers []bytecode.Handler) types.Value {
@@ -368,6 +491,7 @@ func handlersValue(handlers []bytecode.Handler) types.Value {
 			types.NewList(codes),
 			types.NewInt(int64(handler.VarIndex)),
 			types.NewInt(int64(handler.StackDepth)),
+			types.NewInt(int64(handler.ExceptBase)),
 		})
 	}
 	return types.NewList(result)
@@ -378,5 +502,6 @@ func pendingErrorValue(pending task.VMErrorSnapshot) types.Value {
 		types.NewBool(pending.Present),
 		types.NewInt(int64(pending.Code)),
 		pending.Value,
+		types.NewInt(int64(pending.Reason)),
 	})
 }

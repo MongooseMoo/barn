@@ -1,8 +1,6 @@
 package builtins
 
 import (
-	"sort"
-
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -34,8 +32,10 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	var parents []types.ObjID
 	var parentFromInteger []bool
 	parentsFromList := false
+	// Parents are OBJ values only (Toast is_obj_or_list_of_objs, objects.cc
+	// bf_create): an anonymous object is never a parent.
 	switch args[0].Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
+	case types.TYPE_OBJ:
 		parents = []types.ObjID{args[0].ID()}
 		parentFromInteger = []bool{false}
 	case types.TYPE_INT:
@@ -53,7 +53,7 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 		parentFromInteger = make([]bool, len(elements))
 		for i, elem := range elements {
 			switch elem.Type() {
-			case types.TYPE_OBJ, types.TYPE_ANON:
+			case types.TYPE_OBJ:
 				parents[i] = elem.ID()
 			case types.TYPE_INT:
 				// Only negative integers are valid as object references
@@ -243,7 +243,7 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 		// earlier decentralized create in this same task must be flushed to live first —
 		// otherwise an anonymous child of a just-created numbered object inherits from a
 		// parent the coarse store cannot see yet (E_INVIND on later property access).
-		if res, ok := beforeCoarse(ctx); !ok {
+		if res, ok := beforeCoarse(ctx, "create"); !ok {
 			return res
 		}
 		tx = readTxn(ctx) // the boundary may have renewed the transaction
@@ -267,6 +267,13 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Call :initialize verb if it exists
+	created := types.NewObj(newID)
+	if anonymous {
+		created = types.NewAnon(newID)
+	}
+	if ctx.PushInitialize != nil {
+		return ctx.PushInitialize(created, initArgs, "create")
+	}
 	// The :initialize verb receives the init args and can set up the new object
 	// If verb not found (E_VERBNF), that's fine - just means no initialize
 	// Other errors should be propagated
@@ -286,10 +293,6 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewObj(newID))
 }
 
-func beginRecycle(ctx *Execution, id types.ObjID) bool {
-	return ctx.Session.startRecycle(id)
-}
-
 func (r *Session) startRecycle(id types.ObjID) bool {
 	state := &r.runtime.recycle
 	state.mu.Lock()
@@ -301,8 +304,9 @@ func (r *Session) startRecycle(id types.ObjID) bool {
 	return true
 }
 
-// RestoreRecycleGuards atomically reserves objects whose recycle lifecycle
-// continuations were restored from persistent task state.
+// RestoreRecycleGuards atomically reserves anonymous objects whose recycle
+// continuations were restored from persistent task state. Numbered objects do
+// not have a recycle reservation.
 func (r *Session) RestoreRecycleGuards(ids []types.ObjID) bool {
 	state := &r.runtime.recycle
 	state.mu.Lock()
@@ -324,33 +328,16 @@ func (r *Session) RestoreRecycleGuards(ids []types.ObjID) bool {
 	return true
 }
 
-func endRecycle(ctx *Execution, id types.ObjID) {
-	ctx.Session.endRecycle(id)
-}
-
-func (r *Session) endRecycle(id types.ObjID) {
+// EndRecycle releases an anonymous reservation after completion or a callback
+// error. Numbered objects permit overlapping recycle hooks and need no guard.
+func (r *Session) EndRecycle(object types.Value) {
+	if !object.IsAnonymous() {
+		return
+	}
 	state := &r.runtime.recycle
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	delete(state.ids, id)
-}
-
-func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.Value) {
-	switch v.Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		if v.IsAnonymous() {
-			out[v.ID()] = v
-		}
-	case types.TYPE_LIST:
-		for _, elem := range v.Elements() {
-			collectAnonymousRefs(elem, out)
-		}
-	case types.TYPE_MAP:
-		for _, pair := range v.Pairs() {
-			collectAnonymousRefs(pair[0], out)
-			collectAnonymousRefs(pair[1], out)
-		}
-	}
+	delete(state.ids, object.ID())
 }
 
 // builtinRecycle implements recycle(object)
@@ -421,15 +408,17 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 		Object: args[0], OldParents: oldParents, OldChildren: oldChildren,
 		OldContents: oldContents, OldLocation: oldLocation,
 	}
-	// A session-wide recycle reservation is observable by other tasks and
-	// cannot be undone by replaying a VM checkpoint. Validate before acquiring
-	// it, just as for the later live topology mutation.
-	if !beginIrreversible(ctx) {
-		return abortedAttempt()
-	}
-	ctx.IrreversibleSideEffect = true
-	if !beginRecycle(ctx, objID) {
-		return types.Err(types.E_INVARG)
+	// Only anonymous objects have a recycle guard (Toast objects.cc bf_recycle).
+	// Its session-wide reservation is observable, so validate before acquiring it.
+	// A numbered object's hook and cleanup can remain in the retryable transaction.
+	if args[0].IsAnonymous() {
+		if !beginIrreversible(ctx, "recycle") {
+			return abortedAttempt()
+		}
+		ctx.IrreversibleSideEffect = true
+		if !session.startRecycle(objID) {
+			return types.Err(types.E_INVARG)
+		}
 	}
 	if ctx.PushRecycleLifecycle != nil {
 		return ctx.PushRecycleLifecycle(request)
@@ -441,14 +430,15 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 // FinishRecycleLifecycle applies topology cleanup after the object's recycle
 // verb has completed on either the owning VM or a synchronous test host.
 func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hookResult types.Result) types.Result {
-	// The reservation may have survived a committed suspension. A failed
-	// validation must leave it held for the restored continuation, including
-	// the early error paths that otherwise release it without a topology write.
-	if !beginIrreversible(ctx) {
-		return abortedAttempt()
+	if request.Object.IsAnonymous() {
+		// A failed resumed attempt must leave its committed anonymous reservation
+		// held for the restored continuation, including the early error paths.
+		if !beginIrreversible(ctx, "recycle") {
+			return abortedAttempt()
+		}
+		ctx.IrreversibleSideEffect = true
+		defer ctx.Session.EndRecycle(request.Object)
 	}
-	ctx.IrreversibleSideEffect = true
-	defer endRecycle(ctx, request.Object.ID())
 	store := ctx.Store
 	tx := readTxn(ctx)
 	objID := request.Object.ID()
@@ -457,38 +447,26 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 	oldContents := request.OldContents
 	oldLocation := request.OldLocation
 
-	// Recycle anonymous objects reachable via property values (including nested
-	// list/map values) before this object is destroyed.
-	anonRefs := make(map[types.ObjID]types.Value)
-	propValues, errCode := tx.PropertyValues(objID)
-	if errCode != types.E_NONE {
-		return types.Err(types.E_INVARG)
-	}
-	for _, value := range propValues {
-		collectAnonymousRefs(value, anonRefs)
-	}
-
-	if len(anonRefs) > 0 {
-		ids := make([]int64, 0, len(anonRefs))
-		for id := range anonRefs {
-			if id != objID {
-				ids = append(ids, int64(id))
+	// Destroying the object releases the references its property values hold,
+	// as Toast's db_destroy_object frees them. It does not recycle the anonymous
+	// objects they point to: one that another property, a variable or a value
+	// elsewhere still references stays valid. Hand the values to the release
+	// ledger, the path a variable's old value takes, so the deferred collector
+	// recycles each anonymous object only once nothing reaches it.
+	if ctx.ReleaseFinalizable != nil {
+		errCode := tx.VisitPropertyValues(objID, func(value types.Value) {
+			if value.MayHoldFinalizable() {
+				ctx.ReleaseFinalizable(value)
 			}
-		}
-		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-		for _, id := range ids {
-			ref := anonRefs[types.ObjID(id)]
-			// Ignore errors while cascading anonymous recycling.
-			_ = builtinRecycle(ctx, []types.Value{ref})
+		})
+		if errCode != types.E_NONE {
+			return types.Err(types.E_INVARG)
 		}
 	}
 
 	// Note: recycling does NOT invalidate anonymous descendants in ToastStunt;
 	// they remain valid (property access through the recycled parent raises
 	// E_PROPNF).
-	if res, ok := beforeCoarse(ctx); !ok {
-		return res
-	}
 	for _, contentID := range oldContents {
 		content := moveObjectReferenceForRead(ctx, contentID)
 		if ec := applyRecycleMove(ctx, contentID, objID); ec != types.E_NONE {
@@ -541,7 +519,7 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 		// Coarse recycle reads/reparents through the LIVE store, so flush any topology this
 		// task staged decentrally first (e.g. a just-created child of the object being
 		// recycled) — otherwise store.Recycle cannot see it. Mirrors the coarse create path.
-		if res, ok := beforeCoarse(ctx); !ok {
+		if res, ok := beforeCoarse(ctx, "recycle"); !ok {
 			return res
 		}
 		tx = readTxn(ctx)
@@ -577,7 +555,53 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 	return types.Ok(types.NewInt(0))
 }
 
+// NextRecycleExit moves one current content, or the object itself, to nothing.
+// The VM invokes exitfunc before requesting the next move.
+func NextRecycleExit(ctx *Execution, object types.Value) (types.Value, types.Value, types.Result) {
+	if object.IsAnonymous() {
+		if result, ok := beforeCoarse(ctx, "recycle"); !ok {
+			return types.None, types.None, result
+		}
+		ctx.IrreversibleSideEffect = true
+	}
+	tx := readTxn(ctx)
+	if !tx.Valid(object.ID()) {
+		return types.None, types.None, types.Err(types.E_INVARG)
+	}
+	contents, ec := tx.Contents(object.ID())
+	if ec != types.E_NONE {
+		return types.None, types.None, types.Err(ec)
+	}
+	what := object
+	var where types.Value
+	if len(contents) > 0 {
+		what = moveObjectReferenceForRead(ctx, contents[0])
+		where = object
+	} else {
+		location, ec := tx.Location(object.ID())
+		if ec != types.E_NONE {
+			return types.None, types.None, types.Err(ec)
+		}
+		if location == types.ObjNothing {
+			return types.None, types.None, types.Ok(types.NewInt(0))
+		}
+		where = moveObjectReferenceForRead(ctx, location)
+	}
+	if ec := applyRecycleMove(ctx, what.ID(), where.ID()); ec != types.E_NONE {
+		return types.None, types.None, types.Err(ec)
+	}
+	return where, what, types.Ok(types.NewInt(0))
+}
+
 func applyRecycleMove(ctx *Execution, object, oldLocation types.ObjID) types.ErrorCode {
+	if !ctx.LiveStoreMutated {
+		return readTxn(ctx).MoveObject(object, types.ObjNothing, 0)
+	}
+	// A prior coarse operation already holds the commit gate. Flush any later
+	// staged topology before the direct move and adopt only the relationships it changes.
+	if ec := flushStagedBeforeCoarse(ctx); ec != types.E_NONE {
+		return ec
+	}
 	if errCode := ctx.Store.DirectTxn().MoveObject(object, types.ObjNothing, 0); errCode != types.E_NONE {
 		return errCode
 	}
@@ -585,7 +609,7 @@ func applyRecycleMove(ctx *Execution, object, oldLocation types.ObjID) types.Err
 	return readTxn(ctx).AdoptLiveRelationships(object, oldLocation)
 }
 
-// builtinValid implements valid(object)
+// builtinValid implements valid(object [, expected incarnation])
 // Tests if an object exists and is not recycled
 // Accepts both ObjValue and IntValue (integers are implicitly converted to object IDs)
 // Waifs are never valid (always returns 0)
@@ -607,8 +631,30 @@ func builtinValid(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	isValid := validForRead(ctx, objID)
-	if isValid {
+	if !validForRead(ctx, objID) {
+		return types.Ok(types.NewInt(0))
+	}
+	if len(args) == 1 {
+		return types.Ok(types.NewInt(1))
+	}
+
+	// Only under VALID_INCARNATION does admission let a second argument
+	// through (Signature.IncarnationArgs). Mongoose fork bf_valid (objects.cc):
+	// valid(object, expected) also requires the object's incarnation_id
+	// property, read with the ordinary read permission, to be a nonempty
+	// string equal to expected. A missing property does not match; an
+	// unreadable one raises E_PERM.
+	prop, errCode := readTxn(ctx).FindProperty(objID, "incarnation_id")
+	if errCode == types.E_PROPNF {
+		return types.Ok(types.NewInt(0))
+	}
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if !ctx.IsWizard && ctx.Programmer != prop.Owner && !prop.Perms.Has(dbstore.PropRead) {
+		return types.Err(types.E_PERM)
+	}
+	if prop.Value.Type() == types.TYPE_STR && prop.Value.Str() != "" && prop.Value.Str() == args[1].Str() {
 		return types.Ok(types.NewInt(1))
 	}
 	return types.Ok(types.NewInt(0))
@@ -627,7 +673,9 @@ func objectsDescriptors() []Descriptor {
 	return []Descriptor{
 		function("create", builtinCreate, 1, 4, -1, -1, -1, -1),
 		function("recycle", builtinRecycle, 1, 1, -1),
-		function("valid", builtinValid, 1, 1, -1),
+		// Stock Toast registers valid(ANY); the Mongoose fork registers
+		// valid(ANY [, STR]) (objects.cc register_function("valid", 1, 2, ...)).
+		function("valid", builtinValid, 1, 1, -1).incarnationArgs(int64(types.TYPE_STR)),
 		function("max_object", builtinMaxObject, 0, 0),
 	}
 }

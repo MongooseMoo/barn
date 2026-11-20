@@ -1,8 +1,23 @@
 name: recycle_unrelated_tasks
-description: Recycling an object does not require unrelated queued tasks to drain.
+description: Recycle leaves unrelated tasks queued and reserves only anonymous objects across suspended hooks.
 requires:
-  builtins: [create, recycle, valid, queued_tasks, kill_task]
+  builtins: [create, recycle, valid, queued_tasks, kill_task, add_property, add_verb, set_verb_code, delete_verb, suspend, next_recycled_object, recreate]
 tests:
+  - name: recycle_query_recreate_created_object
+    permission: wizard
+    statement: |
+      o = create($nothing);
+      try
+        recycle(o);
+        next_recycled_object(o);
+        n = recreate(o, $nothing);
+        return {n == o, valid(n)};
+      finally
+        if (valid(o)) recycle(o); endif
+      endtry
+    expect:
+      value: [1, 1]
+
   - name: recycle_with_twelve_future_tasks
     steps:
       - run: |
@@ -30,3 +45,68 @@ tests:
         as: wizard
         expect:
           value: [1, 1]
+
+  - name: recycle_suspended_hook_competition_anonymous_{anonymous}
+    permission: wizard
+    table:
+      columns: [anonymous, entries]
+      rows: [[0, 2], [1, 1]]
+    setup:
+      code: |
+        rec = create($nothing);
+        proto = create($nothing);
+        add_property(rec, "started", 0, {player, "rw"});
+        add_property(rec, "release", 0, {player, "rw"});
+        add_property(rec, "calls", 0, {player, "rw"});
+        add_property(rec, "finished", 0, {player, "rw"});
+        add_property(rec, "first", -1, {player, "rw"});
+        add_property(rec, "second", -1, {player, "rw"});
+        add_property(proto, "rec", rec, {player, "r"});
+        add_verb(proto, {player, "rxd", "recycle"}, {"this", "none", "this"});
+        set_verb_code(proto, "recycle", {
+          "rec = this.rec; rec.started = rec.started + 1;",
+          "while (!rec.release) suspend(0); endwhile",
+          "rec.calls = rec.calls + 1;"
+        });
+        obj = create(proto, {anonymous});
+    statement: |
+      second = 0;
+      fork first (0)
+        rec.first = `recycle(obj) ! ANY';
+        rec.finished = rec.finished + 1;
+      endfork
+      try
+        for i in [1..100]
+          suspend(0);
+          if (rec.started) break; endif
+        endfor
+        if (!rec.started) raise(E_QUOTA); endif
+        fork second (0)
+          rec.second = `recycle(obj) ! ANY';
+          rec.finished = rec.finished + 1;
+        endfork
+        for i in [1..100]
+          suspend(0);
+          if (rec.started == {entries} && (!{anonymous} || rec.finished == 1)) break; endif
+        endfor
+        if (rec.started != {entries}) raise(E_QUOTA); endif
+        live_during_hook = valid(obj);
+        rec.release = 1;
+        for i in [1..100]
+          suspend(0);
+          if (rec.finished == 2) break; endif
+        endfor
+        return {rec.started == {entries}, rec.calls == {entries}, live_during_hook,
+                !valid(obj), rec.finished == 2,
+                {rec.first, rec.second} == {0, E_INVARG} || {rec.first, rec.second} == {E_INVARG, 0}};
+      finally
+        rec.release = 1;
+        `kill_task(first) ! E_INVARG';
+        if (second) `kill_task(second) ! E_INVARG'; endif
+        delete_verb(proto, "recycle");
+        if (valid(obj)) recycle(obj); endif
+        recycle(proto);
+        recycle(rec);
+      endtry
+    expect:
+      value: [1, 1, 1, 1, 1, 1]

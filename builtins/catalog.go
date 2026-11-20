@@ -265,6 +265,12 @@ var builtinLayout = []string{
 	"string_width",
 	"graphemes",
 	"tz_offset",
+	"validate_string_lines",
+	"waif_owner_count",
+	"parse_ast",
+	"verb_ast",
+	"validate_ast",
+	"unparse_ast",
 	"wasm_call",
 	"wasm_modules",
 	"wasm_load",
@@ -306,6 +312,7 @@ func Descriptors(additional ...Descriptor) []Descriptor {
 		gcDescriptors(),
 		unicodeDescriptors(),
 		tzOffsetDescriptors(),
+		astDescriptors(),
 		wasmDescriptors(),
 	}
 	byName := make(map[string]Descriptor)

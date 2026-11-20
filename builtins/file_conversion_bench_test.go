@@ -22,7 +22,7 @@ func BenchmarkFileConversion(b *testing.B) {
 				data := bytes.Repeat(pattern, n/len(pattern))
 				convert := filterTextMode
 				if shape == "binary" || shape == "escaped" {
-					convert = encodeBinaryBytes
+					convert = EncodeRawToBinary
 				}
 				want := convert(data)
 				b.ReportAllocs()
@@ -56,10 +56,10 @@ func TestFileConversionAllBytes(t *testing.T) {
 	if got := filterTextMode(data); got != text {
 		t.Fatal("text mismatch")
 	}
-	if got := encodeBinaryBytes(data); got != binary {
+	if got := EncodeRawToBinary(data); got != binary {
 		t.Fatal("binary mismatch")
 	}
-	if filterTextMode(nil) != "" || encodeBinaryBytes(nil) != "" {
+	if filterTextMode(nil) != "" || EncodeRawToBinary(nil) != "" {
 		t.Fatal("empty mismatch")
 	}
 }

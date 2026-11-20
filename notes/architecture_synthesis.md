@@ -1,5 +1,8 @@
 # Barn Architecture Synthesis
 
+This is an early planning document. The implemented execution boundaries are
+described in [Execution ownership](../docs/execution-ownership.md).
+
 ## Overview
 
 Barn is a Go MOO server. This document synthesizes findings from exploring:

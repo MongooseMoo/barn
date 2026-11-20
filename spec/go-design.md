@@ -13,7 +13,8 @@ Historical sketches and illustrative Go snippets are not design authority.
 | Package | Owns | Does not own |
 |---|---|---|
 | `parser` | MOO source parsing and syntax diagnostics | bytecode execution |
-| `verb` | semantic verb AST nodes and source positions | parser tokens or VM state |
+| `ir` | semantic program nodes, validation, and source positions | parser tokens or VM state |
+| `preposition` | ordered MOO preposition aliases, canonical spellings, and wire codes | command dispatch or program IR |
 | `compiler` | the complete parse/lower/source-attach pipeline, diagnostics, and program cache | bytecode instruction execution |
 | `bytecode` | AST-to-bytecode lowering, opcode definitions, programs, and disassembly | task scheduling |
 | `types` | tagged MOO runtime values and value operations | object persistence |
@@ -56,7 +57,7 @@ a general rule that host goroutines cannot access `db/store`.
 ## Compilation and VM boundary
 
 `compiler` is the single owner of complete MOO source compilation: parse through
-`parser`, produce semantic `verb` nodes, lower through `bytecode`, preserve
+`parser`, produce semantic `ir` nodes, lower through `bytecode`, preserve
 diagnostics and source, and cache `*bytecode.Program` values. Production runtime
 callers use `compiler.CompileMOO()` rather than reconstructing a subset of that
 pipeline. `bytecode.Program` contains mutable Go slices and fields; callers

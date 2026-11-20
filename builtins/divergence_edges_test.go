@@ -42,11 +42,11 @@ func TestDivergenceNumericAndUtilityEdges(t *testing.T) {
 	}
 }
 
-func TestDivergenceJSONFirstKeyAndInt64(t *testing.T) {
+func TestDivergenceJSONDuplicateKeyAndInt64(t *testing.T) {
 	ctx := newTestExecution()
 	duplicate := admitTestBuiltin("parse_json", ctx, []types.Value{types.NewStr(`{"a":1,"a":2}`)})
-	if !duplicate.IsNormal() || duplicate.Val.Len() != 1 || duplicate.Val.Pairs()[0][1].Int() != 1 {
-		t.Fatalf("duplicate-key parse = flow %v error %v value %v, want first value 1", duplicate.Flow, duplicate.Error, duplicate.Val)
+	if duplicate.Flow != types.FlowException || duplicate.Error != types.E_INVARG {
+		t.Fatalf("duplicate-key parse = flow %v error %v value %v, want E_INVARG", duplicate.Flow, duplicate.Error, duplicate.Val)
 	}
 	maxInt := admitTestBuiltin("parse_json", ctx, []types.Value{types.NewStr("9223372036854775807")})
 	if !maxInt.IsNormal() || maxInt.Val.Type() != types.TYPE_INT || maxInt.Val.Int() != int64(9223372036854775807) {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -46,6 +47,55 @@ func runEval(t *testing.T, store *dbstore.Store, input string) (string, string, 
 	return out.String(), errOut.String(), err
 }
 
+func TestEvalSessionCloseReleasesBuiltinHandles(t *testing.T) {
+	t.Chdir(t.TempDir())
+	for _, test := range []struct {
+		name, source, inspect string
+	}{
+		{"file", `return file_open("eval-cleanup", "w+tn");`, "file_name"},
+		{"SQLite", `return sqlite_open(":memory:");`, "sqlite_info"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			session, err := NewEvalSession(evalStore(t), config.DefaultOptions())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := session.Close(); err != nil {
+					t.Errorf("cleanup eval session: %v", err)
+				}
+			}()
+			builtinSession := session.runtime.Session()
+			t.Cleanup(func() {
+				if err := builtinSession.Close(); err != nil {
+					t.Errorf("cleanup builtin session: %v", err)
+				}
+			})
+			outcome, err := session.eval([]string{test.source})
+			if err != nil || !completed(outcome) || outcome.Result.Val.Type() != types.TYPE_INT {
+				t.Fatalf("open handle through eval: outcome=%+v error=%v", outcome, err)
+			}
+			ctx := task.NewContext()
+			ctx.IsWizard = true
+			execution := builtinSession.NewExecution(ctx, nil)
+			handle := []types.Value{outcome.Result.Val}
+			if result, found := builtinSession.CallByNameWithExecution(test.inspect, execution, handle); !found || result.IsError() {
+				t.Fatalf("handle before Close: found=%v result=%+v", found, result)
+			}
+			if err := session.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			execution = builtinSession.NewExecution(ctx, nil)
+			if result, found := builtinSession.CallByNameWithExecution(test.inspect, execution, handle); !found || result.Error != types.E_INVARG {
+				t.Fatalf("handle after Close: found=%v result=%+v, want E_INVARG", found, result)
+			}
+			if err := session.Close(); err != nil {
+				t.Fatalf("repeated Close: %v", err)
+			}
+		})
+	}
+}
+
 func TestEvalExpressionRunsStatementList(t *testing.T) {
 	out, errOut, err := runEval(t, evalStore(t), "x = 1; return x + 1;")
 	if err != nil {
@@ -73,6 +123,23 @@ func TestEvalExpressionRunsAsFirstWizardWithEvalFrame(t *testing.T) {
 	}
 	if want := "=> {#3, #-1, \"\", #3, 2}\n"; out != want {
 		t.Fatalf("eval frame printed %q, want %q", out, want)
+	}
+}
+
+func TestEvalExpressionNotifyWithoutConnectionManager(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, want string
+	}{
+		{"wizard", `return notify(#2, "offline");`, "=> 1\n"},
+		{"programmer self", `set_task_perms(#2); return notify(#2, "offline");`, "=> 1\n"},
+		{"programmer other", `set_task_perms(#2); return notify(#3, "offline");`, "Error: E_PERM\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, errOut, err := runEval(t, evalStore(t), tc.input)
+			if err != nil || errOut != "" || out != tc.want {
+				t.Fatalf("EvalExpression = (%q, %q, %v), want (%q, empty, nil)", out, errOut, err, tc.want)
+			}
+		})
 	}
 }
 

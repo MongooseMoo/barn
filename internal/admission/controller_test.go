@@ -259,7 +259,7 @@ func TestYieldLendsReservationToWaiterAndReadmitsOwner(t *testing.T) {
 
 // A checkpoint must see every started slice at a real boundary. A preempted
 // segment is still in flight: Pause waits for it, and readmits it (while still
-// excluding new work) so that the wait can finish.
+// excluding new Background work) so that the wait can finish.
 func TestPauseWaitsForPreemptedSegmentAndReadmitsIt(t *testing.T) {
 	c := New(Options{Limit: 1})
 	owner, _ := c.Enter(context.Background(), Key{Principal: 10, Class: Background})
@@ -284,7 +284,7 @@ func TestPauseWaitsForPreemptedSegmentAndReadmitsIt(t *testing.T) {
 		c.mu.Unlock()
 		time.Sleep(time.Millisecond)
 	}
-	fresh := c.Enqueue(Key{Principal: 30, Class: Input})
+	fresh := c.Enqueue(Key{Principal: 30, Class: Background})
 	granted.Finish(time.Millisecond, 0)
 	select {
 	case <-yielded:
@@ -312,4 +312,98 @@ func TestPauseWaitsForPreemptedSegmentAndReadmitsIt(t *testing.T) {
 	}
 	resume()
 	(<-fresh.Ready()).Finish(time.Millisecond, 0)
+}
+
+// A background slice can run for seconds. While a pause waits for one, a
+// player's command must still be admitted; new background work must not. Once
+// the background slice is gone the pause holds input too, waits for the input
+// still running, and only then completes.
+func TestPauseAdmitsInputWhileBackgroundDrainsThenHoldsIt(t *testing.T) {
+	c := New(Options{Limit: 4})
+	background, _ := c.Acquire(context.Background(), Key{Principal: 10, Class: Background})
+
+	paused := make(chan func(), 1)
+	go func() {
+		resume, err := c.Pause(context.Background())
+		if err != nil {
+			t.Error(err)
+		}
+		paused <- resume
+	}()
+	for registered := false; !registered; {
+		c.mu.Lock()
+		registered = c.paused == 1
+		c.mu.Unlock()
+		time.Sleep(time.Millisecond)
+	}
+
+	moreBackground := c.Enqueue(Key{Principal: 11, Class: Background})
+	command := c.Enqueue(Key{Principal: 20, Class: Input})
+	var running *Reservation
+	select {
+	case running = <-command.Ready():
+	case <-moreBackground.Ready():
+		t.Fatal("pause admitted new background work")
+	case <-time.After(time.Second):
+		t.Fatal("input waited behind a background slice during a pause")
+	}
+	select {
+	case <-moreBackground.Ready():
+		t.Fatal("pause admitted new background work")
+	case <-paused:
+		t.Fatal("pause completed with a background slice in flight")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	// A suspended command resuming is charged as Background, but its player is
+	// waiting on it just the same.
+	continuation := c.Enqueue(Key{Principal: 20, Class: Background, Command: true})
+	select {
+	case r := <-continuation.Ready():
+		r.Finish(time.Millisecond, 0)
+	case <-time.After(time.Second):
+		t.Fatal("a command's continuation waited behind a background slice during a pause")
+	}
+	select {
+	case <-paused:
+		t.Fatal("pause completed with a background slice in flight")
+	default:
+	}
+
+	background.Finish(time.Millisecond, 0)
+	for held := false; !held; {
+		c.mu.Lock()
+		held = c.inputHeld == 1
+		c.mu.Unlock()
+		time.Sleep(time.Millisecond)
+	}
+	late := c.Enqueue(Key{Principal: 21, Class: Input})
+	select {
+	case <-late.Ready():
+		t.Fatal("input admitted after the background drain, while input was still running")
+	case <-paused:
+		t.Fatal("pause completed with input still running")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	running.Finish(time.Millisecond, 0)
+	var resume func()
+	select {
+	case resume = <-paused:
+	case <-time.After(time.Second):
+		t.Fatal("pause did not complete once everything had drained")
+	}
+	select {
+	case <-late.Ready():
+		t.Fatal("input admitted before resume")
+	case <-moreBackground.Ready():
+		t.Fatal("background admitted before resume")
+	default:
+	}
+	resume()
+	(<-late.Ready()).Finish(time.Millisecond, 0)
+	(<-moreBackground.Ready()).Finish(time.Millisecond, 0)
+	if got := c.Snapshot(); got.Active != 0 || got.Queued != 0 || got.Preempted != 0 {
+		t.Fatalf("leak=%+v", got)
+	}
 }

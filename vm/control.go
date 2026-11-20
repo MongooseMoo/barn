@@ -2,11 +2,77 @@ package vm
 
 import (
 	"fmt"
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
+	"slices"
 	"strings"
-	"time"
 )
+
+// ForkBodyProgram extracts the fork body sub-program described by a bytecode
+// fork record, or returns nil when forkInfo does not carry one.
+func ForkBodyProgram(forkInfo *types.ForkInfo) *bytecode.Program {
+	if forkInfo == nil {
+		return nil
+	}
+	body, ok := forkInfo.Body.(*bytecode.ForkBody)
+	if !ok {
+		return nil
+	}
+	return body.ExtractProgram()
+}
+
+// NewForkVM builds the pre-configured VM a forked child's first run executes:
+// the extracted fork body with the parent's variables copied in. It is a pure
+// function of forkInfo, which is what lets a first run that loses its commit be
+// re-executed from scratch exactly like a fresh task. The caller attaches the
+// child's Context and Task and starts it with ExecuteLoop.
+func NewForkVM(store *dbstore.Store, session *builtins.Session, taskID int64, forkInfo *types.ForkInfo, forkProg *bytecode.Program, ticks int64) *VM {
+	childVM := NewVM(store, session)
+	childVM.TickLimit = ticks
+	childVM.MaxStackDepth = session.GetMaxStackDepth(store)
+
+	// Set up the child frame with inherited variables
+	frame := childVM.PrepareVerbFrame(forkProg,
+		forkInfo.ThisObj, forkInfo.Player, forkInfo.Caller,
+		forkInfo.Verb, forkInfo.VerbLoc, nil)
+	frame.ThisValue = forkInfo.ThisValue
+	// Mark as verb-call so syncTaskLineNumbers includes this frame
+	// when syncing line numbers to the task's CallStack.
+	frame.IsVerbCall = true
+	// The child runs with the debug flag the forking activation had, as
+	// Toast's do_forked_task runs the activation OP_FORK copied.
+	frame.VerbDebug = forkInfo.Debug
+
+	// Copy inherited variable values from the parent
+	for varName, varVal := range forkInfo.Variables {
+		SetLocalByName(frame, forkProg, varName, varVal)
+	}
+	if forkInfo.VarName != "" {
+		SetLocalByName(frame, forkProg, forkInfo.VarName, types.NewInt(taskID))
+	}
+	return childVM
+}
+
+// forkDelaySeconds validates a fork statement's delay: E_TYPE unless it is a
+// number, E_INVARG when it is negative.
+func forkDelaySeconds(delay types.Value) (float64, error) {
+	switch delay.Type() {
+	case types.TYPE_INT:
+		if delay.Int() < 0 {
+			return 0, newMooError(types.E_INVARG, "fork delay must be non-negative")
+		}
+		return float64(delay.Int()), nil
+	case types.TYPE_FLOAT:
+		if delay.Float() < 0 {
+			return 0, newMooError(types.E_INVARG, "fork delay must be non-negative")
+		}
+		return delay.Float(), nil
+	}
+	return 0, newMooError(types.E_TYPE, "fork delay must be numeric")
+}
 
 // executeFork handles OP_FORK: evaluate delay, then yield to the execution engine.
 //
@@ -32,23 +98,16 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	}
 	bodyLen := vm.readControlFlowOperand(wide)
 
-	// Pop and validate the delay value
-	delay := vm.Pop()
-
-	var delaySeconds float64
-	switch delay.Type() {
-	case types.TYPE_INT:
-		if delay.Int() < 0 {
-			return newMooError(types.E_INVARG, "fork delay must be non-negative")
+	delaySeconds, err := forkDelaySeconds(vm.Pop())
+	if err != nil {
+		// Toast reports a rejected delay with RAISE_TYPE_MISMATCH or
+		// RAISE_ERROR, which push nothing in a verb without the d flag: the
+		// fork statement is skipped and execution continues after its body.
+		if frame := vm.CurrentFrame(); frame != nil && !frame.VerbDebug {
+			frame.IP += bodyLen
+			return nil
 		}
-		delaySeconds = float64(delay.Int())
-	case types.TYPE_FLOAT:
-		if delay.Float() < 0 {
-			return newMooError(types.E_INVARG, "fork delay must be non-negative")
-		}
-		delaySeconds = delay.Float()
-	default:
-		return newMooError(types.E_TYPE, "fork delay must be numeric")
+		return err
 	}
 
 	// Resolve variable name from index
@@ -80,27 +139,21 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	playerObj := frame.Player
 	callerObj := frame.Caller
 	verbStr := frame.Verb
-	if vm.Context != nil {
-		if vm.Context.Player != types.ObjNothing {
-			playerObj = vm.Context.Player
-		}
-	}
-	thisValue := types.None
-	if vm.Context != nil {
-		thisValue = vm.Context.ThisValue
-	}
+	thisValue := frame.ThisValue
 
+	body := &bytecode.ForkBody{Parent: frame.Program, Offset: forkBodyIP, Length: forkBodyLen}
 	forkInfo := &types.ForkInfo{
-		Delay:       time.Duration(delaySeconds * float64(time.Second)),
+		Delay:       delaySeconds,
 		VarName:     varName,
-		Body:        &bytecode.ForkBody{Parent: frame.Program, Offset: forkBodyIP, Length: forkBodyLen},
-		SourceLines: sourceLinesForFork(frame.Program, forkBodyIP, forkBodyLen),
+		Body:        body,
+		SourceLines: body.SourceLines(),
 		ThisObj:     thisObj,
 		ThisValue:   thisValue,
 		Player:      playerObj,
 		Caller:      callerObj,
 		Verb:        verbStr,
 		VerbLoc:     frame.VerbLoc,
+		Debug:       frame.VerbDebug,
 	}
 	// Store locals snapshot in Variables map for the execution engine.
 	forkInfo.Variables = make(map[string]types.Value, len(frame.Program.VarNames))
@@ -111,6 +164,20 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	}
 
 	// Yield to the execution engine.
+	for index, value := range frame.commandEnvironment() {
+		name := task.CommandVariableNames[index]
+		present := false
+		for _, sourceName := range frame.Program.VarNames {
+			if strings.EqualFold(name, sourceName) {
+				present = true
+				break
+			}
+		}
+		if !present {
+			forkInfo.Variables[name] = value
+		}
+	}
+
 	vm.yielded = true
 	vm.yieldResult = types.Result{
 		Flow:     types.FlowFork,
@@ -120,70 +187,34 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	return nil
 }
 
-func sourceLinesForFork(program *bytecode.Program, bodyIP, bodyLen int) []string {
-	if program == nil || len(program.Source) == 0 || bodyLen <= 0 {
-		return nil
+// singleExceptCodes holds the codes list of a one-code clause, except (E_TYPE),
+// for each code byte, so entering such a try allocates nothing. Handlers only
+// read their codes; persistence copies them.
+var singleExceptCodes = func() (table [256][1]types.ErrorCode) {
+	for i := range table {
+		table[i][0] = types.ErrorCode(i)
 	}
-
-	startLine := program.LineForIP(bodyIP)
-	endLine := program.LineForIP(bodyIP + bodyLen - 1)
-	if startLine <= 0 || endLine <= 0 {
-		return nil
-	}
-	if endLine < startLine {
-		endLine = startLine
-	}
-	if startLine > len(program.Source) {
-		return nil
-	}
-	if endLine > len(program.Source) {
-		endLine = len(program.Source)
-	}
-	if startLine == endLine {
-		if body := oneLineForkBody(program.Source[startLine-1]); body != "" {
-			return []string{body}
-		}
-	}
-
-	lines := make([]string, 0, endLine-startLine+1)
-	for i := startLine; i <= endLine; i++ {
-		lines = append(lines, program.Source[i-1])
-	}
-	return lines
-}
-
-func oneLineForkBody(source string) string {
-	lower := strings.ToLower(source)
-	forkIdx := strings.Index(lower, "fork")
-	if forkIdx < 0 {
-		return ""
-	}
-	headerEnd := strings.Index(source[forkIdx:], ")")
-	if headerEnd < 0 {
-		return ""
-	}
-	bodyStart := forkIdx + headerEnd + 1
-	endIdx := strings.Index(strings.ToLower(source[bodyStart:]), "endfork")
-	if endIdx < 0 {
-		return ""
-	}
-	body := strings.TrimSpace(source[bodyStart : bodyStart+endIdx])
-	body = strings.TrimPrefix(body, ";")
-	body = strings.TrimSpace(body)
-	return body
-}
+	return table
+}()
 
 // executeTryExcept handles OP_TRY_EXCEPT: push exception handlers onto ExceptStack
 func (vm *VM) executeTryExcept(wide, wideLocal bool) error {
 	frame := vm.CurrentFrame()
 	numClauses := int(vm.FetchByte())
-	handlers := make([]bytecode.Handler, numClauses)
+	// Decode straight onto ExceptStack in source order, then reverse the
+	// clauses in place below.
+	base := len(frame.ExceptStack)
 
 	for i := 0; i < numClauses; i++ {
 		numCodes := int(vm.FetchByte())
-		codes := make([]types.ErrorCode, numCodes)
-		for j := 0; j < numCodes; j++ {
-			codes[j] = types.ErrorCode(vm.FetchByte())
+		var codes []types.ErrorCode
+		if numCodes == 1 {
+			codes = singleExceptCodes[vm.FetchByte()][:]
+		} else {
+			codes = make([]types.ErrorCode, numCodes)
+			for j := 0; j < numCodes; j++ {
+				codes[j] = types.ErrorCode(vm.FetchByte())
+			}
 		}
 
 		var varOperand int
@@ -197,20 +228,19 @@ func (vm *VM) executeTryExcept(wide, wideLocal bool) error {
 		// Read handler IP (absolute).
 		handlerIP := vm.readControlFlowOperand(wide)
 
-		handlers[i] = bytecode.Handler{
+		frame.ExceptStack = append(frame.ExceptStack, bytecode.Handler{
 			Type:       bytecode.HandlerExcept,
 			HandlerIP:  handlerIP,
 			Codes:      codes,
 			VarIndex:   varIndex,
 			StackDepth: vm.SP,
-		}
+			ExceptBase: base + 1,
+		})
 	}
 
-	// Push in reverse source order so reverse scan in HandleError honors
+	// Leave them in reverse source order so reverse scan in HandleError honors
 	// "first matching except clause wins".
-	for i := numClauses - 1; i >= 0; i-- {
-		frame.ExceptStack = append(frame.ExceptStack, handlers[i])
-	}
+	slices.Reverse(frame.ExceptStack[base:])
 
 	return nil
 }
@@ -250,10 +280,40 @@ func (vm *VM) executeTryFinally(wide bool) error {
 	return nil
 }
 
+// pendingReason owns the reason for one currently executing cleanup.
+type pendingReason struct {
+	Kind         task.PendingReasonKind
+	FinallyIP    int
+	Value        types.Value
+	Error        error
+	TargetIP     int
+	HandlerDepth int
+	Stack        []types.Value
+	// Uncaught marks a PendingError no handler in any frame catches (Toast's
+	// FIN_UNCAUGHT); forgetUncaughtErrors turns it into a PendingAbort when
+	// the task suspends.
+	Uncaught bool
+}
+
+// forgetUncaughtErrors runs when the task suspends. Toast holds an uncaught
+// error outside the task while its finally bodies run, and resuming a
+// suspended task starts with none held (execute.cc run_interpreter), so a
+// finally body that suspends leaves the task ending with nothing to report.
+func (vm *VM) forgetUncaughtErrors() {
+	for _, frame := range vm.Frames {
+		for index := range frame.PendingReasons {
+			if pending := &frame.PendingReasons[index]; pending.Uncaught {
+				visitErrorValue(pending.Error, vm.collectPendingFinalizationsFromValue)
+				*pending = pendingReason{Kind: task.PendingAbort, FinallyIP: pending.FinallyIP}
+			}
+		}
+	}
+}
+
 // executeEndFinally handles OP_END_FINALLY <finally_ip>.
 // This opcode appears twice in try/finally bytecode:
 // 1. After the try body (normal path): pop its matching handler from ExceptStack
-// 2. After the finally block: re-raise PendingError if set
+// 2. After cleanup: resume the reason owned by this cleanup, if any.
 func (vm *VM) executeEndFinally(wide bool) error {
 	frame := vm.CurrentFrame()
 
@@ -271,18 +331,73 @@ func (vm *VM) executeEndFinally(wide bool) error {
 		}
 	}
 
-	// This block's handler was already removed while unwinding. Re-raise the
-	// pending error without consuming an enclosing finally handler.
-	if frame.PendingError != nil {
-		err := frame.PendingError
-		frame.PendingError = nil
-		return err
+	count := len(frame.PendingReasons)
+	if count == 0 {
+		return nil
 	}
-	if frame.HasPendingReturn {
-		value := frame.PendingReturn
-		frame.HasPendingReturn = false
-		return vm.Return(value)
+	pending := frame.PendingReasons[count-1]
+	if pending.FinallyIP != finallyIP {
+		return nil
 	}
+	frame.PendingReasons[count-1] = pendingReason{}
+	frame.PendingReasons = frame.PendingReasons[:count-1]
+	switch pending.Kind {
+	case task.PendingError:
+		return pending.Error
+	case task.PendingReturn:
+		return vm.Return(pending.Value)
+	case task.PendingJump:
+		return vm.unwindJump(pending.TargetIP, pending.HandlerDepth, pending.Stack)
+	case task.PendingAbort:
+		return unreportedAbort{}
+	}
+	return fmt.Errorf("internal error: invalid pending cleanup reason")
+}
 
+// abandonPendingTo cancels only reasons whose cleanup body is being left.
+// A loop entirely inside cleanup must preserve the enclosing pending reason.
+func (vm *VM) abandonPendingTo(target int) {
+	frame := vm.CurrentFrame()
+	for index, pending := range frame.PendingReasons {
+		if !frame.Program.FinallyContains(pending.FinallyIP, target) {
+			for _, dropped := range frame.PendingReasons[index:] {
+				vm.collectPendingFinalizationsFromValue(dropped.Value)
+				visitErrorValue(dropped.Error, vm.collectPendingFinalizationsFromValue)
+				for _, value := range dropped.Stack {
+					vm.collectPendingFinalizationsFromValue(value)
+				}
+			}
+			clear(frame.PendingReasons[index:])
+			frame.PendingReasons = frame.PendingReasons[:index]
+			break
+		}
+	}
+}
+
+func (vm *VM) unwindJump(target, depth int, stack []types.Value) error {
+	frame := vm.CurrentFrame()
+	if depth < 0 || depth > len(frame.ExceptStack) {
+		return fmt.Errorf("internal error: unwind jump retains %d of %d handlers", depth, len(frame.ExceptStack))
+	}
+	for len(frame.ExceptStack) > depth {
+		index := len(frame.ExceptStack) - 1
+		handler := frame.ExceptStack[index]
+		frame.ExceptStack = frame.ExceptStack[:index]
+		if handler.Type == bytecode.HandlerFinally {
+			vm.abandonPendingTo(handler.HandlerIP)
+			frame.PendingReasons = append(frame.PendingReasons, pendingReason{
+				Kind: task.PendingJump, TargetIP: target, HandlerDepth: depth, FinallyIP: handler.HandlerIP, Stack: stack,
+			})
+			vm.SP = handler.StackDepth
+			frame.IP = handler.HandlerIP
+			return nil
+		}
+	}
+	vm.abandonPendingTo(target)
+	vm.SP = frame.BasePointer
+	for _, value := range stack {
+		vm.Push(value)
+	}
+	frame.IP = target
 	return nil
 }

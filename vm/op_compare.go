@@ -130,6 +130,32 @@ func (vm *VM) executeGe() error {
 	return nil
 }
 
+// listIndex is Toast's ismember(element, list, 0) for a list: the one-based
+// position of the first case-insensitively equal element, or 0.
+func (vm *VM) listIndex(element, list types.Value) int {
+	for i := 1; i <= list.Len(); i++ {
+		item := list.Get(i)
+		if eq, handled := types.BoolIntEqual(element, item); handled {
+			if eq {
+				return i
+			}
+			continue
+		}
+		// PROMOTE_NUMBERS: mixed int/float membership compares as doubles
+		// (mongoose utils.cc coercion; `1 in {1.0}` is 1 under promote).
+		if eq, handled := vm.promoteNumericEqual(element, item); handled {
+			if eq {
+				return i
+			}
+			continue
+		}
+		if element.Equal(item) {
+			return i
+		}
+	}
+	return 0
+}
+
 func (vm *VM) executeIn() error {
 	collection := vm.Pop()
 	element := vm.Pop()
@@ -137,30 +163,7 @@ func (vm *VM) executeIn() error {
 	// Check if element is in collection
 	switch collection.Type() {
 	case types.TYPE_LIST:
-		for i := 1; i <= collection.Len(); i++ {
-			item := collection.Get(i)
-			if eq, handled := types.BoolIntEqual(element, item); handled {
-				if eq {
-					vm.Push(types.NewInt(int64(i)))
-					return nil
-				}
-				continue
-			}
-			// PROMOTE_NUMBERS: mixed int/float membership compares as doubles
-			// (mongoose utils.cc coercion; `1 in {1.0}` is 1 under promote).
-			if eq, handled := vm.promoteNumericEqual(element, item); handled {
-				if eq {
-					vm.Push(types.NewInt(int64(i)))
-					return nil
-				}
-				continue
-			}
-			if element.Equal(item) {
-				vm.Push(types.NewInt(int64(i)))
-				return nil
-			}
-		}
-		vm.Push(types.NewInt(0))
+		vm.Push(types.NewInt(int64(vm.listIndex(element, collection))))
 		return nil
 
 	case types.TYPE_STR:

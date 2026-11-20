@@ -1,0 +1,22 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                      │ experiments/execution-layering-ownership-base-vm.txt │ experiments/execution-layering-ownership-head-vm.txt │
+                      │                        sec/op                        │            sec/op              vs base               │
+VM/int_arith_1M-4                                               39.78m ±  4%                     40.90m ± 2%  +2.79% (p=0.015 n=10)
+VM/builtin_abs_200k-4                                           28.52m ± 17%                     27.59m ± 3%  -3.25% (p=0.043 n=10)
+geomean                                                         33.68m                           33.59m       -0.28%
+
+                      │ experiments/execution-layering-ownership-base-vm.txt │ experiments/execution-layering-ownership-head-vm.txt │
+                      │                         B/op                         │             B/op               vs base               │
+VM/int_arith_1M-4                                               15.96Ki ± 0%                    16.02Ki ± 0%  +0.39% (p=0.000 n=10)
+VM/builtin_abs_200k-4                                           16.16Ki ± 0%                    16.23Ki ± 0%  +0.39% (p=0.000 n=10)
+geomean                                                         16.06Ki                         16.12Ki       +0.39%
+
+                      │ experiments/execution-layering-ownership-base-vm.txt │ experiments/execution-layering-ownership-head-vm.txt │
+                      │                      allocs/op                       │          allocs/op           vs base                 │
+VM/int_arith_1M-4                                                 19.00 ± 0%                    19.00 ± 0%       ~ (p=1.000 n=10) ¹
+VM/builtin_abs_200k-4                                             26.00 ± 0%                    26.00 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                                                           22.23                         22.23       +0.00%
+¹ all samples are equal

@@ -3,6 +3,11 @@ package format
 import (
 	"bufio"
 	"bytes"
+	"errors"
+	"io"
+	"os"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +15,68 @@ import (
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
+
+func TestTaskSourceTruncationReturnsEOF(t *testing.T) {
+	raw, err := os.ReadFile("testdata/toastcore.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	database, err := parseDatabaseWithWaifIdentities(bufio.NewReader(bytes.NewReader(raw)), nil)
+	if err != nil || database == nil || len(database.QueuedTasks) == 0 {
+		t.Fatalf("original fixture: database=%v err=%v", database, err)
+	}
+	dot := bytes.Index(raw, []byte("\n.\n"))
+	if dot < 0 {
+		t.Fatal("fixture has no source terminator")
+	}
+	truncated := &taskSourceEOFReader{Reader: bytes.NewReader(raw[:dot+1])}
+	_, err = parseDatabaseWithWaifIdentities(bufio.NewReader(truncated), nil)
+	if !errors.Is(err, io.EOF) || !strings.Contains(err.Error(), "read queued task source") {
+		t.Fatalf("truncated queued source: %v, want contextual EOF", err)
+	}
+	t.Logf("tracked fixture truncated at %d bytes: %v", dot+1, err)
+
+	// Use the real queued program as the VM writer's source, then truncate
+	// its emitted frame at the program terminator, before environment metadata.
+	var frame bytes.Buffer
+	w := NewWriter(&frame, store.Snapshot{})
+	var snapshot task.VMFrameSnapshot
+	snapshot.Program.Source = database.QueuedTasks[0].Code
+	if err := w.writeVMFrame(snapshot, types.ActivationFrame{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	dot = bytes.Index(frame.Bytes(), []byte("\n.\n"))
+	if dot < 0 {
+		t.Fatal("writer emitted no source terminator")
+	}
+	truncated = &taskSourceEOFReader{Reader: bytes.NewReader(frame.Bytes()[:dot+1])}
+	_, _, err = database.readVMFrame(bufio.NewReader(truncated))
+	if !errors.Is(err, io.EOF) || !strings.Contains(err.Error(), "read program") {
+		t.Fatalf("truncated VM source: %v, want contextual EOF", err)
+	}
+	t.Logf("writer frame truncated at %d bytes: %v", dot+1, err)
+}
+
+// Bound the regression probe even when run against the old EOF-swallowing
+// helper: a second EOF becomes a distinct error rather than growing forever.
+type taskSourceEOFReader struct {
+	*bytes.Reader
+	sawEOF bool
+}
+
+func (r *taskSourceEOFReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if err == io.EOF {
+		if r.sawEOF {
+			return 0, errors.New("source reader ignored EOF")
+		}
+		r.sawEOF = true
+	}
+	return n, err
+}
 
 func TestQueuedTaskWriterReaderPreservesToastHeaderFields(t *testing.T) {
 	var dump bytes.Buffer
@@ -48,7 +115,7 @@ func TestQueuedTaskWriterReaderPreservesToastHeaderFields(t *testing.T) {
 		t.Fatalf("Flush: %v", err)
 	}
 
-	database := &Database{}
+	database := &Database{Version: 17}
 	if err := database.readQueuedTasks(bufio.NewReader(bytes.NewReader(dump.Bytes()))); err != nil {
 		t.Fatalf("readQueuedTasks: %v", err)
 	}
@@ -61,5 +128,53 @@ func TestQueuedTaskWriterReaderPreservesToastHeaderFields(t *testing.T) {
 	}
 	if got.ID != 517 {
 		t.Errorf("task id = %d, want 517", got.ID)
+	}
+}
+
+// Issue #849: a frame's or forked task's raw source can hold a line starting
+// with "." (eval("x\n.y = 1;") compiles to x.y = 1). Written verbatim, the
+// reader took ".\r" (and Toast's reader any line starting with ".") for the
+// program terminator and failed on the rest. Such lines come back indented.
+func TestSourceLinesStartingWithDotSurviveRoundTrip(t *testing.T) {
+	source := []string{"xi\r", "", ".\r", "oDUn = 1;", ".", ".y = 2;", " .", "return xi;"}
+	want := []string{"xi", "", " .", "oDUn = 1;", " .", " .y = 2;", " .", "return xi;"}
+
+	var frame bytes.Buffer
+	w := NewWriter(&frame, store.Snapshot{})
+	var snapshot task.VMFrameSnapshot
+	snapshot.Program.Source = source
+	if err := w.writeVMFrame(snapshot, types.ActivationFrame{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	database := &Database{Version: 17}
+	read, _, err := database.readVMFrame(bufio.NewReader(bytes.NewReader(frame.Bytes())))
+	if err != nil {
+		t.Fatalf("readVMFrame: %v", err)
+	}
+	if !slices.Equal(read.Program.Source, want) {
+		t.Fatalf("frame source = %q, want %q", read.Program.Source, want)
+	}
+
+	var dump bytes.Buffer
+	writer := NewWriter(&dump, store.NewStore().Snapshot())
+	writer.SetTaskSnapshots([]task.Snapshot{{
+		ID: 7, Owner: 2, Programmer: 2, VerbLoc: 0, VerbName: "fork", This: 0,
+		CallStack: []types.ActivationFrame{{This: 0, ThisValue: types.NewObj(0), Player: 2, Programmer: 2, Verb: "fork", StoredVerb: "fork"}},
+		Fork:      &task.ForkSnapshot{FirstLine: 1, Variables: map[string]types.Value{}, SourceLines: source},
+	}}, nil)
+	if err := writer.writeQueuedTasks(); err != nil {
+		t.Fatalf("writeQueuedTasks: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.readQueuedTasks(bufio.NewReader(bytes.NewReader(dump.Bytes()))); err != nil {
+		t.Fatalf("readQueuedTasks: %v", err)
+	}
+	if len(database.QueuedTasks) != 1 || !slices.Equal(database.QueuedTasks[0].Code, want) {
+		t.Fatalf("queued tasks = %+v, want one with source %q", database.QueuedTasks, want)
 	}
 }

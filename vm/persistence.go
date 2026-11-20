@@ -2,12 +2,13 @@ package vm
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -36,6 +37,7 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 			Program:             cloneProgram(frame.Program),
 			IP:                  frame.IP,
 			Locals:              append([]types.Value(nil), frame.Locals...),
+			CommandEnvironment:  frame.CommandEnvironment,
 			Stack:               append([]types.Value(nil), vm.Stack[frame.BasePointer:stackEnd]...),
 			This:                frame.This,
 			ThisValue:           frame.ThisValue,
@@ -46,10 +48,12 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 			VerbLoc:             frame.VerbLoc,
 			Args:                append([]types.Value(nil), frame.Args...),
 			ExceptStack:         cloneHandlers(frame.ExceptStack),
-			PendingReturn:       frame.PendingReturn,
-			HasPendingReturn:    frame.HasPendingReturn,
+			PendingReasons:      snapshotPendingReasons(frame.PendingReasons),
 			VerbDebug:           frame.VerbDebug,
 			DiscardReturn:       frame.DiscardReturn,
+			ReturnLocal:         frame.ReturnLocal,
+			BuiltinCaller:       frame.BuiltinCaller,
+			BuiltinPC:           frame.BuiltinPC,
 			IsVerbCall:          frame.IsVerbCall,
 			IsEvalFrame:         frame.IsEvalFrame,
 			ThreadMode:          activationThreadMode(vm.Frames, i, vm.Context),
@@ -61,18 +65,6 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 			MoveContinuation:    cloneMoveContinuation(frame.MoveContinuation),
 			RecycleContinuation: snapshotRecycleContinuation(frame.RecycleContinuation),
 		}
-		if frame.PendingError != nil {
-			saved.PendingError.Present = true
-			switch pending := frame.PendingError.(type) {
-			case VMException:
-				saved.PendingError.Code = pending.Code
-				saved.PendingError.Value = pending.Value
-			case MooError:
-				saved.PendingError.Code = pending.Code
-			default:
-				saved.PendingError.Code = errorCode(frame.PendingError)
-			}
-		}
 		snapshot.Frames = append(snapshot.Frames, saved)
 	}
 	return snapshot
@@ -81,7 +73,7 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 // activationThreadMode reports frame i's own thread mode. The context holds the
 // running activation's mode; each lower activation's mode is what the nearest
 // context-saving frame above it saved when it was pushed.
-func activationThreadMode(frames []*StackFrame, i int, ctx *kernel.TaskContext) bool {
+func activationThreadMode(frames []*StackFrame, i int, ctx *task.Context) bool {
 	for above := i + 1; above < len(frames); above++ {
 		if savesContext(frames[above]) {
 			return frames[above].SavedThreadMode
@@ -107,8 +99,17 @@ func RestoreVMSnapshot(
 	snapshot *task.VMSnapshot,
 	store *dbstore.Store,
 	session *builtins.Session,
-	ctx *kernel.TaskContext,
+	ctx *task.Context,
 ) (*VM, error) {
+	var err error
+	snapshot, err = convertNativeSnapshot(snapshot, store, session)
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err = rebuildSnapshot(snapshot, session)
+	if err != nil {
+		return nil, err
+	}
 	if err := validateVMSnapshot(snapshot); err != nil {
 		return nil, err
 	}
@@ -135,6 +136,7 @@ func RestoreVMSnapshot(
 			IP:                  saved.IP,
 			BasePointer:         base,
 			Locals:              append([]types.Value(nil), saved.Locals...),
+			CommandEnvironment:  saved.CommandEnvironment,
 			This:                saved.This,
 			ThisValue:           saved.ThisValue,
 			Player:              saved.Player,
@@ -144,10 +146,12 @@ func RestoreVMSnapshot(
 			VerbLoc:             saved.VerbLoc,
 			Args:                append([]types.Value(nil), saved.Args...),
 			ExceptStack:         cloneHandlers(saved.ExceptStack),
-			PendingReturn:       saved.PendingReturn,
-			HasPendingReturn:    saved.HasPendingReturn,
+			PendingReasons:      restorePendingReasons(saved.PendingReasons),
 			VerbDebug:           saved.VerbDebug,
 			DiscardReturn:       saved.DiscardReturn,
+			ReturnLocal:         saved.ReturnLocal,
+			BuiltinCaller:       saved.BuiltinCaller,
+			BuiltinPC:           saved.BuiltinPC,
 			IsVerbCall:          saved.IsVerbCall,
 			IsEvalFrame:         saved.IsEvalFrame,
 			SavedThisObj:        saved.SavedThisObj,
@@ -162,14 +166,8 @@ func RestoreVMSnapshot(
 		if n := len(machine.Frames); n > 0 && savesContext(frame) {
 			frame.SavedThreadMode = snapshot.Frames[n-1].ThreadMode
 		}
-		if saved.PendingError.Present {
-			frame.PendingError = VMException{
-				Code:  saved.PendingError.Code,
-				Value: saved.PendingError.Value,
-			}
-		}
 		machine.Frames = append(machine.Frames, frame)
-		if recycleContinuation != nil {
+		if recycleContinuation != nil && recycleContinuation.request.Object.IsAnonymous() {
 			recycleIDs = append(recycleIDs, recycleContinuation.request.Object.ID())
 		}
 	}
@@ -194,6 +192,287 @@ func RestoreVMSnapshot(
 	return machine, nil
 }
 
+func convertNativeSnapshot(snapshot *task.VMSnapshot, store *dbstore.Store, session *builtins.Session) (*task.VMSnapshot, error) {
+	if snapshot == nil || len(snapshot.Frames) == 0 || snapshot.Frames[0].Native == nil {
+		return snapshot, nil
+	}
+	if session == nil || store == nil {
+		return nil, fmt.Errorf("native continuation import requires a store and builtin session")
+	}
+	if snapshot.NativeFunctionID != 0 {
+		return nil, fmt.Errorf("unsupported native VM function continuation %d", snapshot.NativeFunctionID)
+	}
+	converted := &task.VMSnapshot{MaxStackDepth: snapshot.MaxStackDepth, Frames: make([]task.VMFrameSnapshot, len(snapshot.Frames))}
+	previousCall := compiler.NativeResumeVerb
+	stackBase := 0
+	for index, saved := range snapshot.Frames {
+		if saved.Native == nil {
+			return nil, fmt.Errorf("mixed native and Barn activation encodings")
+		}
+		vector := -1
+		if index == 0 {
+			vector = snapshot.NativeRootVector
+		}
+		var move *task.MoveContinuationSnapshot
+		evalFrame := previousCall == compiler.NativeResumeEval
+		switch previousCall {
+		case compiler.NativeResumeEval:
+			saved = withoutEvalReturnContinuation(saved)
+		case compiler.NativeResumeBuiltin:
+			saved, move = withoutMoveContinuation(saved)
+			if move == nil {
+				// call_function("eval", ...) is a builtin call site whose callee
+				// is an eval activation. ExportNativeSnapshot marks it as it
+				// marks eval()'s own.
+				marked := saved.Native.Builtin != nil
+				saved = withoutEvalReturnContinuation(saved)
+				evalFrame = marked && saved.Native.Builtin == nil
+			}
+		}
+		frame, call, err := session.Registry().Compiler().ConvertNativeFrame(saved, vector, index == len(snapshot.Frames)-1)
+		if err != nil {
+			return nil, fmt.Errorf("native frame %d: %w", index, err)
+		}
+		frame.IsVerbCall = previousCall == compiler.NativeResumeVerb || previousCall == compiler.NativeResumePass
+		frame.IsEvalFrame = evalFrame
+		if move != nil {
+			// The frame as pushMoveLifecycleVerb leaves a hook verb's.
+			frame.IsVerbCall = true
+			frame.DiscardReturn = true
+			frame.MoveContinuation = move
+			frame.BuiltinCaller, frame.BuiltinPC = "move", move.Stage+1
+		}
+		if index != 0 {
+			parent := snapshot.Frames[index-1]
+			frame.SavedThisObj = parent.This
+			frame.SavedThisValue = parent.ThisValue
+			frame.SavedVerb = parent.Verb
+			frame.SavedProgrammer = parent.Native.Programmer
+			frame.SavedIsWizard, _ = store.DirectTxn().HasObjectFlag(parent.Native.Programmer, dbstore.FlagWizard)
+		}
+		for handlerIndex := range frame.ExceptStack {
+			frame.ExceptStack[handlerIndex].StackDepth += stackBase
+		}
+		stackBase += len(frame.Stack)
+		converted.Frames[index] = frame
+		previousCall = call
+	}
+	return converted, nil
+}
+
+// Toast's bf_eval pushes the eval activation and then returns a call package,
+// so the OP_BI_FUNC_CALL handler records builtin eval with pc 2 on that new
+// activation rather than on its caller. When the frame returns, Toast calls
+// bf_eval(next=2), which wraps the value in {1, value}. Barn models the same
+// continuation as IsEvalFrame, set from the caller's eval() call site, so
+// the callee's own mark is dropped here. Any other builtin state, or an eval
+// mark at another pc or with saved data, is left for ConvertNativeFrame to
+// refuse.
+//
+// Under call_function("eval", ...) Toast records call_function with eval's
+// state inside it (execute.cc bf_call_function), which is still refused.
+// ExportNativeSnapshot writes the plain eval mark there too: when the eval
+// activation returns, Toast calls the builtin its mark names with the value
+// (execute.cc run, the bi_func_pc branch of a return), and bf_call_function
+// would only have passed bf_eval's {1, value} through.
+func withoutEvalReturnContinuation(saved task.VMFrameSnapshot) task.VMFrameSnapshot {
+	builtin := saved.Native.Builtin
+	if saved.BuiltinPC != 2 || builtin == nil || builtin.Name != "eval" || builtin.State != "" || builtin.Inner != nil {
+		return saved
+	}
+	native := *saved.Native
+	native.Builtin = nil
+	saved.Native = &native
+	saved.BuiltinPC = 0
+	return saved
+}
+
+// Toast's state line for a move() continuation (objects.cc bf_move_write).
+const nativeMoveState = "bf_move data: what = %d, where = %d, position = %d"
+
+// Toast's bf_move calls where:accept, oldloc:exitfunc and where:enterfunc as
+// verb activations and records builtin move on each one, with the pc do_move
+// continues at when that verb returns (2, 3, 4) and its what, where and
+// position (objects.cc do_move). Barn models the same continuation as the
+// hook frame's MoveContinuation, whose Stage is that pc less one. Toast keeps
+// no old location: do_move's oldloc is a local it does not read after
+// exitfunc, as continueMoveLifecycleAfterExit does not. Decentralized is what
+// builtinMove gives a task that has not yet mutated the live store, which a
+// task restored from a checkpoint has not. A move mark with another pc or
+// other state is left for ConvertNativeFrame to refuse.
+func withoutMoveContinuation(saved task.VMFrameSnapshot) (task.VMFrameSnapshot, *task.MoveContinuationSnapshot) {
+	builtin := saved.Native.Builtin
+	if builtin == nil || builtin.Name != "move" || builtin.Inner != nil || saved.BuiltinPC <= moveAwaitAccept || saved.BuiltinPC > moveAwaitEnter+1 {
+		return saved, nil
+	}
+	var what, where, position int64
+	if _, err := fmt.Sscanf(builtin.State, nativeMoveState, &what, &where, &position); err != nil || builtin.State != fmt.Sprintf(nativeMoveState, what, where, position) {
+		return saved, nil
+	}
+	move := &task.MoveContinuationSnapshot{
+		Stage:         saved.BuiltinPC - 1,
+		What:          types.NewObj(types.ObjID(what)),
+		Where:         types.NewObj(types.ObjID(where)),
+		OldLocation:   types.None,
+		Position:      position,
+		Decentralized: true,
+	}
+	native := *saved.Native
+	native.Builtin = nil
+	saved.Native = &native
+	saved.BuiltinPC = 0
+	return saved, move
+}
+
+// ExportNativeSnapshot is convertNativeSnapshot's inverse: it returns snapshot
+// with every frame as Toast holds it at the same call, so Toast can load and
+// resume it, or an error when any frame has no Toast form. Programmers are
+// the activations' (callStack), which Toast stores beside each frame.
+func ExportNativeSnapshot(snapshot *task.VMSnapshot, callStack []types.ActivationFrame, compile *compiler.Compiler) (*task.VMSnapshot, error) {
+	if snapshot == nil || len(snapshot.Frames) == 0 {
+		return nil, fmt.Errorf("empty VM snapshot")
+	}
+	exported := &task.VMSnapshot{MaxStackDepth: snapshot.MaxStackDepth, Frames: make([]task.VMFrameSnapshot, len(snapshot.Frames))}
+	for index, saved := range snapshot.Frames {
+		move := saved.MoveContinuation
+		if move != nil {
+			// Toast's move data holds object numbers (see withoutMoveContinuation).
+			if saved.BuiltinCaller != "move" || saved.BuiltinPC != move.Stage+1 || move.What.Type() != types.TYPE_OBJ || move.Where.Type() != types.TYPE_OBJ {
+				return nil, fmt.Errorf("frame %d (#%d:%s): move continuation has no Toast form", index, saved.VerbLoc, saved.Verb)
+			}
+			saved.MoveContinuation, saved.BuiltinCaller, saved.BuiltinPC = nil, "", 0
+		}
+		frame, vector, err := compile.ExportNativeFrame(saved, index == len(snapshot.Frames)-1)
+		if err != nil {
+			return nil, fmt.Errorf("frame %d (#%d:%s): %w", index, saved.VerbLoc, saved.Verb, err)
+		}
+		if index == 0 {
+			exported.NativeRootVector = vector
+		} else if vector != -1 {
+			return nil, fmt.Errorf("frame %d (#%d:%s) is not in its program's main vector", index, saved.VerbLoc, saved.Verb)
+		}
+		if index < len(callStack) {
+			frame.Native.Programmer = callStack[index].Programmer
+		}
+		if saved.IsEvalFrame {
+			// Toast holds eval()'s return continuation on the eval activation
+			// (see withoutEvalReturnContinuation); without it Toast would hand
+			// the caller the bare value instead of {1, value}.
+			native := *frame.Native
+			native.Builtin = &task.NativeBuiltinSnapshot{Name: "eval"}
+			frame.Native = &native
+			frame.BuiltinPC = 2
+		}
+		if move != nil {
+			native := *frame.Native
+			native.Builtin = &task.NativeBuiltinSnapshot{Name: "move", State: fmt.Sprintf(nativeMoveState, move.What.Obj(), move.Where.Obj(), move.Position)}
+			frame.Native = &native
+			frame.BuiltinPC = move.Stage + 1
+		}
+		exported.Frames[index] = frame
+	}
+	return exported, nil
+}
+
+// ProgramMismatchError refuses a saved task one of whose frames ran a program
+// that compiling the frame's saved source does not produce today.
+type ProgramMismatchError struct {
+	Frame   int
+	Verb    string
+	VerbLoc types.ObjID
+	Reason  string
+}
+
+func (e *ProgramMismatchError) Error() string {
+	return fmt.Sprintf("frame %d (#%d:%s): %s", e.Frame, e.VerbLoc, e.Verb, e.Reason)
+}
+
+// rebuildSnapshot replaces the program of every frame read from a database
+// (Rebuild set) with the compiler's output for its saved source, so a saved
+// task can only run code a compile of that source produces.
+func rebuildSnapshot(snapshot *task.VMSnapshot, session *builtins.Session) (*task.VMSnapshot, error) {
+	if snapshot == nil || !slices.ContainsFunc(snapshot.Frames, func(frame task.VMFrameSnapshot) bool { return frame.Rebuild != nil }) {
+		return snapshot, nil
+	}
+	if session == nil {
+		return nil, fmt.Errorf("rebuilding saved programs requires a builtin session")
+	}
+	compile := session.Registry().Compiler()
+	rebuilt := *snapshot
+	rebuilt.Frames = append([]task.VMFrameSnapshot(nil), snapshot.Frames...)
+	for index := range rebuilt.Frames {
+		frame := &rebuilt.Frames[index]
+		if frame.Rebuild == nil {
+			continue
+		}
+		mismatch := func(reason string) error {
+			return &ProgramMismatchError{Frame: index, Verb: frame.Verb, VerbLoc: frame.VerbLoc, Reason: reason}
+		}
+		if frame.Rebuild.Legacy {
+			if !rebuildLegacyFrame(compile, frame) {
+				return nil, mismatch("saved bytecode is not the compiler's output for its source")
+			}
+		} else {
+			program, err := compile.Rebuild(frame.Program.Source, frame.Program.Origin)
+			if err != nil {
+				return nil, mismatch(err.Error())
+			}
+			if program.Fingerprint() != frame.Rebuild.Fingerprint {
+				return nil, mismatch("compiling its source no longer gives the program the task ran")
+			}
+			locals, err := placeLocals(program, frame)
+			if err != nil {
+				return nil, fmt.Errorf("frame %d: %w", index, err)
+			}
+			frame.Program, frame.Locals = cloneProgram(program), locals
+		}
+		frame.Rebuild = nil
+	}
+	return &rebuilt, nil
+}
+
+// rebuildLegacyFrame replaces a v1 frame's stored program with the compiled
+// program, or one of its fork bodies, whose Code and Constants equal it.
+func rebuildLegacyFrame(compile *compiler.Compiler, frame *task.VMFrameSnapshot) bool {
+	root, diagnostics := compile.CompileMOO(frame.Program.Source)
+	if len(diagnostics) != 0 {
+		return false
+	}
+	for candidate, fork := root, 0; candidate != nil; fork++ {
+		if slices.Equal(candidate.Code, frame.Program.Code) && slices.EqualFunc(candidate.Constants, frame.Program.Constants, func(a, b types.Value) bool {
+			return bytecode.ConstantKey(a) == bytecode.ConstantKey(b)
+		}) {
+			frame.Program = cloneProgram(candidate)
+			return true
+		}
+		candidate = root.ExtractFork(fork + 1)
+	}
+	return false
+}
+
+// placeLocals moves a v2 frame's named locals, read in saved order, and its
+// compiler temporaries into the rebuilt program's slots.
+func placeLocals(program *bytecode.Program, frame *task.VMFrameSnapshot) ([]types.Value, error) {
+	locals := make([]types.Value, program.NumLocals)
+	for slot := range locals {
+		locals[slot] = types.Unbound
+	}
+	for index, name := range frame.Program.VarNames {
+		slot := slices.Index(program.VarNames, name)
+		if slot < 0 || index >= len(frame.Locals) {
+			return nil, fmt.Errorf("saved local %q is not a variable of the program", name)
+		}
+		locals[slot] = frame.Locals[index]
+	}
+	for _, internal := range frame.Rebuild.Internal {
+		if internal.Slot < len(program.VarNames) || internal.Slot >= program.NumLocals {
+			return nil, fmt.Errorf("saved internal local slot %d outside [%d, %d)", internal.Slot, len(program.VarNames), program.NumLocals)
+		}
+		locals[internal.Slot] = internal.Value
+	}
+	return locals, nil
+}
+
 func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 	if snapshot == nil || len(snapshot.Frames) == 0 {
 		return fmt.Errorf("empty VM snapshot")
@@ -205,16 +484,64 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 	stackBase := 0
 	for frameIndex := range snapshot.Frames {
 		saved := &snapshot.Frames[frameIndex]
-		if err := bytecode.VerifyProgram(&saved.Program); err != nil {
+		heights, err := bytecode.StackHeights(&saved.Program)
+		if err != nil {
 			return fmt.Errorf("frame %d: %w", frameIndex, err)
 		}
 		if !saved.Program.IsInstructionBoundary(saved.IP) {
 			return fmt.Errorf("frame %d: saved IP %d is not an instruction boundary", frameIndex, saved.IP)
 		}
+		if heights[saved.IP] < 0 {
+			return fmt.Errorf("frame %d: saved IP %d is unreachable", frameIndex, saved.IP)
+		}
+		// A caller's saved IP follows its call, whose result the callee's
+		// return pushes, if it pushes one, onto the saved stack.
+		resumeHeight := len(saved.Stack)
+		if frameIndex+1 < len(snapshot.Frames) && returnPushesResult(&snapshot.Frames[frameIndex+1]) {
+			resumeHeight++
+		}
+		if heights[saved.IP] != resumeHeight {
+			return fmt.Errorf("frame %d: stack height %d at saved IP %d, where the program has %d",
+				frameIndex, resumeHeight, saved.IP, heights[saved.IP])
+		}
 		if len(saved.Locals) < saved.Program.NumLocals {
 			return fmt.Errorf("frame %d: %d local slots for program requiring %d", frameIndex, len(saved.Locals), saved.Program.NumLocals)
 		}
+		if saved.ReturnLocal < 0 || (saved.ReturnLocal != 0 && (frameIndex == 0 || saved.ReturnLocal > len(snapshot.Frames[frameIndex-1].Locals))) {
+			return fmt.Errorf("frame %d: invalid caller result local", frameIndex)
+		}
 		stackEnd := stackBase + len(saved.Stack)
+		for index, pending := range saved.PendingReasons {
+			if !saved.Program.IsInstructionBoundary(pending.FinallyIP) || !saved.Program.FinallyContains(pending.FinallyIP, saved.IP) {
+				return fmt.Errorf("frame %d: pending cleanup owner does not contain saved IP", frameIndex)
+			}
+			if index != 0 && (saved.PendingReasons[index-1].FinallyIP == pending.FinallyIP || !saved.Program.FinallyContains(saved.PendingReasons[index-1].FinallyIP, pending.FinallyIP)) {
+				return fmt.Errorf("frame %d: pending cleanup reasons are not nested", frameIndex)
+			}
+			if !pending.Error.ValidExceptionReason() {
+				return fmt.Errorf("frame %d: invalid pending error reason", frameIndex)
+			}
+			switch pending.Kind {
+			case task.PendingError:
+				if !pending.Error.Present || !pending.Error.ValidExceptionReason() {
+					return fmt.Errorf("frame %d: invalid pending error reason", frameIndex)
+				}
+			case task.PendingReturn:
+				if pending.Error.Present {
+					return fmt.Errorf("frame %d: return has pending error", frameIndex)
+				}
+			case task.PendingJump:
+				if pending.Error.Present || pending.HandlerDepth < 0 || pending.HandlerDepth > len(saved.ExceptStack) || !saved.Program.IsInstructionBoundary(pending.TargetIP) || heights[pending.TargetIP] != len(pending.Stack) {
+					return fmt.Errorf("frame %d: invalid pending loop transfer", frameIndex)
+				}
+			case task.PendingAbort:
+				if pending.Error.Present {
+					return fmt.Errorf("frame %d: abort has pending error", frameIndex)
+				}
+			default:
+				return fmt.Errorf("frame %d: invalid pending cleanup reason kind", frameIndex)
+			}
+		}
 		for handlerIndex, handler := range saved.ExceptStack {
 			if handler.Type != bytecode.HandlerExcept && handler.Type != bytecode.HandlerFinally {
 				return fmt.Errorf("frame %d handler %d: invalid handler type %d", frameIndex, handlerIndex, handler.Type)
@@ -228,13 +555,29 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 			if handler.VarIndex < -1 || handler.VarIndex >= saved.Program.NumLocals {
 				return fmt.Errorf("frame %d handler %d: local index %d outside program locals", frameIndex, handlerIndex, handler.VarIndex)
 			}
+			if handler.ExceptBase < 0 || handler.ExceptBase > handlerIndex+1 {
+				return fmt.Errorf("frame %d handler %d: invalid handler group base", frameIndex, handlerIndex)
+			}
 			if handler.StackDepth < stackBase || handler.StackDepth > stackEnd {
 				return fmt.Errorf("frame %d handler %d: stack depth %d outside [%d,%d]", frameIndex, handlerIndex, handler.StackDepth, stackBase, stackEnd)
+			}
+			// Unwinding sets SP to StackDepth and jumps to HandlerIP.
+			if depth := handler.StackDepth - stackBase; depth != heights[handler.HandlerIP] {
+				return fmt.Errorf("frame %d handler %d: stack depth %d, where handler %d has %d", frameIndex, handlerIndex, depth, handler.HandlerIP, heights[handler.HandlerIP])
 			}
 		}
 		stackBase = stackEnd
 	}
 	return nil
+}
+
+// returnPushesResult reports whether callee's return pushes a value onto its
+// caller's stack (vm/stack.go Return): an eval frame always pushes its
+// wrapped result, a move or recycle continuation pushes the builtin's result
+// or starts the next hook (whose return does), and any other frame pushes
+// unless its caller discards the result.
+func returnPushesResult(callee *task.VMFrameSnapshot) bool {
+	return callee.IsEvalFrame || callee.MoveContinuation != nil || callee.RecycleContinuation != nil || !callee.DiscardReturn
 }
 
 func cloneMoveContinuation(state *task.MoveContinuationSnapshot) *task.MoveContinuationSnapshot {
@@ -245,17 +588,62 @@ func cloneMoveContinuation(state *task.MoveContinuationSnapshot) *task.MoveConti
 	return &cloned
 }
 
+func clonePendingReasons(pending []pendingReason) []pendingReason {
+	if pending == nil {
+		return nil
+	}
+	copy := append([]pendingReason(nil), pending...)
+	for index := range copy {
+		copy[index].Stack = append([]types.Value(nil), pending[index].Stack...)
+		if original, ok := pending[index].Error.(*VMException); ok {
+			cloned := *original
+			copy[index].Error = &cloned
+		}
+	}
+	return copy
+}
+
+func snapshotPendingReasons(pending []pendingReason) []task.PendingReasonSnapshot {
+	result := make([]task.PendingReasonSnapshot, len(pending))
+	for index, reason := range pending {
+		result[index] = task.PendingReasonSnapshot{Kind: reason.Kind, FinallyIP: reason.FinallyIP, Value: reason.Value, TargetIP: reason.TargetIP, HandlerDepth: reason.HandlerDepth, Stack: append([]types.Value(nil), reason.Stack...)}
+		if reason.Error != nil {
+			encoded := &result[index].Error
+			encoded.Present, encoded.Reason, encoded.Code = true, exceptionReason(reason.Error), errorCode(reason.Error)
+			switch value := reason.Error.(type) {
+			case VMException:
+				encoded.Value = value.Value
+			case *VMException:
+				encoded.Value = value.Value
+			}
+		}
+	}
+	return result
+}
+
+func restorePendingReasons(pending []task.PendingReasonSnapshot) []pendingReason {
+	result := make([]pendingReason, len(pending))
+	for index, reason := range pending {
+		result[index] = pendingReason{Kind: reason.Kind, FinallyIP: reason.FinallyIP, Value: reason.Value, TargetIP: reason.TargetIP, HandlerDepth: reason.HandlerDepth, Stack: append([]types.Value(nil), reason.Stack...)}
+		if reason.Error.Present {
+			result[index].Error = VMException{Code: reason.Error.Code, Value: reason.Error.Value, Reason: reason.Error.Reason}
+		}
+	}
+	return result
+}
+
 func snapshotRecycleContinuation(state *recycleContinuation) *task.RecycleContinuationSnapshot {
 	if state == nil {
 		return nil
 	}
 	request := state.request
 	return &task.RecycleContinuationSnapshot{
-		Object:      request.Object,
-		OldParents:  append([]types.ObjID(nil), request.OldParents...),
-		OldChildren: append([]types.ObjID(nil), request.OldChildren...),
-		OldContents: append([]types.ObjID(nil), request.OldContents...),
-		OldLocation: request.OldLocation,
+		ExitCallback: state.exitCallback,
+		Object:       request.Object,
+		OldParents:   append([]types.ObjID(nil), request.OldParents...),
+		OldChildren:  append([]types.ObjID(nil), request.OldChildren...),
+		OldContents:  append([]types.ObjID(nil), request.OldContents...),
+		OldLocation:  request.OldLocation,
 	}
 }
 
@@ -263,7 +651,7 @@ func restoreRecycleContinuation(state *task.RecycleContinuationSnapshot) *recycl
 	if state == nil {
 		return nil
 	}
-	return &recycleContinuation{request: builtins.RecycleLifecycleRequest{
+	return &recycleContinuation{exitCallback: state.ExitCallback, request: builtins.RecycleLifecycleRequest{
 		Object:      state.Object,
 		OldParents:  append([]types.ObjID(nil), state.OldParents...),
 		OldChildren: append([]types.ObjID(nil), state.OldChildren...),
@@ -276,6 +664,8 @@ func cloneProgram(program *bytecode.Program) bytecode.Program {
 	if program == nil {
 		return bytecode.Program{}
 	}
+	slots := program.BuiltinSlots
+	slots.TypeConstants = append([]bytecode.TypeConstantSlot(nil), slots.TypeConstants...)
 	return bytecode.Program{
 		Code:          append([]byte(nil), program.Code...),
 		Constants:     append([]types.Value(nil), program.Constants...),
@@ -283,8 +673,12 @@ func cloneProgram(program *bytecode.Program) bytecode.Program {
 		LineInfo:      append([]bytecode.LineEntry(nil), program.LineInfo...),
 		NumLocals:     program.NumLocals,
 		Source:        append([]string(nil), program.Source...),
-		BuiltinSlots:  program.BuiltinSlots,
+		BuiltinSlots:  slots,
 		BuiltinLayout: program.BuiltinLayout,
+		Origin:        program.Origin,
+		// Immutable once the compiler fills it, like Constants' values.
+		BuiltinPropertyConstants: program.BuiltinPropertyConstants,
+		ForkSources:              program.ForkSources,
 	}
 }
 

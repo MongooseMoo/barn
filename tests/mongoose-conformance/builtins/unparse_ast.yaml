@@ -1,0 +1,256 @@
+name: unparse_ast
+description: >
+  Mongoose ToastStunt fork builtin unparse_ast(LIST ast [, fully-paren [, indent]]):
+  the code for a syntax tree, laid out the way verb_code() lays out code, and the
+  E_INVARG message that says where a malformed tree is wrong.
+requires:
+  features: [ast]
+tests:
+  - name: code_round_trips_in_verb_code_layout
+    permission: programmer
+    steps:
+      - run: |
+          code = {"if (a)", "x = 1;", "elseif (b)", "for v, k in ([\"a\" -> 1, 2.5 -> #3])", "break;", "endfor", "else", "while outer (x < 10)", "while (1)", "break outer;", "endwhile", "continue outer;", "endwhile", "endif", "for i in [1..10]", "endfor", "fork (5)", "player:tell(\"hi\");", "endfork", "fork task (0)", "endfork", "try", "x = this.(name);", "except e (E_PERM, @codes)", "return e;", "except (ANY)", "return;", "endtry", "try", "$foo:(name)(@args);", "finally", "x = $bar.baz;", "endtry", "{a, ?b = 2, ?c, @d} = args;", "x = `y[1] ! E_RANGE => 0';", "y = `z ! ANY';", "l[2..$] = {};", "l[^][1] = \"a \\\"quoted\\\" \\\\ string\";", "z = x ? y | -z;", "return (1 + 2) * 3 ^ 2 % 4 == !x || y in l && ~z;"};
+          return toliteral(unparse_ast(parse_ast(code)));
+        expect:
+          value: '{"if (a)", "  x = 1;", "elseif (b)", "  for v, k in ([\"a\" -> 1, 2.5 -> #3])", "    break;", "  endfor", "else", "  while outer (x < 10)", "    while (1)", "      break outer;", "    endwhile", "    continue outer;", "  endwhile", "endif", "for i in [1..10]", "endfor", "fork (5)", "  player:tell(\"hi\");", "endfork", "fork task (0)", "endfork", "try", "  x = this.(name);", "except e (E_PERM, @codes)", "  return e;", "except (ANY)", "  return;", "endtry", "try", "  $foo:(name)(@args);", "finally", "  x = $bar.baz;", "endtry", "{a, ?b = 2, ?c, @d} = args;", "x = `y[1] ! E_RANGE => 0'';", "y = `z ! ANY'';", "l[2..$] = {};", "l[^][1] = \"a \\\"quoted\\\" \\\\ string\";", "z = x ? y | -z;", "return (1 + 2) * 3 ^ 2 % 4 == !x || y in l && ~z;"}'
+
+  - name: options_fully_paren_and_indent
+    permission: programmer
+    steps:
+      - run: |
+          ast = parse_ast({"if (a)", "return 1 + 2 * 3 - -x;", "endif"});
+          return toliteral({unparse_ast(ast), unparse_ast(ast, 1), unparse_ast(ast, 0, 0), unparse_ast(ast, 1, 0), unparse_ast(ast, "", {})});
+        expect:
+          value: '{{"if (a)", "  return 1 + 2 * 3 - -x;", "endif"}, {"if (a)", "  return (1 + (2 * 3)) - (-x);", "endif"}, {"if (a)", "return 1 + 2 * 3 - -x;", "endif"}, {"if (a)", "return (1 + (2 * 3)) - (-x);", "endif"}, {"if (a)", "return 1 + 2 * 3 - -x;", "endif"}}'
+
+  - name: unparse_of_verb_ast_is_verb_code
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "test"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "test", {"if (a)", "x = 1 + 2 * 3;", "else", "if (b)", "return;", "endif", "endif", "while w (1)", "break w;", "endwhile"});
+        expect:
+          value: []
+      - run: 'return {equal(unparse_ast(verb_ast({obj}, "test")), verb_code({obj}, "test")), equal(unparse_ast(verb_ast({obj}, "test"), 1), verb_code({obj}, "test", 1)), equal(unparse_ast(verb_ast({obj}, "test"), 0, 0), verb_code({obj}, "test", 0, 0)), equal(unparse_ast(verb_ast({obj}, "test"), 1, 0), verb_code({obj}, "test", 1, 0))};'
+        expect:
+          value: [1, 1, 1, 1]
+      - run: 'return toliteral(unparse_ast(verb_ast({obj}, "test")));'
+        expect:
+          value: '{"if (a)", "  x = 1 + 2 * 3;", "else", "  if (b)", "    return;", "  endif", "endif", "while w (1)", "  break w;", "endwhile"}'
+      - run: 'return toliteral({unparse_ast(verb_ast({obj}, "test"), 1), unparse_ast(verb_ast({obj}, "test"), 0, 0)});'
+        expect:
+          value: '{{"if (a)", "  x = 1 + (2 * 3);", "else", "  if (b)", "    return;", "  endif", "endif", "while w (1)", "  break w;", "endwhile"}, {"if (a)", "x = 1 + 2 * 3;", "else", "if (b)", "return;", "endif", "endif", "while w (1)", "break w;", "endwhile"}}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: negative_literals_and_postfix_operands
+    permission: programmer
+    steps:
+      - run: 'return toliteral(unparse_ast(parse_ast({"(-5):foo((-1).x, (-2.5)[1], -y:bar(), - -5, -(5), 2 ^ -1);"})));'
+        expect:
+          value: '{"(-5):foo((-1).x, (-2.5)[1], -y:bar(), 5, -5, 2 ^ -1);"}'
+
+  - name: float_and_string_spelling
+    permission: programmer
+    steps:
+      - run: 'return toliteral(unparse_ast(parse_ast({"return {1e20, 0.1, 1.0e-10, 100000.0, 1.0, 3.14159, 1e300, 123456789012345678.0, 9223372036854775807, \"\", \"back\\\\slash\"};"})));'
+        expect:
+          value: '{"return {1e+20, 0.1, 1e-10, 100000.0, 1.0, 3.14159, 1e+300, 1.23456789012346e+17, 9223372036854775807, \"\", \"back\\\\slash\"};"}'
+
+  - name: hand_built_tree_gets_the_parentheses_it_needs
+    permission: programmer
+    steps:
+      - run: |
+          sum = ["type" -> "binary", "op" -> "+", "lhs" -> ["type" -> "literal", "value" -> 1], "rhs" -> ["type" -> "literal", "value" -> 2]];
+          s = {};
+          s = {@s, ["type" -> "expr", "expr" -> ["type" -> "binary", "op" -> "*", "lhs" -> sum, "rhs" -> ["type" -> "literal", "value" -> 3]]]};
+          s = {@s, ["type" -> "expr", "expr" -> ["type" -> "binary", "op" -> "-", "lhs" -> ["type" -> "literal", "value" -> 1], "rhs" -> sum]]};
+          s = {@s, ["type" -> "expr", "expr" -> ["type" -> "prop", "object" -> sum, "property" -> ["type" -> "literal", "value" -> "name"]]]};
+          s = {@s, ["type" -> "expr", "expr" -> ["type" -> "index", "base" -> ["type" -> "literal", "value" -> -3], "index" -> ["type" -> "literal", "value" -> 1]]]};
+          s = {@s, ["type" -> "expr", "expr" -> ["type" -> "unary", "op" -> "-", "expr" -> ["type" -> "literal", "value" -> 4]]]};
+          s = {@s, ["type" -> "expr", "expr" -> ["type" -> "assign", "target" -> ["type" -> "variable", "name" -> "x"], "value" -> ["type" -> "conditional", "condition" -> sum, "consequent" -> ["type" -> "assign", "target" -> ["type" -> "variable", "name" -> "y"], "value" -> sum], "alternate" -> ["type" -> "conditional", "condition" -> ["type" -> "variable", "name" -> "a"], "consequent" -> ["type" -> "variable", "name" -> "b"], "alternate" -> ["type" -> "variable", "name" -> "c"]]]]]};
+          return toliteral(unparse_ast(s));
+        expect:
+          value: '{"(1 + 2) * 3;", "1 - (1 + 2);", "(1 + 2).name;", "(-3)[1];", "-4;", "x = 1 + 2 ? y = 1 + 2 | (a ? b | c);"}'
+
+  - name: operand_spellings
+    permission: programmer
+    steps:
+      - run: |
+          code = {"x = [\"a\" -> 1][\"a\"];", "y = `z = 1 ! ANY => w = 2';", "l = {@(a = b), @(c ? d | e)};", "n = a ? b = 1 | c;", "$p = 1;", "#0.(\"if\") = 2;", "o = 5:v(-5.0, #-1);", "q = -x ^ 2;", "r = (-x) ^ 2;", "s = 2 ^ -x;", "t = a in {b} == c;", "u = ([1 -> 2]);"};
+          tree = parse_ast(code);
+          five = ["type" -> "expr", "expr" -> ["type" -> "prop", "object" -> ["type" -> "literal", "value" -> 5], "property" -> ["type" -> "literal", "value" -> "x"]]];
+          return toliteral({unparse_ast(tree), unparse_ast(tree, 1), unparse_ast({five})});
+        expect:
+          value: '{{"x = ([\"a\" -> 1])[\"a\"];", "y = `z = 1 ! ANY => w = 2'';", "l = {@a = b, @c ? d | e};", "n = a ? b = 1 | c;", "$p = 1;", "#0.(\"if\") = 2;", "o = 5:v(-5.0, #-1);", "q = -x ^ 2;", "r = -x ^ 2;", "s = 2 ^ -x;", "t = a in {b} == c;", "u = [1 -> 2];"}, {"x = ([\"a\" -> 1])[\"a\"];", "y = `z = 1 ! ANY => w = 2'';", "l = {@a = b, @c ? d | e};", "n = a ? b = 1 | c;", "$p = 1;", "#0.(\"if\") = 2;", "o = 5:v(-5.0, #-1);", "q = (-x) ^ 2;", "r = (-x) ^ 2;", "s = 2 ^ (-x);", "t = (a in {b}) == c;", "u = [1 -> 2];"}, {"5 .x;"}}'
+
+  - name: property_and_verb_names_that_are_not_identifiers
+    permission: programmer
+    steps:
+      - run: |
+          x = ["type" -> "variable", "name" -> "x"];
+          s = {};
+          for p in ({"not an identifier", "if", ":w", "ok_name", "1x", ""})
+            s = {@s, ["type" -> "expr", "expr" -> ["type" -> "prop", "object" -> x, "property" -> ["type" -> "literal", "value" -> p]]]};
+            s = {@s, ["type" -> "expr", "expr" -> ["type" -> "verb_call", "object" -> x, "verb" -> ["type" -> "literal", "value" -> p], "args" -> {}]]};
+          endfor
+          s = {@s, ["type" -> "expr", "expr" -> ["type" -> "prop", "object" -> ["type" -> "literal", "value" -> #0], "property" -> ["type" -> "literal", "value" -> "if"]]]};
+          s = {@s, ["type" -> "expr", "expr" -> ["type" -> "verb_call", "object" -> ["type" -> "literal", "value" -> #0], "verb" -> ["type" -> "literal", "value" -> "go"], "args" -> {}]]};
+          s = {@s, ["type" -> "expr", "expr" -> ["type" -> "prop", "object" -> x, "property" -> ["type" -> "literal", "value" -> 5]]]};
+          return toliteral(unparse_ast(s));
+        expect:
+          value: '{"x.(\"not an identifier\");", "x:(\"not an identifier\")();", "x.(\"if\");", "x:(\"if\")();", "x.(\":w\");", "x:(\":w\")();", "x.ok_name;", "x:ok_name();", "x.(\"1x\");", "x:(\"1x\")();", "x.(\"\");", "x:(\"\")();", "#0.(\"if\");", "$go();", "x.(5);"}'
+
+  - name: variable_names_ignore_case_like_the_parser
+    permission: programmer
+    steps:
+      - run: 'return toliteral(unparse_ast({["type" -> "expr", "expr" -> ["type" -> "assign", "target" -> ["type" -> "variable", "name" -> "PLAYER"], "value" -> ["type" -> "variable", "name" -> "Foo"]]], ["type" -> "return", "value" -> ["type" -> "list", "items" -> {["type" -> "variable", "name" -> "foo"], ["type" -> "variable", "name" -> "TRUE"], ["type" -> "variable", "name" -> "Int"]}]]}));'
+        expect:
+          value: '{"player = Foo;", "return {Foo, true, INT};"}'
+
+  - name: optional_fields_can_be_left_out
+    permission: programmer
+    steps:
+      - run: 'return toliteral(unparse_ast({["type" -> "return"], ["type" -> "while", "condition" -> ["type" -> "literal", "value" -> 1], "body" -> {["type" -> "break"], ["type" -> "continue"]}], ["type" -> "if", "arms" -> {["condition" -> ["type" -> "literal", "value" -> 1], "body" -> {}]}], ["type" -> "expr", "expr" -> ["type" -> "catch", "expr" -> ["type" -> "variable", "name" -> "x"]]], ["type" -> "expr", "expr" -> ["type" -> "assign", "target" -> ["type" -> "scatter", "items" -> {["kind" -> "optional", "var" -> "a"]}], "value" -> ["type" -> "variable", "name" -> "args"]]], ["type" -> "fork", "delay" -> ["type" -> "literal", "value" -> 0], "body" -> {}], ["type" -> "for", "var" -> "v", "expr" -> ["type" -> "variable", "name" -> "l"], "body" -> {}], ["type" -> "try_except", "body" -> {}, "excepts" -> {["body" -> {}]}]}));'
+        expect:
+          value: '{"return;", "while (1)", "  break;", "  continue;", "endwhile", "if (1)", "endif", "`x ! ANY'';", "{?a} = args;", "fork (0)", "endfork", "for v in (l)", "endfor", "try", "except (ANY)", "endtry"}'
+
+  - name: hand_built_else_holding_an_if
+    permission: programmer
+    steps:
+      - run: 'return toliteral(unparse_ast({["type" -> "if", "arms" -> {["condition" -> ["type" -> "variable", "name" -> "a"], "body" -> {}]}, "else" -> {["type" -> "if", "arms" -> {["condition" -> ["type" -> "variable", "name" -> "b"], "body" -> {}]}]}], ["type" -> "if", "arms" -> {["condition" -> ["type" -> "variable", "name" -> "a"], "body" -> {}]}, "else" -> {}]}));'
+        expect:
+          value: '{"if (a)", "else", "  if (b)", "  endif", "endif", "if (a)", "endif"}'
+
+  - name: extra_fields_are_ignored
+    permission: programmer
+    steps:
+      - run: 'return toliteral(unparse_ast({["type" -> "return", "line" -> 12, "value" -> ["type" -> "literal", "value" -> 1, "note" -> {}]]}));'
+        expect:
+          value: '{"return 1;"}'
+
+  - name: invalid_tree_error_value
+    permission: programmer
+    steps:
+      - run: |
+          try
+            unparse_ast({1});
+            return "no error";
+          except e (E_INVARG)
+            return toliteral(e[1..3]);
+          endtry
+        expect:
+          value: '{E_INVARG, "Invalid AST at [1]: expected map, found integer", 0}'
+
+  - name: shape_errors_say_where
+    permission: programmer
+    steps:
+      - run: |
+          lit = ["type" -> "literal", "value" -> 1];
+          trees = {{1}, {[]}, {["type" -> 1]}, {["type" -> "return"], ["type" -> "bogus"]}, {lit}, {["type" -> "expr"]}, {["type" -> "return", "value" -> ["type" -> "return"]]}, {["type" -> "if", "arms" -> {["condition" -> lit, "body" -> {}], ["condition" -> ["type" -> "binary", "op" -> "+", "lhs" -> "x", "rhs" -> lit], "body" -> {}]}]}, {["type" -> "if", "arms" -> {["condition" -> lit, "body" -> {[]}]}]}, {["type" -> "while", "condition" -> lit, "body" -> ["type" -> "break"]]}, {["type" -> "while", "condition" -> lit]}, {["type" -> "for", "var" -> "v", "expr" -> lit, "body" -> {}, "index" -> 3]}, {["type" -> "expr", "expr" -> ["type" -> "map", "entries" -> {["key" -> lit]}]]}, {["type" -> "expr", "expr" -> ["type" -> "map", "entries" -> {1}]]}, {["type" -> "expr", "expr" -> ["type" -> "call", "function" -> "length", "args" -> {lit, ["type" -> "splice"]}]]}};
+          r = {};
+          for t in (trees)
+            try
+              unparse_ast(t);
+              r = {@r, {validate_ast(t), "no error"}};
+            except e (E_INVARG)
+              r = {@r, {validate_ast(t), e[2]}};
+            endtry
+          endfor
+          return r;
+        expect:
+          value:
+            - [0, 'Invalid AST at [1]: expected map, found integer']
+            - [0, 'Invalid AST at [1]: missing "type"']
+            - [0, 'Invalid AST at [1]: missing "type"']
+            - [0, 'Invalid AST at [2]: "bogus" is not a statement']
+            - [0, 'Invalid AST at [1]: "literal" is not a statement']
+            - [0, 'Invalid AST at [1]: missing "expr"']
+            - [0, 'Invalid AST at [1].value: "return" is not an expression']
+            - [0, 'Invalid AST at [1].arms[2].condition.lhs: expected map, found string']
+            - [0, 'Invalid AST at [1].arms[1].body[1]: missing "type"']
+            - [0, 'Invalid AST at [1].body: expected list, found map']
+            - [0, 'Invalid AST at [1]: missing "body"']
+            - [0, 'Invalid AST at [1].index: expected a variable name']
+            - [0, 'Invalid AST at [1].expr.entries[1]: missing "value"']
+            - [0, 'Invalid AST at [1].expr.entries[1]: expected map, found integer']
+            - [0, 'Invalid AST at [1].expr.args[2]: missing "expr"']
+
+  - name: trees_the_parser_could_not_have_produced
+    permission: programmer
+    steps:
+      - run: |
+          lit = ["type" -> "literal", "value" -> 1];
+          v = ["type" -> "variable", "name" -> "a"];
+          trees = {{["type" -> "if", "arms" -> {}]}, {["type" -> "try_except", "body" -> {}, "excepts" -> {}]}, {["type" -> "try_except", "body" -> {}, "excepts" -> {["codes" -> {}, "body" -> {}]}]}, {["type" -> "expr", "expr" -> ["type" -> "variable", "name" -> "1x"]]}, {["type" -> "expr", "expr" -> ["type" -> "variable", "name" -> "while"]]}, {["type" -> "expr", "expr" -> ["type" -> "variable", "name" -> 1]]}, {["type" -> "for", "var" -> "a b", "expr" -> v, "body" -> {}]}, {["type" -> "expr", "expr" -> ["type" -> "literal", "value" -> {}]]}, {["type" -> "expr", "expr" -> ["type" -> "literal", "value" -> []]]}, {["type" -> "expr", "expr" -> ["type" -> "literal", "value" -> true]]}, {["type" -> "expr", "expr" -> ["type" -> "binary", "op" -> "!", "lhs" -> lit, "rhs" -> lit]]}, {["type" -> "expr", "expr" -> ["type" -> "unary", "op" -> "+", "expr" -> lit]]}, {["type" -> "expr", "expr" -> ["type" -> "call", "function" -> "no_such_function", "args" -> {}]]}, {["type" -> "expr", "expr" -> ["type" -> "assign", "target" -> lit, "value" -> lit]]}, {["type" -> "expr", "expr" -> ["type" -> "assign", "target" -> ["type" -> "conditional", "condition" -> v, "consequent" -> v, "alternate" -> v], "value" -> lit]]}, {["type" -> "expr", "expr" -> ["type" -> "scatter", "items" -> {}]]}, {["type" -> "expr", "expr" -> ["type" -> "splice", "expr" -> v]]}, {["type" -> "expr", "expr" -> ["type" -> "assign", "target" -> ["type" -> "scatter", "items" -> {["kind" -> "maybe", "var" -> "a"]}], "value" -> v]]}, {["type" -> "expr", "expr" -> ["type" -> "assign", "target" -> ["type" -> "scatter", "items" -> {["kind" -> "required", "var" -> "a", "default" -> lit]}], "value" -> v]]}, {["type" -> "expr", "expr" -> ["type" -> "assign", "target" -> ["type" -> "scatter", "items" -> {}], "value" -> v]]}, {["type" -> "expr", "expr" -> ["type" -> "catch", "expr" -> v, "codes" -> {}]]}, {["type" -> "expr", "expr" -> ["type" -> "catch", "expr" -> v, "codes" -> 5]]}, {["type" -> "expr", "expr" -> ["type" -> "assign", "target" -> ["type" -> "index", "base" -> ["type" -> "range", "base" -> v, "from" -> lit, "to" -> lit], "index" -> lit], "value" -> lit]]}};
+          r = {};
+          for t in (trees)
+            try
+              unparse_ast(t);
+              r = {@r, {validate_ast(t), "no error"}};
+            except e (E_INVARG)
+              r = {@r, {validate_ast(t), e[2]}};
+            endtry
+          endfor
+          return r;
+        expect:
+          value:
+            - [0, 'Invalid AST at [1].arms: must not be empty']
+            - [0, 'Invalid AST at [1].excepts: must not be empty']
+            - [0, 'Invalid AST at [1].excepts[1].codes: must not be empty; leave it out to catch ANY']
+            - [0, 'Invalid AST at [1].expr.name: expected a variable name']
+            - [0, 'Invalid AST at [1].expr.name: expected a variable name']
+            - [0, 'Invalid AST at [1].expr.name: expected a variable name']
+            - [0, 'Invalid AST at [1].var: expected a variable name']
+            - [0, 'Invalid AST at [1].expr.value: a value of type list cannot be written as a literal']
+            - [0, 'Invalid AST at [1].expr.value: a value of type map cannot be written as a literal']
+            - [0, 'Invalid AST at [1].expr.value: a value of type bool cannot be written as a literal']
+            - [0, 'Invalid AST at [1].expr.op: not a binary operator']
+            - [0, 'Invalid AST at [1].expr.op: not a unary operator']
+            - [0, 'Invalid AST at [1].expr.function: not a built-in function']
+            - [0, 'Invalid AST at [1].expr.target: cannot be assigned to']
+            - [0, 'Invalid AST at [1].expr.target: cannot be assigned to']
+            - [0, 'Invalid AST at [1].expr: a scatter can only be the target of an assignment']
+            - [0, 'Invalid AST at [1].expr: a splice can only appear in an argument list or a list']
+            - [0, 'Invalid AST at [1].expr.target.items[1].kind: expected "required", "optional" or "rest"']
+            - [0, 'Invalid AST at [1].expr.target.items[1]: only an optional target can have a default']
+            - [1, 'no error']
+            - [0, 'Invalid AST at [1].expr.codes: must not be empty; leave it out to catch ANY']
+            - [0, 'Invalid AST at [1].expr.codes: expected list, found integer']
+            - [0, 'Invalid AST at [1].expr.target: cannot be assigned to']
+
+  - name: nesting_limit_and_long_path
+    permission: programmer
+    steps:
+      - run: |
+          r = {};
+          for n in ({998, 999})
+            e = ["type" -> "literal", "value" -> 1];
+            for i in [1..n]
+              e = ["type" -> "unary", "op" -> "!", "expr" -> e];
+            endfor
+            try
+              r = {@r, length(unparse_ast({["type" -> "expr", "expr" -> e]})[1])};
+            except err (E_INVARG)
+              r = {@r, err[2]};
+            endtry
+          endfor
+          return r;
+        expect:
+          value: [1000, 'Invalid AST at [1].expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.expr.e...: nested more than 1000 levels deep']
+
+  - name: argument_errors
+    permission: programmer
+    steps:
+      - run: 'return toliteral({`call_function("unparse_ast") ! ANY'', `call_function("unparse_ast", {}, 0, 0, 0) ! ANY'', `unparse_ast(1) ! ANY'', `unparse_ast(["type" -> "return"]) ! ANY'', `unparse_ast({1}) ! ANY'', unparse_ast({})});'
+        expect:
+          value: '{E_ARGS, E_ARGS, E_TYPE, E_TYPE, E_INVARG, {}}'
+
+  - name: function_info
+    permission: programmer
+    code: 'toliteral(function_info("unparse_ast"))'
+    expect:
+      value: '{"unparse_ast", 1, 3, {4, -1, -1}}'

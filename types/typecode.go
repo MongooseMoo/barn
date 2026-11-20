@@ -43,3 +43,30 @@ func (t TypeCode) String() string {
 		return "UNKNOWN"
 	}
 }
+
+// ToastName is Toast's parse_type() spelling of a value type.
+func (t TypeCode) ToastName() string {
+	switch t {
+	case TYPE_INT:
+		return "integer"
+	case TYPE_OBJ:
+		return "object"
+	case TYPE_ERR:
+		return "error"
+	case TYPE_STR:
+		return "string"
+	case TYPE_FLOAT:
+		return "float"
+	case TYPE_LIST:
+		return "list"
+	case TYPE_MAP:
+		return "map"
+	case TYPE_ANON:
+		return "anonymous object"
+	case TYPE_WAIF:
+		return "waif"
+	case TYPE_BOOL:
+		return "bool"
+	}
+	return "unknown type"
+}

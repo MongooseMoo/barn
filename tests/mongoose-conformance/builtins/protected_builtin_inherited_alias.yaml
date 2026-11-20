@@ -1,0 +1,68 @@
+name: protected_builtin_inherited_alias
+description: >
+  An inherited multi-alias protected wrapper keeps receiver #0, its explicit
+  driver's caller and task identity, and its invoked name. Its nested builtin
+  call bypasses protection because the wrapper receiver is #0.
+requires:
+  builtins: [tostr, task_id, task_perms, caller_perms, parents, chparents,
+    create, recycle, add_verb, set_verb_code, add_property, delete_property,
+    is_clear_property, clear_property, load_server_options]
+tests:
+  - name: inherited_tostr_wrapper_preserves_identity_alias_and_native_bypass
+    steps:
+      - run: |
+          original_parents = parents(#0);
+          had_protection = 1;
+          was_clear = 0;
+          try
+            original_protection = $server_options.protect_tostr;
+            was_clear = is_clear_property($server_options, "protect_tostr");
+          except (E_PROPNF)
+            had_protection = 0;
+            original_protection = 0;
+          endtry
+          wrapper_parent = create($nothing);
+          driver = create($nothing);
+          low = create($nothing);
+          try
+            low.programmer = 1;
+            if (low.wizard) raise(E_INVARG, "fixture programmer is a wizard"); endif
+            add_verb(wrapper_parent, {player, "rxd", "bf_tostr tostr"}, {"this", "none", "this"});
+            errors = set_verb_code(wrapper_parent, "bf_tostr", {
+              "return {this == #0, caller == args[1], task_id() == args[2], caller_perms() == args[3], verb, tostr(7)};"
+            });
+            if (errors) raise(E_INVARG, "wrapper compile failed", errors); endif
+            add_verb(driver, {low, "rxd", "probe"}, {"this", "none", "this"});
+            errors = set_verb_code(driver, "probe", {
+              "if (this != args[1]) raise(E_INVARG); endif",
+              "return {tostr(this, task_id(), task_perms()), #0:tostr(this, task_id(), task_perms())};"
+            });
+            if (errors) raise(E_INVARG, "driver compile failed", errors); endif
+            if (had_protection)
+              $server_options.protect_tostr = 1;
+            else
+              add_property($server_options, "protect_tostr", 1, {player, "r"});
+            endif
+            chparents(#0, {wrapper_parent, @original_parents});
+            load_server_options();
+            result = driver:probe(driver);
+          finally
+            chparents(#0, original_parents);
+            if (had_protection)
+              if (was_clear)
+                clear_property($server_options, "protect_tostr");
+              else
+                $server_options.protect_tostr = original_protection;
+              endif
+            else
+              delete_property($server_options, "protect_tostr");
+            endif
+            load_server_options();
+            recycle(driver);
+            recycle(wrapper_parent);
+            recycle(low);
+          endtry
+          return result;
+        as: wizard
+        expect:
+          value: [[1, 1, 1, 1, "bf_tostr", "7"], [1, 1, 1, 1, "tostr", "7"]]

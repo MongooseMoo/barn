@@ -1,0 +1,26 @@
+name: move_false_accept_owner
+description: A nonwizard owner cannot move into a destination whose accept returns false.
+requires:
+  builtins: [create, recycle, move, add_verb, set_verb_code]
+tests:
+  - name: move_nonwizard_owner_false_accept_raises_nacc
+    permission: wizard
+    setup:
+      code: |
+        owner = create($nothing);
+        thing = create($nothing, owner);
+        dest = create($nothing, owner);
+        driver = create($nothing, owner);
+        add_verb(dest, {owner, "rxd", "accept"}, {"this", "none", "this"});
+        set_verb_code(dest, "accept", {"return 0;"});
+        add_verb(driver, {owner, "rxd", "run"}, {"this", "none", "this"});
+        set_verb_code(driver, "run", {"move(args[1], args[2]);"});
+    statement: return driver:run(thing, dest);
+    expect:
+      error: E_NACC
+    teardown:
+      code: |
+        recycle(thing);
+        recycle(dest);
+        recycle(driver);
+        recycle(owner);

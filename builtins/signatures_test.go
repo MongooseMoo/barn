@@ -135,7 +135,7 @@ func TestBuiltinFinishedTasksPermissionAndValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := newTestExecution()
 			ctx.IsWizard = tc.isWizard
-			wireTestTaskManager(ctx)
+			wireTestTaskHost(ctx)
 
 			result := admitTestBuiltin("finished_tasks", ctx, tc.args)
 			if tc.wantError != types.E_NONE {

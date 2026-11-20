@@ -1,6 +1,10 @@
 package bytecode
 
 import (
+	"strings"
+	"sync"
+	"sync/atomic"
+
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -21,6 +25,97 @@ type Program struct {
 	NumLocals     int           // Number of local variables
 	Source        []string      // Source lines (1-based by index+1), optional
 	BuiltinSlots  BuiltinSlots  // One-based local slots for built-in variables (zero = unused)
+	Origin        Origin        // Which compile of Source produced this program
+	// BuiltinPropertyConstants[i] reports whether Constants[i] is a string that
+	// names a built-in property (IsBuiltinPropertyName), so a property read
+	// with a static name need not classify it again. The compiler fills it;
+	// it is nil on a program from anywhere else, whose reads classify the name
+	// when they run.
+	BuiltinPropertyConstants []bool
+
+	// CallSites is runtime scratch with one slot per constant, which the VM
+	// fills for verb calls naming that constant. The compiler makes it; a
+	// program built anywhere else has none, and its calls take the uncached
+	// path. It is not part of what the program means.
+	CallSites *CallSites
+
+	// ForkBodies is runtime scratch holding the fork bodies already extracted
+	// from this program, so each body is extracted once, not on every fork. The
+	// compiler makes it, and extraction gives every body it caches its own; a
+	// program built anywhere else has none and extracts on every fork. It is
+	// not part of what the program means.
+	ForkBodies *ForkBodies
+
+	// ForkSources holds, for each fork instruction in code order, its body
+	// as Toast unparses a fork vector: fully parenthesized, not indented. It
+	// is the code a checkpoint saves for a task queued by that fork. The
+	// compiler makes it from the parsed source, and a fork body extracted
+	// from the program shares it; a program built anywhere else has none.
+	ForkSources [][]string
+}
+
+// ForkBodies maps a fork body's range in its parent program to the extracted
+// sub-program. Programs are shared by every task running them, so the map is
+// safe for concurrent use; a cached sub-program is shared the same way.
+type ForkBodies struct {
+	bodies sync.Map // forkBodyRange -> *Program
+}
+
+type forkBodyRange struct{ ip, length int }
+
+// CallSites holds one runtime slot per constant of a program. Programs are
+// shared by every task running them, so each slot is read and written
+// atomically; what a slot holds belongs to the VM.
+type CallSites struct {
+	slots []atomic.Value
+}
+
+// NewCallSites returns a table for a program with n constants.
+func NewCallSites(n int) *CallSites {
+	return &CallSites{slots: make([]atomic.Value, n)}
+}
+
+// Slot returns the slot for calls naming constant index, or nil when the
+// program has no table or index is outside it.
+func (c *CallSites) Slot(index int) *atomic.Value {
+	if c == nil || index < 0 || index >= len(c.slots) {
+		return nil
+	}
+	return &c.slots[index]
+}
+
+// IsBuiltinPropertyName reports whether name, in any case, is one of the
+// server-maintained object properties: name, owner, location, contents,
+// last_move, programmer, wizard, r, w, f, a. Those can never be defined
+// properties: add_property rejects them. parent/parents/children/player are
+// NOT properties -- they have dedicated accessor built-in functions (parent(),
+// parents(), children(), is_player()), so `.parent` etc. raise E_PROPNF.
+func IsBuiltinPropertyName(name string) bool {
+	switch strings.ToLower(name) {
+	case "name", "owner", "location", "contents", "last_move",
+		"programmer", "wizard", "r", "w", "f", "a":
+		return true
+	default:
+		return false
+	}
+}
+
+// ClassifyPropertyConstants fills BuiltinPropertyConstants from Constants.
+func (p *Program) ClassifyPropertyConstants() {
+	p.BuiltinPropertyConstants = make([]bool, len(p.Constants))
+	for i, constant := range p.Constants {
+		p.BuiltinPropertyConstants[i] = constant.Type() == types.TYPE_STR && IsBuiltinPropertyName(constant.Str())
+	}
+}
+
+// IsBuiltinPropertyConstant reports whether the string constant at index names
+// a built-in property, from BuiltinPropertyConstants when the compiler filled
+// it.
+func (p *Program) IsBuiltinPropertyConstant(index int) bool {
+	if index < len(p.BuiltinPropertyConstants) {
+		return p.BuiltinPropertyConstants[index]
+	}
+	return IsBuiltinPropertyName(p.Constants[index].Str())
 }
 
 // BuiltinSlots caches the local-variable slots populated when a verb frame is
@@ -28,6 +123,15 @@ type Program struct {
 type BuiltinSlots struct {
 	This, Player, Caller, Verb, Args              int
 	Argstr, Dobjstr, Iobjstr, Prepstr, Dobj, Iobj int
+	TypeConstants                                 []TypeConstantSlot
+}
+
+// TypeConstantSlot records the initial value of a mutable built-in variable
+// that Toast binds in every frame (eval_env.cc fill_in_rt_consts): the type
+// constants, and true and false.
+type TypeConstantSlot struct {
+	Slot  int
+	Value types.Value
 }
 
 // Set records the slot for a built-in variable. It returns false for ordinary
@@ -58,6 +162,18 @@ func (s *BuiltinSlots) Set(name string, slot int) bool {
 		target = &s.Dobj
 	case "iobj":
 		target = &s.Iobj
+	case "int", "num", "obj", "str", "err", "list", "float", "map", "anon", "waif", "bool":
+		initial := map[string]types.TypeCode{
+			"int": types.TYPE_INT, "num": types.TYPE_INT, "obj": types.TYPE_OBJ,
+			"str": types.TYPE_STR, "err": types.TYPE_ERR, "list": types.TYPE_LIST,
+			"float": types.TYPE_FLOAT, "map": types.TYPE_MAP, "anon": types.TYPE_ANON,
+			"waif": types.TYPE_WAIF, "bool": types.TYPE_BOOL,
+		}
+		s.TypeConstants = append(s.TypeConstants, TypeConstantSlot{Slot: encoded, Value: types.NewInt(int64(initial[name]))})
+		return true
+	case "true", "false":
+		s.TypeConstants = append(s.TypeConstants, TypeConstantSlot{Slot: encoded, Value: types.NewBool(name == "true")})
+		return true
 	default:
 		return false
 	}
@@ -79,6 +195,31 @@ func (p *Program) LineForIP(ip int) int {
 		}
 	}
 	return 0
+}
+
+// WithFirstLine returns p numbered from source line first instead of 1: each
+// line entry moves by first-1, as Toast's find_line_number counts from a
+// program's first_lineno (decompile.cc). A queued forked task's saved code is
+// its fork body alone, and the checkpoint header holds the line the body began
+// on in its verb (tasks.cc read_task_queue sets first_lineno from it), so a
+// restored fork reports its verb's line numbers. A first line below 2 leaves p
+// numbered from 1. Origin.FirstLine records the shift, so the program can be
+// rebuilt. p is not changed; programs are shared through the compiler's cache.
+func (p *Program) WithFirstLine(first int) *Program {
+	if p == nil || first <= 1 {
+		return p
+	}
+	shifted := *p
+	shifted.Origin.FirstLine = first
+	shifted.LineInfo = make([]LineEntry, len(p.LineInfo))
+	for i, entry := range p.LineInfo {
+		shifted.LineInfo[i] = LineEntry{StartIP: entry.StartIP, Line: entry.Line + first - 1}
+	}
+	if p.ForkBodies != nil {
+		// Bodies cached on p carry p's line numbers.
+		shifted.ForkBodies = &ForkBodies{}
+	}
+	return &shifted
 }
 
 // LoopType represents the type of loop
@@ -113,15 +254,111 @@ type Handler struct {
 	Type       HandlerType       // Except or Finally
 	HandlerIP  int               // Handler code location
 	EndIP      int               // End of handler block
-	Codes      []types.ErrorCode // Errors to catch (except)
+	Codes      []types.ErrorCode // Errors to catch (except); empty is ANY; see CodesLocal
 	VarIndex   int               // Variable for error (except, -1 if none)
 	StackDepth int               // Operand stack depth to restore on unwind
+	ExceptBase int               // One-based first sibling handler; zero for older snapshots
+}
+
+// FinallyContains reports whether target is inside a particular cleanup body.
+// Its matching END_FINALLY carries the same absolute handler identity.
+func (program *Program) FinallyContains(finallyIP, target int) bool {
+	if finallyIP <= 0 || target < finallyIP || target >= len(program.Code) {
+		return false
+	}
+	for ip := finallyIP; ip < len(program.Code); {
+		op := OpCode(program.Code[ip])
+		start := ip
+		ip++
+		count := instructionOperandCount(op, program.Code[ip:])
+		if count > len(program.Code)-ip {
+			return false
+		}
+		if (op == OP_END_FINALLY_WIDE && count == 4 && int(decodeAbsoluteWide(program.Code[ip:ip+4])) == finallyIP) ||
+			(op == OP_END_FINALLY && count == 2 && decodeAbsoluteShort(program.Code[ip], program.Code[ip+1]) == finallyIP) {
+			return target <= start
+		}
+		ip += count
+	}
+	return false
+}
+
+// FinallyOwnersAt returns cleanup identities whose bodies contain target.
+func (program *Program) FinallyOwnersAt(target int) []int {
+	var owners []int
+	for ip := 0; ip < len(program.Code); {
+		op := OpCode(program.Code[ip])
+		ip++
+		count := instructionOperandCount(op, program.Code[ip:])
+		if count > len(program.Code)-ip {
+			return nil
+		}
+		owner := 0
+		if op == OP_END_FINALLY_WIDE && count == 4 {
+			owner = int(decodeAbsoluteWide(program.Code[ip : ip+4]))
+		}
+		if op == OP_END_FINALLY && count == 2 {
+			owner = decodeAbsoluteShort(program.Code[ip], program.Code[ip+1])
+		}
+		if program.FinallyContains(owner, target) {
+			found := false
+			for _, existing := range owners {
+				if existing == owner {
+					found = true
+				}
+			}
+			if !found {
+				owners = append(owners, owner)
+			}
+		}
+		ip += count
+	}
+	return owners
+}
+
+// ExceptCodesInLocal marks an except clause whose codes are not all error
+// literals. Its code bytes in OP_TRY_EXCEPT (and so its Handler.Codes) are
+// exactly {ExceptCodesInLocal, slot}: the arm's code list was evaluated into
+// local slot before the try was entered, as Toast evaluates every arm's codes
+// then (code_gen.cc generate_codes). No error code has this value.
+const ExceptCodesInLocal = 0xFF
+
+// clauseCodesInLocal reports whether an OP_TRY_EXCEPT clause, starting at its
+// code count, is an ExceptCodesInLocal clause.
+func clauseCodesInLocal(clause []byte) bool {
+	return len(clause) >= 3 && clause[0] == 2 && clause[1] == ExceptCodesInLocal
+}
+
+// CodesLocal reports the local slot holding the evaluated code list of a
+// clause whose codes are expressions.
+func (h *Handler) CodesLocal() (slot int, ok bool) {
+	if len(h.Codes) == 2 && h.Codes[0] == ExceptCodesInLocal {
+		return int(h.Codes[1]), true
+	}
+	return 0, false
 }
 
 // ExtractForkBody creates a new sub-program from a bytecode range within an
 // existing program. The sub-program shares the same constants and variable
 // names but has its own code slice (the fork body + OP_RETURN_NONE).
 func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
+	if p == nil || p.ForkBodies == nil {
+		return p.extractForkBody(bodyIP, bodyLen)
+	}
+	key := forkBodyRange{ip: bodyIP, length: bodyLen}
+	if cached, ok := p.ForkBodies.bodies.Load(key); ok {
+		return cached.(*Program)
+	}
+	body := p.extractForkBody(bodyIP, bodyLen)
+	if body == nil {
+		return nil
+	}
+	body.ForkBodies = &ForkBodies{}
+	stored, _ := p.ForkBodies.bodies.LoadOrStore(key, body)
+	return stored.(*Program)
+}
+
+func (p *Program) extractForkBody(bodyIP, bodyLen int) *Program {
 	bodyEnd, ok := p.forkBodyEnd(bodyIP, bodyLen)
 	if !ok {
 		return nil
@@ -137,7 +374,7 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 	// at 0, so they must be rebased or identify the wrong handler in the
 	// sub-program.
 	// Relative operands (OP_JUMP family) need no adjustment.
-	if !rebaseAbsoluteHandlerIPs(code[:bodyLen], bodyIP) {
+	if !rebaseAbsoluteIPs(code[:bodyLen], bodyIP) {
 		return nil
 	}
 
@@ -152,7 +389,15 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 		}
 	}
 
+	origin := p.Origin
+	origin.Fork = -1
+	if local := p.forkIndexAt(bodyIP); local != 0 && p.Origin.Fork >= 0 {
+		// A nested fork instruction lies inside its parent's body, so the
+		// parent's local numbering continues the whole program's.
+		origin.Fork = p.Origin.Fork + local
+	}
 	return &Program{
+		Origin:        origin,
 		Code:          code,
 		Constants:     p.Constants, // Share constants
 		VarNames:      p.VarNames,  // Share variable names
@@ -161,6 +406,10 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 		Source:        p.Source,
 		BuiltinSlots:  p.BuiltinSlots,
 		BuiltinLayout: p.BuiltinLayout,
+		// Same constants, same classification and the same call-site slots.
+		BuiltinPropertyConstants: p.BuiltinPropertyConstants,
+		CallSites:                p.CallSites,
+		ForkSources:              p.ForkSources,
 	}
 }
 
@@ -206,13 +455,12 @@ func instructionRangeHasBoundaries(code []byte, start, end int) bool {
 	return foundStart && foundEnd
 }
 
-// rebaseAbsoluteHandlerIPs walks the instruction stream and subtracts bodyIP
-// from every absolute handler target: the per-clause handler IP of
-// OP_TRY_EXCEPT and the finally IP of OP_TRY_FINALLY / OP_END_FINALLY. Nested
+// rebaseAbsoluteIPs walks the instruction stream and subtracts bodyIP from
+// absolute handler targets and unwind-jump destinations. Nested
 // fork bodies in the range are rebased into this program's coordinates too; a
 // later extraction of the nested body subtracts its own bodyIP, which composes
 // to the correct final coordinates.
-func rebaseAbsoluteHandlerIPs(code []byte, bodyIP int) bool {
+func rebaseAbsoluteIPs(code []byte, bodyIP int) bool {
 	for ip := 0; ip < len(code); {
 		op := OpCode(code[ip])
 		ip++
@@ -221,6 +469,10 @@ func rebaseAbsoluteHandlerIPs(code []byte, bodyIP int) bool {
 			operandCount = len(code) - ip
 		}
 		switch op {
+		case OP_UNWIND_JUMP:
+			if !rebaseWide(code, ip, bodyIP) {
+				return false
+			}
 		case OP_TRY_FINALLY, OP_END_FINALLY:
 			if operandCount == 2 {
 				if !rebaseShort(code, ip, bodyIP) {
@@ -299,25 +551,4 @@ func decodeAbsoluteWide(encoded []byte) uint32 {
 		uint32(encoded[1])<<16 |
 		uint32(encoded[2])<<8 |
 		uint32(encoded[3])
-}
-
-// Matches checks if a handler matches an error code
-func (h *Handler) Matches(errCode types.ErrorCode) bool {
-	if h.Type != HandlerExcept {
-		return false
-	}
-
-	// Empty codes means catch all
-	if len(h.Codes) == 0 {
-		return true
-	}
-
-	// Check if error code matches
-	for _, code := range h.Codes {
-		if code == errCode {
-			return true
-		}
-	}
-
-	return false
 }

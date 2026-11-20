@@ -9,7 +9,10 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/types"
 
 	"modernc.org/sqlite"
@@ -240,13 +243,43 @@ func sqliteScanRows(rows *sql.Rows, includeHeaders bool) types.Result {
 	return types.Ok(types.NewList(resultRows))
 }
 
-func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
+// sqliteExecOrQuery runs sqlText on handle. With readOnly set it runs it only
+// if it is shareable (sqlite_readonly.go) and the handle is open, and otherwise
+// returns ran false having run nothing; epoch is the store's external write
+// epoch loaded before the statement ran. Without readOnly every statement
+// runs, and one that is not shareable moves the epoch once it has run, before
+// the handle is released. A nil store skips both.
+func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, includeHeaders bool, id metrics.Identity, store *dbstore.Store, readOnly bool) (result types.Result, ran bool, epoch uint64) {
+	waitStart := time.Now()
 	opCtx, ok := beginSQLiteOperation(handle)
+	handleWait := time.Since(waitStart)
 	if !ok {
-		return types.Err(types.E_INVARG)
+		metrics.ObserveRuntime(metrics.SQLiteHandleWait, id, handleWait, 0)
+		return types.Err(types.E_INVARG), !readOnly, 0
 	}
-	defer endSQLiteOperation(handle)
+	workStart := time.Now()
+	defer func() {
+		workElapsed := time.Since(workStart)
+		// Release the slot before diagnostic logging can perform disk I/O.
+		endSQLiteOperation(handle)
+		metrics.ObserveRuntime(metrics.SQLiteHandleWait, id, handleWait, 0)
+		metrics.ObserveRuntime(metrics.SQLiteWork, id, workElapsed, 0)
+	}()
 
+	if store != nil {
+		shareable := sqliteStatementShareable(handle.conn, sqlText)
+		if readOnly && !shareable {
+			return types.Result{}, false, 0
+		}
+		epoch = store.ExternalWrites()
+		if !shareable {
+			defer store.BumpExternalWrites() // runs before the slot is released
+		}
+	}
+	return sqliteRunStatement(opCtx, handle, sqlText, params, includeHeaders), true, epoch
+}
+
+func sqliteRunStatement(opCtx context.Context, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
 	if sqliteReturnsRows(sqlText) {
 		rows, err := handle.conn.QueryContext(opCtx, sqlText, params...)
 		if err != nil {
@@ -262,20 +295,46 @@ func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, inclu
 	return types.Ok(types.NewEmptyList())
 }
 
-func sqliteExecOrQueryAsync(ctx *Execution, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
+func sqliteExecOrQueryAsync(ctx *Execution, builtin string, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
+	id := runtimeIdentity(ctx)
+	store := ctx.Store
 	if ctx.Task != nil && !threadedCall(ctx) {
+		// A read-only statement runs at once and is validated at commit
+		// instead (sqlite_readonly.go).
+		if sqliteMayReadOptimistically(ctx) {
+			if result, ran, epoch := sqliteExecOrQuery(handle, sqlText, params, includeHeaders, id, store, true); ran {
+				readTxn(ctx).NoteExternalRead(epoch)
+				return result
+			}
+		}
 		// Row-returning statements can write (WITH, PRAGMA), so protect every
-		// inline statement before entering SQLite or waiting on its handle.
+		// other inline statement before entering SQLite or waiting on its handle.
 		// A stale attempt must stop before executing any external operation.
 		// Threaded operations instead start only after the slice commits.
-		if !beginIrreversible(ctx) {
+		if !beginIrreversible(ctx, builtin) {
 			return abortedAttempt()
 		}
 		ctx.IrreversibleSideEffect = true
 	}
 	return runInBackground(ctx, func() types.Result {
-		return sqliteExecOrQuery(handle, sqlText, params, includeHeaders)
+		result, _, _ := sqliteExecOrQuery(handle, sqlText, params, includeHeaders, id, store, false)
+		return result
 	})
+}
+
+// sqliteMayReadOptimistically reports whether an inline read-only statement
+// may skip the irreversible-effect boundary: the attempt can still be re-run
+// and does not hold the exclusive commit gate. Otherwise the statement takes
+// the path every statement took before: across the boundary, or, where the
+// boundary is already behind the attempt or the context has none, straight in.
+func sqliteMayReadOptimistically(ctx *Execution) bool {
+	tc := ctx.Context
+	if ctx.Store == nil || tc == nil || tc.BeforeIrreversibleEffect == nil ||
+		tc.ConflictRetryRequested || tc.IrreversibleSideEffect || tc.LiveStoreMutated {
+		return false
+	}
+	tx := readTxn(ctx)
+	return !tx.IsDirect() && !tx.IsCommitGateExempt()
 }
 
 func sqliteLimitCategory(v types.Value) (int64, types.ErrorCode) {
@@ -514,7 +573,7 @@ func builtinSqliteQuery(ctx *Execution, args []types.Value) types.Result {
 	if len(args) == 3 {
 		includeHeaders = args[2].Truthy()
 	}
-	return sqliteExecOrQueryAsync(ctx, handle, args[1].Str(), nil, includeHeaders)
+	return sqliteExecOrQueryAsync(ctx, "sqlite_query", handle, args[1].Str(), nil, includeHeaders)
 }
 
 func builtinSqliteExecute(ctx *Execution, args []types.Value) types.Result {
@@ -544,7 +603,7 @@ func builtinSqliteExecute(ctx *Execution, args []types.Value) types.Result {
 	for _, value := range args[2].Elements() {
 		params = append(params, sqliteParamValue(value))
 	}
-	return sqliteExecOrQueryAsync(ctx, handle, args[1].Str(), params, false)
+	return sqliteExecOrQueryAsync(ctx, "sqlite_execute", handle, args[1].Str(), params, false)
 }
 
 func builtinSqliteLastInsertRowID(ctx *Execution, args []types.Value) types.Result {

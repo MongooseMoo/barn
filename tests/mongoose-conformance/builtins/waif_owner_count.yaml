@@ -1,0 +1,72 @@
+name: waif_owner_count
+description: >
+  Mongoose ToastStunt fork builtin waif_owner_count(OBJ): the number of
+  allocated WAIFs owned by that object number. A caller may ask about itself;
+  asking about another object needs a wizard.
+requires:
+  builtins: [waif_owner_count, new_waif]
+tests:
+  - name: counts_held_waifs_per_owner
+    permission: wizard
+    steps:
+      - run: |
+          first = create($nothing);
+          second = create($nothing);
+          c = create($nothing);
+          add_verb(c, {first, "xd", "first"}, {"this", "none", "this"});
+          set_verb_code(c, "first", {"return new_waif();"});
+          add_verb(c, {second, "xd", "second"}, {"this", "none", "this"});
+          set_verb_code(c, "second", {"return new_waif();"});
+          try
+            before = {waif_owner_count(first), waif_owner_count(second)};
+            held = {c:first(), c:second(), c:second()};
+            return {before, waif_owner_count(first), waif_owner_count(second), held[1].owner == first};
+          finally
+            recycle(c);
+            recycle(first);
+            recycle(second);
+          endtry
+        expect:
+          value: [[0, 0], 1, 2, 1]
+
+  - name: wizard_may_ask_about_any_object_number
+    permission: wizard
+    code: '{waif_owner_count(#-1), waif_owner_count(toobj(2147483647))}'
+    expect:
+      value: [0, 0]
+
+  - name: caller_may_ask_about_itself
+    permission: programmer
+    code: 'typeof(waif_owner_count(player)) == INT'
+    expect:
+      value: 1
+
+  - name: non_wizard_asking_about_another_object_is_perm
+    permission: programmer
+    code: 'waif_owner_count(#0)'
+    expect:
+      error: E_PERM
+
+  - name: non_wizard_asking_about_nothing_is_perm
+    permission: programmer
+    code: 'waif_owner_count(#-1)'
+    expect:
+      error: E_PERM
+
+  - name: non_object_argument_is_type_error
+    permission: wizard
+    code: 'waif_owner_count(1)'
+    expect:
+      error: E_TYPE
+
+  - name: wrong_argument_count_is_args_error
+    permission: wizard
+    code: '{`call_function("waif_owner_count") ! ANY'', `call_function("waif_owner_count", player, player) ! ANY''}'
+    expect:
+      value: [E_ARGS, E_ARGS]
+
+  - name: function_info_reports_one_object_argument
+    permission: wizard
+    code: 'function_info("waif_owner_count")'
+    expect:
+      value: ["waif_owner_count", 1, 1, [1]]

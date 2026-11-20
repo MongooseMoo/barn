@@ -1,0 +1,44 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                                                      │ experiments/store-efficiency/selected-delivery-base.txt │ experiments/store-efficiency/selected-delivery.txt │
+                                                      │                         sec/op                          │           sec/op            vs base                │
+WidePublication/slots128/propertyfalse/readerfalse-4                                               5.018µ ± 11%                 2.977µ ±  6%  -40.68% (p=0.000 n=10)
+WidePublication/slots128/propertytrue/readerfalse-4                                                7.695µ ± 13%                 5.632µ ± 11%  -26.81% (p=0.000 n=10)
+WidePublication/slots1024/propertyfalse/readerfalse-4                                             23.628µ ± 38%                 3.717µ ± 15%  -84.27% (p=0.000 n=10)
+WidePublication/slots1024/propertytrue/readerfalse-4                                               41.56µ ± 27%                 25.89µ ± 28%  -37.71% (p=0.000 n=10)
+PropTableClone/LoadedClear/slots1024-4                                                             91.89n ±  9%                 37.23n ±  7%  -59.48% (p=0.000 n=10)
+PropTableClone/MapSparse/slots1024-4                                                               1.160µ ± 12%                 1.132µ ± 21%        ~ (p=0.971 n=10)
+PropTableClone/MapEmpty/slots1024-4                                                                84.93n ± 11%                 37.32n ± 13%  -56.05% (p=0.000 n=10)
+PropTableClone/LoadedGoneSparse/slots1024-4                                                        16.32µ ± 12%                 16.23µ ± 10%        ~ (p=0.912 n=10)
+PropTableClone/LoadedGoneEmpty/slots1024-4                                                         15.43µ ± 21%                 11.93µ ± 29%  -22.68% (p=0.029 n=10)
+geomean                                                                                            3.536µ                       1.991µ        -43.70%
+
+                                                      │ experiments/store-efficiency/selected-delivery-base.txt │ experiments/store-efficiency/selected-delivery.txt │
+                                                      │                          B/op                           │           B/op            vs base                  │
+WidePublication/slots128/propertyfalse/readerfalse-4                                               7.430Ki ± 0%               3.039Ki ± 0%  -59.10% (p=0.000 n=10)
+WidePublication/slots128/propertytrue/readerfalse-4                                                9.641Ki ± 0%               7.250Ki ± 0%  -24.80% (p=0.000 n=10)
+WidePublication/slots1024/propertyfalse/readerfalse-4                                             35.430Ki ± 0%               3.039Ki ± 0%  -91.42% (p=0.000 n=10)
+WidePublication/slots1024/propertytrue/readerfalse-4                                               51.64Ki ± 0%               35.25Ki ± 0%  -31.74% (p=0.000 n=10)
+PropTableClone/LoadedClear/slots1024-4                                                               96.00 ± 0%                 48.00 ± 0%  -50.00% (p=0.000 n=10)
+PropTableClone/MapSparse/slots1024-4                                                                 672.0 ± 0%                 672.0 ± 0%        ~ (p=1.000 n=10) ¹
+PropTableClone/MapEmpty/slots1024-4                                                                  96.00 ± 0%                 48.00 ± 0%  -50.00% (p=0.000 n=10)
+PropTableClone/LoadedGoneSparse/slots1024-4                                                        56.34Ki ± 0%               56.30Ki ± 0%   -0.08% (p=0.000 n=10)
+PropTableClone/LoadedGoneEmpty/slots1024-4                                                         56.09Ki ± 0%               56.05Ki ± 0%   -0.08% (p=0.000 n=10)
+geomean                                                                                            5.113Ki                    2.805Ki       -45.15%
+¹ all samples are equal
+
+                                                      │ experiments/store-efficiency/selected-delivery-base.txt │ experiments/store-efficiency/selected-delivery.txt │
+                                                      │                        allocs/op                        │        allocs/op          vs base                  │
+WidePublication/slots128/propertyfalse/readerfalse-4                                                 29.00 ± 0%                 17.00 ± 0%  -41.38% (p=0.000 n=10)
+WidePublication/slots128/propertytrue/readerfalse-4                                                  34.00 ± 0%                 23.00 ± 0%  -32.35% (p=0.000 n=10)
+WidePublication/slots1024/propertyfalse/readerfalse-4                                                29.00 ± 0%                 17.00 ± 0%  -41.38% (p=0.000 n=10)
+WidePublication/slots1024/propertytrue/readerfalse-4                                                 34.00 ± 0%                 23.00 ± 0%  -32.35% (p=0.000 n=10)
+PropTableClone/LoadedClear/slots1024-4                                                               2.000 ± 0%                 1.000 ± 0%  -50.00% (p=0.000 n=10)
+PropTableClone/MapSparse/slots1024-4                                                                 3.000 ± 0%                 3.000 ± 0%        ~ (p=1.000 n=10) ¹
+PropTableClone/MapEmpty/slots1024-4                                                                  2.000 ± 0%                 1.000 ± 0%  -50.00% (p=0.000 n=10)
+PropTableClone/LoadedGoneSparse/slots1024-4                                                          5.000 ± 0%                 4.000 ± 0%  -20.00% (p=0.000 n=10)
+PropTableClone/LoadedGoneEmpty/slots1024-4                                                           3.000 ± 0%                 2.000 ± 0%  -33.33% (p=0.000 n=10)
+geomean                                                                                              8.239                      5.363       -34.91%
+¹ all samples are equal

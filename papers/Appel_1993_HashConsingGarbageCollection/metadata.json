@@ -1,0 +1,13 @@
+{
+  "cite_key": "appel1993hashconsing",
+  "title": "Hash-consing Garbage Collection",
+  "authors": ["Andrew W. Appel", "Marcelo J. R. Goncalves"],
+  "year": "1993",
+  "document_type": "report",
+  "report_number": "CS-TR-412-93",
+  "arxiv_id": null,
+  "doi": null,
+  "abstract": "An SML/NJ collector canonicalizes immutable survivors rather than every allocation. The experiments separate collector overhead from duplication savings and show workload-dependent results.",
+  "url": "https://www.cs.princeton.edu/research/techreps/115",
+  "pdf_url": "https://www.cs.princeton.edu/~appel/papers/hashgc.pdf"
+}

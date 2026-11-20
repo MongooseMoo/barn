@@ -7,18 +7,21 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func TestInlineSQLiteRetriesBeforeExecutingStatement(t *testing.T) {
 	for _, tc := range []struct {
-		name, statement, readback, want string
+		name, statement, readback, want, held string
 	}{
-		{"query_cte", `sqlite_query(#0.h, "WITH v(x) AS (SELECT 7) INSERT INTO t SELECT x FROM v");`, "SELECT x FROM t", "{{7}}"},
-		{"execute_cte", `sqlite_execute(#0.h, "WITH v(x) AS (SELECT ?) INSERT INTO t SELECT x FROM v", {7});`, "SELECT x FROM t", "{{7}}"},
-		{"pragma", `sqlite_query(#0.h, "PRAGMA user_version = 17");`, "PRAGMA user_version", "{{17}}"},
-		{"select", `sqlite_query(#0.h, "SELECT 7");`, "SELECT 7", "{{7}}"},
+		{"query_cte", `sqlite_query(#0.h, "WITH v(x) AS (SELECT 7) INSERT INTO t SELECT x FROM v");`, "SELECT x FROM t", "{{7}}", "1"},
+		{"execute_cte", `sqlite_execute(#0.h, "WITH v(x) AS (SELECT ?) INSERT INTO t SELECT x FROM v", {7});`, "SELECT x FROM t", "{{7}}", "1"},
+		{"pragma", `sqlite_query(#0.h, "PRAGMA user_version = 17");`, "PRAGMA user_version", "{{17}}", "1"},
+		// A read-only statement takes no gate; the stale read is caught at the
+		// final commit instead, with the same single retry.
+		{"select", `sqlite_query(#0.h, "SELECT 7");`, "SELECT 7", "{{7}}", "0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := newBoundaryTestStore(t)
@@ -36,7 +39,7 @@ func TestInlineSQLiteRetriesBeforeExecutingStatement(t *testing.T) {
 				return types.Ok(types.NewInt(0))
 			}
 			ticks, seconds := foregroundTaskLimits(newTestRegistry())
-			setup := task.NewTaskFull(95010, 0, compileTestProgram(t, rt.registry, `
+			setup := NewTaskFull(95010, 0, compileTestProgram(t, rt.registry, `
 #0.h = sqlite_open(":memory:");
 sqlite_query(#0.h, "CREATE TABLE t(x INTEGER)");
 return 1;
@@ -47,7 +50,7 @@ return 1;
 				t.Fatalf("setup: %+v", setup.Result)
 			}
 			defer rt.EvalCommandOutput(0, "return sqlite_close(#0.h);")
-			running := task.NewTaskFull(95011, 0, compileTestProgram(t, rt.registry, fmt.Sprintf(`
+			running := NewTaskFull(95011, 0, compileTestProgram(t, rt.registry, fmt.Sprintf(`
 set_thread_mode(0);
 before = #0.read_value;
 bump_read_value_live_once();
@@ -59,9 +62,9 @@ return {before, sqlite_query(#0.h, %q), held};
 			running.Context.IsWizard = true
 			retries := store.CommitRetries()
 			runSQLiteTaskToCompletion(t, rt, running)
-			want := "{1, " + tc.want + ", 1}"
+			want := "{1, " + tc.want + ", " + tc.held + "}"
 			if running.Result.Flow != types.FlowReturn || running.Result.Val.String() != want {
-				t.Fatalf("result = %+v, want %s (one SQL effect under the gate)", running.Result, want)
+				t.Fatalf("result = %+v, want %s (one SQL effect, under the gate for a writer)", running.Result, want)
 			}
 			if *calls != 2 || store.CommitRetries()-retries != 1 {
 				t.Fatalf("attempts=%d retries=%d, want 2 and 1", *calls, store.CommitRetries()-retries)
@@ -73,7 +76,7 @@ return {before, sqlite_query(#0.h, %q), held};
 
 // runSQLiteTaskToCompletion drives a task through its threaded SQLite suspends:
 // each completion re-queues the task and the scheduler pass resumes it.
-func runSQLiteTaskToCompletion(t *testing.T, rt *Runtime, tk *task.Task) {
+func runSQLiteTaskToCompletion(t *testing.T, rt *Runtime, tk *Task) {
 	t.Helper()
 	tk.SetState(task.TaskQueued)
 	rt.taskManager.RegisterTask(tk)
@@ -134,7 +137,7 @@ func TestSqliteThreadedStatementRunsOnceAcrossSuspendCommitRetry(t *testing.T) {
 	}
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	setup := task.NewTaskFull(94010, 0, compileTestProgram(t, rt.registry, `
+	setup := NewTaskFull(94010, 0, compileTestProgram(t, rt.registry, `
 h = sqlite_open(":memory:");
 sqlite_query(h, "CREATE TABLE t(attempt INTEGER)");
 #0.h = h;
@@ -146,7 +149,7 @@ return h;
 		t.Fatalf("setup result = %+v, want a handle", setup.Result)
 	}
 
-	running := task.NewTaskFull(94011, 0, compileTestProgram(t, rt.registry, `
+	running := NewTaskFull(94011, 0, compileTestProgram(t, rt.registry, `
 n = attempt_no();
 before = #0.retry_value;
 force_retry_conflict();
@@ -157,6 +160,9 @@ return {n, rows};
 `), ticks, seconds)
 	running.Context.IsWizard = true
 	retriesBefore := store.CommitRetries()
+	wasteBefore := metrics.RuntimePhaseStats(metrics.RetryWaste)
+	asyncBefore := metrics.RuntimePhaseStats(metrics.AsyncWork)
+	queueBefore := metrics.RuntimePhaseStats(metrics.ResumeQueue)
 	runSQLiteTaskToCompletion(t, rt, running)
 
 	if running.Result.Flow != types.FlowReturn {
@@ -173,5 +179,14 @@ return {n, rows};
 	}
 	if got, errCode := store.DirectTxn().PropertyValue(0, "retry_value"); errCode != types.E_NONE || got.Int() != 11 {
 		t.Fatalf("retry_value = %v (%v), want 11 committed by the retried attempt", got, errCode)
+	}
+	waste := metrics.RuntimePhaseStats(metrics.RetryWaste)
+	async := metrics.RuntimePhaseStats(metrics.AsyncWork)
+	queue := metrics.RuntimePhaseStats(metrics.ResumeQueue)
+	if waste.Count-wasteBefore.Count != 1 || waste.Ticks-wasteBefore.Ticks <= 0 {
+		t.Fatalf("forced retry missing discarded VM work: before=%+v after=%+v", wasteBefore, waste)
+	}
+	if async.Count-asyncBefore.Count != 2 || queue.Count-queueBefore.Count != 2 {
+		t.Fatalf("threaded INSERT/SELECT must run and resume once each: async=%d resumes=%d", async.Count-asyncBefore.Count, queue.Count-queueBefore.Count)
 	}
 }

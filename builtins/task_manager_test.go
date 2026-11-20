@@ -1,11 +1,7 @@
 package builtins
 
-import (
-	"github.com/MongooseMoo/barn/task"
-)
-
-func wireTestTaskManager(ctx *Execution) *task.Manager {
-	manager := task.NewManager()
+func wireTestTaskHost(ctx *Execution) {
+	manager := taskManagerStub{}
 	session := ctx.Session
 	if session == nil {
 		registry := ctx.Registry
@@ -17,5 +13,4 @@ func wireTestTaskManager(ctx *Execution) *task.Manager {
 		ctx.Session = session
 	}
 	configureTestHost(session, func(host *Host) { host.TaskManager = manager })
-	return manager
 }

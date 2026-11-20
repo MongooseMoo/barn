@@ -6,7 +6,7 @@ import (
 )
 
 func TestExecutionBudgetExcludesGateWait(t *testing.T) {
-	task := NewTask(1, 0, 1000, 5)
+	task := NewState(1, 0, 1000, 5)
 	task.SetExecutionDeadline(time.Now().Add(-time.Second))
 	if got := task.SecondsLeft(); got != 0 {
 		t.Fatalf("expired seconds = %v, want 0", got)

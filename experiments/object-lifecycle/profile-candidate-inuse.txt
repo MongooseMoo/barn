@@ -1,0 +1,25 @@
+File: store.test.exe
+Build ID: C:\Users\Q\AppData\Local\Temp\go-build146967060\b001\store.test.exe2026-11-07 10:58:33.2539346 -0700 MST
+Type: inuse_space
+Time: 2026-11-07 10:58:34 MST
+Showing nodes accounting for 1538.03kB, 100% of 1538.03kB total
+Showing top 18 nodes out of 27
+      flat  flat%   sum%        cum   cum%
+    1026kB 66.71% 66.71%     1026kB 66.71%  runtime.mallocgc
+  512.03kB 33.29%   100%   512.03kB 33.29%  time.initLocalFromTZI
+         0     0%   100%     1026kB 66.71%  runtime.allocm
+         0     0%   100%      513kB 33.35%  runtime.mcall
+         0     0%   100%      513kB 33.35%  runtime.mstart
+         0     0%   100%      513kB 33.35%  runtime.mstart0
+         0     0%   100%      513kB 33.35%  runtime.mstart1
+         0     0%   100%     1026kB 66.71%  runtime.newm
+         0     0%   100%     1026kB 66.71%  runtime.newobject
+         0     0%   100%      513kB 33.35%  runtime.park_m
+         0     0%   100%     1026kB 66.71%  runtime.resetspinning
+         0     0%   100%     1026kB 66.71%  runtime.schedule
+         0     0%   100%     1026kB 66.71%  runtime.startm
+         0     0%   100%     1026kB 66.71%  runtime.wakep
+         0     0%   100%   512.03kB 33.29%  runtime/pprof.(*profileBuilder).readMapping
+         0     0%   100%   512.03kB 33.29%  runtime/pprof.newProfileBuilder
+         0     0%   100%   512.03kB 33.29%  runtime/pprof.peBuildID
+         0     0%   100%   512.03kB 33.29%  runtime/pprof.profileWriter

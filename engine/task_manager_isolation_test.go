@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -19,8 +18,8 @@ func TestRuntimesOwnIsolatedTaskManagers(t *testing.T) {
 		t.Fatal("two runtimes share one task manager")
 	}
 
-	firstTask := task.NewTask(101, 7, 1000, 10)
-	secondTask := task.NewTask(202, 8, 1000, 10)
+	firstTask := NewTask(101, 7, 1000, 10)
+	secondTask := NewTask(202, 8, 1000, 10)
 	first.QueueTask(firstTask)
 	second.QueueTask(secondTask)
 
@@ -39,7 +38,7 @@ func TestRuntimesOwnIsolatedTaskManagers(t *testing.T) {
 
 	assertQueuedTask := func(t *testing.T, rt *Runtime, wantID int64) {
 		t.Helper()
-		ctx := kernel.NewTaskContext()
+		ctx := task.NewContext()
 		ctx.Programmer = types.ObjID(0)
 		ctx.IsWizard = true
 
@@ -58,7 +57,7 @@ func TestRuntimesOwnIsolatedTaskManagers(t *testing.T) {
 	assertQueuedTask(t, first, firstTask.ID)
 	assertQueuedTask(t, second, secondTask.ID)
 
-	first.taskManager.SuspendTask(firstTask, -1)
+	firstTask.SuspendSeconds(-1)
 	if got := firstTask.GetState(); got != task.TaskSuspended {
 		t.Fatalf("first task state after suspend = %v, want suspended", got)
 	}
@@ -66,8 +65,13 @@ func TestRuntimesOwnIsolatedTaskManagers(t *testing.T) {
 		t.Fatalf("second task state changed with first suspend: %v", got)
 	}
 
-	if errCode := first.taskManager.ResumeTask(firstTask.ID, types.NewInt(42), firstTask.Owner, false, nil); errCode != types.E_NONE {
-		t.Fatalf("resume first task: %s", errCode)
+	// The task's own suspending commit would write this row.
+	first.store.PutTaskRow(firstTask.ID, dbstore.TaskRow{Owner: firstTask.Owner, Status: dbstore.TaskRowSuspended})
+	resumeCtx := task.NewContext()
+	resumeCtx.Programmer = firstTask.Owner
+	resumeCtx.Store = first.store
+	if result, _ := first.session.CallByNameWithExecution("resume", first.session.NewExecution(resumeCtx, nil), []types.Value{types.NewInt(firstTask.ID), types.NewInt(42)}); result.Error != types.E_NONE {
+		t.Fatalf("resume first task: %s", result.Error)
 	}
 	if got := firstTask.GetState(); got != task.TaskQueued {
 		t.Fatalf("first task state after resume = %v, want queued", got)

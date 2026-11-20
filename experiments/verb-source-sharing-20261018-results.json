@@ -1,0 +1,470 @@
+{
+  "schema": 1,
+  "study": "immutable verb-source sharing",
+  "candidate": "5a1790b3cdfa9fe97fdba57776780b93c6408668",
+  "integration_baseline": "e66500c936d0dcbcae43196d64b2521dddffc848",
+  "setup": "057fa09050427322960abe8957e719d5ac58d65c",
+  "calibration": "7a337728acfdff60eb9b0c48e4eef920ad3737e8",
+  "promotion": "NO-MERGE",
+  "promotion_blockers": [
+    "owned_shutdown=false: controller forced SIGKILL after original 90s wait",
+    "owned_final_checkpoint=false: unpublished temporary pair is not verified"
+  ],
+  "analysis": {
+    "results_sha256": "83a036572ffaa0286b6fbdbeab12f14dd850a408109b2773ecbef6170a26f065",
+    "rows": {
+      "BenchmarkVerbArgsPublication/Live/V1/L0": {
+        "paired_ns_ratios": [
+          0.9597902097902098,
+          1.0214285714285714,
+          1.2857142857142858,
+          1.20680393912265,
+          0.9322175732217574,
+          1.0179487179487179,
+          0.9855072463768116,
+          1.0026785714285715,
+          1.091491308325709,
+          0.9965337954939342
+        ],
+        "median_ns_ratio": 1.0103136446886447,
+        "ci95": [
+          0.9812343906093907,
+          1.1123763285356838
+        ],
+        "medians": {
+          "baseline": {
+            "ns": 1139.0,
+            "bytes": 1000.0,
+            "allocs": 9.0
+          },
+          "candidate": {
+            "ns": 1153.0,
+            "bytes": 1000.0,
+            "allocs": 9.0
+          }
+        }
+      },
+      "BenchmarkVerbArgsPublication/Live/V16/L64": {
+        "paired_ns_ratios": [
+          1.004602510460251,
+          1.0016590626296142,
+          1.1057007125890737,
+          1.1454993834771887,
+          0.9586744639376218,
+          1.0476585163696643,
+          1.026983487716472,
+          1.0235591081194784,
+          1.0306336550566513,
+          1.0246812011517894
+        ],
+        "median_ns_ratio": 1.0258323444341308,
+        "ci95": [
+          1.004602510460251,
+          1.0681671838228626
+        ],
+        "medians": {
+          "baseline": {
+            "ns": 2422.0,
+            "bytes": 1848.0,
+            "allocs": 11.0
+          },
+          "candidate": {
+            "ns": 2475.0,
+            "bytes": 1848.0,
+            "allocs": 11.0
+          }
+        }
+      },
+      "BenchmarkVerbArgsPublication/Live/V128/L64": {
+        "paired_ns_ratios": [
+          1.0116703786191537,
+          0.992018244013683,
+          1.015792585085719,
+          1.0985183923705721,
+          0.9692452668551358,
+          1.0234333859926277,
+          1.0379368013379104,
+          1.0277729104608375,
+          1.060882800608828,
+          1.0374657594768932
+        ],
+        "median_ns_ratio": 1.0256031482267325,
+        "ci95": [
+          1.003905414549701,
+          1.0491742800428607
+        ],
+        "medians": {
+          "baseline": {
+            "ns": 11397.5,
+            "bytes": 8504.0,
+            "allocs": 11.0
+          },
+          "candidate": {
+            "ns": 11736.0,
+            "bytes": 8504.0,
+            "allocs": 11.0
+          }
+        }
+      },
+      "BenchmarkVerbArgsPublication/Live/V128/L512": {
+        "paired_ns_ratios": [
+          0.9666296610722915,
+          1.020256160378672,
+          0.9797333692431995,
+          0.9546290619251993,
+          1.0141040783714306,
+          1.0256321440942155,
+          0.9545635183468009,
+          0.9941856488131883,
+          1.0241447275798958,
+          0.9725897279326956
+        ],
+        "median_ns_ratio": 0.986959509028194,
+        "ci95": [
+          0.9636093949289475,
+          1.020256160378672
+        ],
+        "medians": {
+          "baseline": {
+            "ns": 14679.0,
+            "bytes": 8504.0,
+            "allocs": 11.0
+          },
+          "candidate": {
+            "ns": 14573.5,
+            "bytes": 8504.0,
+            "allocs": 11.0
+          }
+        }
+      },
+      "BenchmarkVerbArgsPublication/Adopt/V1/L0": {
+        "paired_ns_ratios": [
+          1.1345724907063197,
+          1.0051826898160146,
+          0.9881761006289308,
+          0.8412867490413294,
+          0.963018118639861,
+          0.9214422158548233,
+          1.0073158425832491,
+          0.9632623071271125,
+          1.0214525717239598,
+          0.892824074074074
+        ],
+        "median_ns_ratio": 0.9757192038780216,
+        "ci95": [
+          0.9214422158548233,
+          1.0073158425832491
+        ],
+        "medians": {
+          "baseline": {
+            "ns": 4032.0,
+            "bytes": 4104.0,
+            "allocs": 36.0
+          },
+          "candidate": {
+            "ns": 3930.5,
+            "bytes": 4104.0,
+            "allocs": 36.0
+          }
+        }
+      },
+      "BenchmarkVerbArgsPublication/Adopt/V16/L64": {
+        "paired_ns_ratios": [
+          0.49971662938105893,
+          0.456245099813039,
+          0.4362899982765554,
+          0.42916565378278365,
+          0.3887036265110463,
+          0.4308715132244544,
+          0.4618048541167643,
+          0.43021021857162745,
+          0.4295885156340811,
+          0.4620918818400756
+        ],
+        "median_ns_ratio": 0.4335807557505049,
+        "ci95": [
+          0.4295885156340811,
+          0.4618048541167643
+        ],
+        "medians": {
+          "baseline": {
+            "ns": 34623.0,
+            "bytes": 52424.0,
+            "allocs": 140.0
+          },
+          "candidate": {
+            "ns": 15173.5,
+            "bytes": 15560.0,
+            "allocs": 108.0
+          }
+        }
+      },
+      "BenchmarkVerbArgsPublication/Adopt/V128/L64": {
+        "paired_ns_ratios": [
+          0.37712245353396884,
+          0.3200993717483373,
+          0.31095655649351434,
+          0.3347334984915009,
+          0.3052555403150841,
+          0.3188748527893459,
+          0.31882658296613753,
+          0.3295775527083756,
+          0.3208437090792618,
+          0.3397931451729072
+        ],
+        "median_ns_ratio": 0.32047154041379955,
+        "ci95": [
+          0.31551265763393843,
+          0.3347334984915009
+        ],
+        "medians": {
+          "baseline": {
+            "ns": 320404.0,
+            "bytes": 396360.0,
+            "allocs": 812.0
+          },
+          "candidate": {
+            "ns": 104147.0,
+            "bytes": 101448.0,
+            "allocs": 556.0
+          }
+        }
+      },
+      "BenchmarkVerbArgsPublication/Adopt/V128/L512": {
+        "paired_ns_ratios": [
+          0.05698110322375414,
+          0.05621010419697481,
+          0.05294397992853008,
+          0.05643799989919066,
+          0.05539739670532521,
+          0.05212567127003598,
+          0.05691167195088399,
+          0.06136935423563565,
+          0.05355929923149275,
+          0.05496667854010109
+        ],
+        "median_ns_ratio": 0.055803750451150005,
+        "ci95": [
+          0.05355929923149275,
+          0.05691167195088399
+        ],
+        "medians": {
+          "baseline": {
+            "ns": 2600548.0,
+            "bytes": 2526281.0,
+            "allocs": 812.0
+          },
+          "candidate": {
+            "ns": 145318.5,
+            "bytes": 101449.0,
+            "allocs": 556.0
+          }
+        }
+      }
+    },
+    "metric_mode": "Adopt",
+    "timing_gate": true
+  },
+  "correctness": {
+    "go_exit": 0,
+    "race_exit": 0,
+    "elle_driver_exit": 0,
+    "expected_verdicts": 12,
+    "positive_coverage_keys_per_seed": 20,
+    "native_exception_per_seed": 48,
+    "healthy_fail_outcomes": 0,
+    "healthy_info_outcomes": 0,
+    "nonempty_fault_witnesses": 6,
+    "archive_files_matched": 67,
+    "source_files_hashed_unchanged": 1709,
+    "archive_sha256": "63bb705d055c35c6091b307e2dca6f5efd0611617486b0c8fc3a5b0761430d3c"
+  },
+  "benchmark_bindings": {
+    "baseline_binary_sha256": "a215ea3af7296cb6c8fd1248c85c5e2d77f2c1c8c21b29253c6b89cdd792c760",
+    "candidate_binary_sha256": "212ab3e4e295a92737dd0ad3a4e313567c227185d4348cb0c76f31c37e4f3e02",
+    "plan_sha256": "ed58289b609478d103cd69392e582ed78aad22a3c65d6c49227ee22cc16ecbbf",
+    "runner_sha256": "6be97e36fb7f2b7f82a22a46b239991ef0069f4cf7d7af85cbad78a01ce1bf06",
+    "historical_command_records_sha256": "8d7da1de929c2dc3672fb6f2ce5a011b66974e8874afd7914d368a5c4c6e9210",
+    "scope": "original build command/commit/cwd/buildinfo/binary hashes, JSONL newline normalization; no contemporaneous full-source inventories for benchmark builds"
+  },
+  "cohort": {
+    "cohort_status": "failed",
+    "domain_status": "failed",
+    "controlled_failure": "expected ordinary refusal was absent",
+    "productive_pairs_verified": 0,
+    "final_checks": {
+      "source_database": true,
+      "executable": true,
+      "controller_sources": true,
+      "sound_catalog": true,
+      "owned_shutdown": false,
+      "bootstrap_executable": true,
+      "barn_configuration": true,
+      "barn_profile_registry": true,
+      "barn_runtime_profile": true,
+      "owned_final_checkpoint": false,
+      "go_diagnostics_transport": true,
+      "go_profiles_validated": false
+    },
+    "shutdown": {
+      "exit_code": -9,
+      "shutdown": "forced after 90s",
+      "forced": true,
+      "final_checkpoint": {
+        "status": "unknown",
+        "verified": false,
+        "reason": "owned signal shutdown not observed"
+      }
+    },
+    "shutdown_cause_scope": "controller reports its original 90s wait expired, then verified owned pidfd SIGKILL; -9 is not evidence of OOM",
+    "source_contract": {
+      "stop": "scripts/mongoose_barn_process.py:334-348",
+      "signal": "server/signals_unix.go:30-36",
+      "sequence": "server/server.go:466-516"
+    },
+    "fixed_shutdown_log_phases": [
+      {
+        "phase": "shutdown_initiated",
+        "log_line": 12398,
+        "time": "2026-10-18T01:16:33.469060004-06:00"
+      },
+      {
+        "phase": "shutdown_sequence_entered",
+        "log_line": 12407,
+        "time": "2026-10-18T01:16:33.487045756-06:00"
+      }
+    ],
+    "fixed_shutdown_log_sha256": "4ac8cd1b5d4ff92a301754bfb55e3734206520be0722665618cda23c3b721cf0",
+    "retained_files": {
+      "mongoose.db": {
+        "bytes": 216336208,
+        "sha256": "4070ec5beb1c08d723f73361f5fab998da0dbbaa07e1a10d93155932d63111aa",
+        "mtime_ns": 1792307699158079200
+      },
+      "mongoose.db.tmp": {
+        "bytes": 218147345,
+        "sha256": "7808f009f24db4e4351e01a1a7f6dc2d623741862181fd5ceeb7e70a192eaa4e",
+        "mtime_ns": 1792307853885747000
+      },
+      "mongoose.db.tmp.waifids": {
+        "bytes": 1420244,
+        "sha256": "27b372f82b4ed455d63accdd40877a5c201934743ba8f2cc73123aa74c680d7f",
+        "mtime_ns": 1792307883539603400
+      },
+      "mongoose.db.new": null,
+      "mongoose.db.new.waifids": null,
+      "mongoose.db.recovery": null,
+      "mongoose.db.journal": null
+    },
+    "partial_checkpoint_scope": "retained bytes only; unpublished temporary files are not a verified checkpoint and are not parsed",
+    "source_head": "5a1790b3cdfa9fe97fdba57776780b93c6408668",
+    "source_files_unchanged": true,
+    "source_file_count": 1709,
+    "source_inventory_sha256": "1d6331757f7545615148a5be2fa74f373755e6608c7e979a16bac3a6bae90d84",
+    "binary_sha256": "3df7dae7687bae43201d8704ee64291186ddcd018e7fb5f21333da39498da5f0",
+    "runner_source_commit": null,
+    "source_binding_scope": "explicit standard build plus complete source inventories; no embedded VCS claim",
+    "owned_process_postcondition": "pid_absent",
+    "owned_pid": 371284,
+    "action": {
+      "wall_ns": 10128406084,
+      "barn_process_cpu_ns": 15650000000,
+      "rss_before_kib": 2803620,
+      "rss_after_kib": 3883608,
+      "cpu_scope": "all Barn OS threads/background/in-process profiling; excludes external collector CPU"
+    },
+    "observer_peak_rss_kib": 3884728,
+    "observer_sample_count": 103,
+    "natural_memstats_bytes_except_NumGC": {
+      "before": {
+        "HeapAlloc": 2662658512,
+        "HeapInuse": 2766487552,
+        "HeapIdle": 16498688,
+        "HeapReleased": 9330688,
+        "HeapSys": 2782986240,
+        "Sys": 2870885656,
+        "TotalAlloc": 5578506824,
+        "NumGC": 4
+      },
+      "after": {
+        "HeapAlloc": 1891596472,
+        "HeapInuse": 2005663744,
+        "HeapIdle": 1846607872,
+        "HeapReleased": 8462336,
+        "HeapSys": 3852271616,
+        "Sys": 3977295576,
+        "TotalAlloc": 13005862336,
+        "NumGC": 7
+      }
+    },
+    "cleanup": {
+      "actor_removed": 1,
+      "private_account_retained": 1,
+      "room_removed": 1,
+      "tutor_removed": 1,
+      "wand_removed": 1
+    },
+    "original_manifests_sha256": {
+      "/mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/barn-magic-verb-source-20261018-01/manifest-final.json": "1643dc19e20fc20d86c5f968135677ea1a4dca997bb83b7fb5478585196de960",
+      "/mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/barn-magic-verb-source-20261018-01/go-diagnostics/manifest.json": "e3e30fdaf62c45e2849016d45dd85e70c70dd6079b4211c095ffc0df493558ef"
+    },
+    "original_manifests_unchanged": true,
+    "limits": [
+      "failed domain and failed finalization; no gameplay/RSS performance claim",
+      "profile validation and exact terminal census handled separately by independent reviewer"
+    ]
+  },
+  "evidence": {
+    "component": ".tmp/verb-source-experiment-20261018-01",
+    "verification": ".tmp/verb-source-verification/run-01",
+    "independent_reviews": [
+      ".tmp/verb-source-review",
+      ".tmp/verb-source-final-review"
+    ],
+    "actual_cohort": "../barn-gameplay-baseline/.tmp/barn-magic-verb-source-20261018-01",
+    "preservation_sha256": "1f8f815dcd2762137d85b165d04fbfbb6b3eecb057ad05ed608e813850ef63ae"
+  },
+  "limits": [
+    "component allocation savings are not RSS/retained heap/gameplay claims",
+    "failed domain and preservation do not establish completed gameplay speed",
+    "shutdown cause before controller deadline is unknown",
+    "no code-causal explanation or OOM claim",
+    "original manifests unchanged; no hidden reruns, timeout/quota/control changes",
+    "no integration, push or deployment"
+  ],
+  "retained_cpu_profile": {
+    "independent_parser_exits": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "base_views": 11,
+    "focused_views": 3,
+    "whole_sample_count": 2418,
+    "whole_sampled_cpu_seconds": 24.18,
+    "http_window_seconds": 15,
+    "typed_seconds_budget_task": 1788854219,
+    "task_sampled_cpu_seconds": 9.96,
+    "another_weave_task_sampled_seconds": 0.02,
+    "clone_cumulative_seconds": 2.54,
+    "clone_flat_seconds": 0.56,
+    "source_copy_line_attributed_samples": 0,
+    "fresh_node_line_cumulative_seconds": 1.65,
+    "names_copy_line_cumulative_seconds": 0.86,
+    "adopt_cumulative_seconds": 4.34,
+    "set_verb_args_cumulative_seconds": 6.33,
+    "scope": "nested values overlap; failed budget-clamped tasks and different background work do not establish completed-work speedup or command-exclusive CPU",
+    "raw": ".tmp/verb-source-review/cohort-review.task-1788854219-cumulative.txt"
+  }
+}

@@ -42,15 +42,15 @@ func TestFlushResumesAfterPartialWriteFailure(t *testing.T) {
 	if err := conn.Flush(); err == nil {
 		t.Fatal("first Flush() error = nil, want transient write failure")
 	}
-	if got := conn.BufferedOutputLength(); got != 2 {
-		t.Fatalf("buffered lines after failed Flush() = %d, want 2", got)
+	if got := conn.BufferedOutputLength(); got != 13 {
+		t.Fatalf("buffered bytes after failed Flush() = %d, want 13", got)
 	}
 
 	if err := conn.Flush(); err != nil {
 		t.Fatalf("second Flush(): %v", err)
 	}
 	if got := conn.BufferedOutputLength(); got != 0 {
-		t.Fatalf("buffered lines after successful retry = %d, want 0", got)
+		t.Fatalf("buffered bytes after successful retry = %d, want 0", got)
 	}
 	wantWrites := []string{"one", "two", "three", "three", "four"}
 	if !reflect.DeepEqual(transport.writes, wantWrites) {
@@ -58,7 +58,7 @@ func TestFlushResumesAfterPartialWriteFailure(t *testing.T) {
 	}
 }
 
-func TestSwitchPlayerDisconnectRestoresPreviousConnection(t *testing.T) {
+func TestSwitchPlayerDisconnectDoesNotRestoreClosedConnection(t *testing.T) {
 	cm := NewConnectionManager(7777)
 	player := types.ObjID(8)
 
@@ -82,11 +82,14 @@ func TestSwitchPlayerDisconnectRestoresPreviousConnection(t *testing.T) {
 	restored := cm.restorePreviousPlayerConnLocked(player, secondConn)
 	cm.mu.Unlock()
 
-	if restored != mainConn {
-		t.Fatalf("restored connection = %v, want main connection", restored)
+	if restored != nil {
+		t.Fatalf("restored connection = %v, want none", restored)
 	}
-	if got := cm.GetConnection(player); got != mainConn {
-		t.Fatalf("active connection after restore = %v, want main connection", got)
+	if got := cm.GetConnection(player); got != nil {
+		t.Fatalf("active connection after disconnect = %v, want none", got)
+	}
+	if mainConn.ctx.Err() == nil {
+		t.Fatal("superseded connection remains open")
 	}
 }
 
@@ -104,7 +107,7 @@ func TestProxiedIPRewritesRemoteAddr(t *testing.T) {
 	}
 }
 
-func TestBufferedOutputLengthTracksQueuedLines(t *testing.T) {
+func TestBufferedOutputLengthTracksQueuedBytes(t *testing.T) {
 	conn := NewConnection(1, stubTransport{})
 
 	if err := conn.Send("immediate"); err != nil {
@@ -116,8 +119,8 @@ func TestBufferedOutputLengthTracksQueuedLines(t *testing.T) {
 
 	conn.Buffer("first")
 	conn.Buffer("second")
-	if got := conn.BufferedOutputLength(); got != 2 {
-		t.Fatalf("BufferedOutputLength before Flush = %d, want 2", got)
+	if got := conn.BufferedOutputLength(); got != 15 {
+		t.Fatalf("BufferedOutputLength before Flush = %d, want 15", got)
 	}
 
 	if err := conn.Flush(); err != nil {

@@ -10,15 +10,15 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/parser"
 	"github.com/MongooseMoo/barn/sourcekey"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 // Diagnostic is a source-located syntax or bytecode compilation failure.
 type Diagnostic struct {
 	Stage    DiagnosticStage
-	Position verb.Position
+	Position ir.Position
 	Message  string
 	Detail   error
 }
@@ -129,7 +129,8 @@ func (c *Compiler) CompileMOOWithKey(sourceLines []string, key sourcekey.Key) (*
 }
 
 func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []Diagnostic) {
-	program, parseErrors := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgramWithDiagnostics(func(name string, pos verb.Position) error {
+	source := strings.Join(sourceLines, "\n")
+	program, parseErrors := parser.NewParser(source).ParseProgramWithDiagnostics(func(name string, pos ir.Position) error {
 		if _, ok := c.builtinIDs[canonicalIdentifier(name)]; !ok {
 			return &UnknownBuiltinError{Name: name, Position: pos}
 		}
@@ -143,13 +144,73 @@ func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []D
 		return nil, diagnostics
 	}
 
-	compiled, err := newLowerer(c.builtinIDs).compileProgram(program)
+	lower := newLowerer(c.builtinIDs)
+	lower.lines = numberStatements(program, parser.ElseIfArms(source, program))
+	compiled, err := lower.compileProgram(program)
+	if err == nil {
+		compiled.ForkSources, err = forkSources(source, program, lower.forks)
+	}
 	if err != nil {
 		return nil, []Diagnostic{compileDiagnostic(err)}
 	}
 	compiled.Source = append([]string(nil), sourceLines...)
 	compiled.BuiltinLayout = c.layout
 	return compiled, nil
+}
+
+// forkSources returns, for each fork statement in forks (the order the
+// lowerer emitted their instructions), its body as Toast writes a queued
+// forked task's code: the unparse of the fork vector, fully parenthesized and
+// not indented (db_io.cc dbio_write_forked_program). program is the parse of
+// source and holds every statement in forks. Floats are spelled exactly, as
+// in stored verb code, so the saved body compiles to the same values.
+func forkSources(source string, program *ir.Program, forks []*ir.ForkStmt) ([][]string, error) {
+	if len(forks) == 0 {
+		return nil, nil
+	}
+	options := parser.FormatOptions{
+		FullyParenthesized: true,
+		Unindented:         true,
+		ElseIfArms:         parser.ElseIfArms(source, program),
+	}
+	sources := make([][]string, len(forks))
+	for index, fork := range forks {
+		lines, err := parser.FormatUncheckedWith(&ir.Program{Statements: fork.Body}, options)
+		if err != nil {
+			return nil, err
+		}
+		sources[index] = lines
+	}
+	return sources, nil
+}
+
+// LowerUnknownBuiltinCalls rewrites verb source read from a database the way
+// Toast's loader compiles it: each call to a builtin this registry lacks becomes
+// call_function("name", @args), with one warning per call carrying the text
+// set_verb_code rejects the same call with. The result is in Toast's
+// fully-parenthesized decompile form. Source that lowers nothing, or does not
+// parse, returns nil lines and the caller keeps the original.
+func (c *Compiler) LowerUnknownBuiltinCalls(sourceLines []string) ([]string, []Diagnostic) {
+	var warnings []Diagnostic
+	source := strings.Join(sourceLines, "\n")
+	program, err := parser.NewParser(source).ParseStoredProgram(func(name string, pos ir.Position) bool {
+		if _, ok := c.builtinIDs[canonicalIdentifier(name)]; ok {
+			return false
+		}
+		warnings = append(warnings, compileDiagnostic(&UnknownBuiltinError{Name: name, Position: pos}))
+		return true
+	})
+	if err != nil || len(warnings) == 0 {
+		return nil, nil
+	}
+	lowered, err := parser.FormatMOOWith(program, parser.FormatOptions{
+		FullyParenthesized: true,
+		ElseIfArms:         parser.ElseIfArms(source, program),
+	})
+	if err != nil {
+		return nil, nil
+	}
+	return lowered, warnings
 }
 
 func syntaxDiagnostic(err error) Diagnostic {
@@ -166,11 +227,11 @@ func syntaxDiagnostic(err error) Diagnostic {
 			Detail:   parseError.Detail,
 		}
 	}
-	return Diagnostic{Stage: SyntaxStage, Position: verb.Position{Line: 1}, Message: err.Error(), Detail: err}
+	return Diagnostic{Stage: SyntaxStage, Position: ir.Position{Line: 1}, Message: err.Error(), Detail: err}
 }
 
 func compileDiagnostic(err error) Diagnostic {
-	var validation *verb.ValidationError
+	var validation *ir.ValidationError
 	if errors.As(err, &validation) {
 		return Diagnostic{Stage: BytecodeStage, Position: validation.Position, Message: validation.Error(), Detail: err}
 	}
@@ -183,5 +244,5 @@ func compileDiagnostic(err error) Diagnostic {
 			Detail:   err,
 		}
 	}
-	return Diagnostic{Stage: BytecodeStage, Position: verb.Position{Line: 1}, Message: err.Error(), Detail: err}
+	return Diagnostic{Stage: BytecodeStage, Position: ir.Position{Line: 1}, Message: err.Error(), Detail: err}
 }

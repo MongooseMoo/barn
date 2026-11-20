@@ -1,20 +1,22 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
+	"sync/atomic"
+	"time"
+
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
-	"log/slog"
-	"sync/atomic"
-	"time"
 )
 
 func (s *Runtime) LoadQueuedTasks(queued []*dbformat.QueuedTask) {
 	restored := 0
 	for _, saved := range queued {
-		if saved == nil || saved.ID <= 0 || len(saved.Code) == 0 {
+		if saved == nil || saved.ID <= 0 {
 			continue
 		}
 		if err := s.loadQueuedTask(saved); err != nil {
@@ -27,17 +29,39 @@ func (s *Runtime) LoadQueuedTasks(queued []*dbformat.QueuedTask) {
 	}
 }
 
-func (s *Runtime) LoadSuspendedTasks(suspended []*dbformat.SuspendedTask) {
-	for _, saved := range suspended {
+func (s *Runtime) LoadSuspendedTasks(suspended []*dbformat.SuspendedTask) error {
+	var failures []error
+	for index, saved := range suspended {
 		if saved == nil || saved.Snapshot.ID <= 0 || saved.Snapshot.VM == nil {
+			failures = append(failures, fmt.Errorf("suspended task record %d is incomplete", index))
 			continue
 		}
-		if err := s.loadSuspendedTask(saved.Snapshot); err != nil {
+		err := s.loadSuspendedTask(saved.Snapshot)
+		var mismatch *vm.ProgramMismatchError
+		if errors.As(err, &mismatch) {
+			// Q, 2026-11-10: a task whose program is not what its saved source
+			// compiles to is dropped, and the server keeps booting.
+			slog.Error("dropped suspended task: saved program does not match its source",
+				slog.Int64("task_id", saved.Snapshot.ID),
+				slog.String("verb", saved.Snapshot.VerbName),
+				slog.Int64("verbloc", int64(saved.Snapshot.VerbLoc)),
+				slog.Int64("this", int64(saved.Snapshot.This)),
+				slog.Int64("programmer", int64(saved.Snapshot.Programmer)),
+				slog.String("reason", mismatch.Error()))
+			continue
+		}
+		if err != nil {
 			slog.Warn("failed to restore suspended task",
 				slog.Int64("task_id", saved.Snapshot.ID),
+				slog.String("verb", saved.Snapshot.VerbName),
+				slog.Int64("verbloc", int64(saved.Snapshot.VerbLoc)),
+				slog.Int64("this", int64(saved.Snapshot.This)),
+				slog.Int64("programmer", int64(saved.Snapshot.Programmer)),
 				slog.Any("err", err))
+			failures = append(failures, fmt.Errorf("suspended task %d: %w", saved.Snapshot.ID, err))
 		}
 	}
+	return errors.Join(failures...)
 }
 
 func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
@@ -46,8 +70,8 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 	}
 	rootProgram := saved.VM.Frames[0].Program
 	ticks, seconds := backgroundTaskLimits(s.session)
-	t := task.NewTaskFull(saved.ID, saved.Owner, &rootProgram, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	t := NewTaskFull(saved.ID, saved.Owner, &rootProgram, ticks, seconds)
+	s.populateContextDependencies(t.Context)
 	t.StartTime = saved.StartTime
 	t.QueueTime = saved.StartTime
 	t.WakeValue = saved.WakeValue
@@ -75,14 +99,46 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 	if err != nil {
 		return err
 	}
-	machine.Task = t
-	t.SetBytecodeVM(machine)
+	machine.Task = &t.State
+	// Native import can produce a different root program from the raw saved
+	// frame. Keep the task's program consistent with its installed executable VM.
+	t.Program = machine.Frames[0].Program
+	// It also names the builtin whose continuation called a frame, which
+	// callers() reads from the task's activations.
+	t.Mu.Lock()
+	for index, frame := range machine.Frames {
+		if index < len(t.CallStack) {
+			t.CallStack[index].BuiltinCaller, t.CallStack[index].BuiltinPC = frame.BuiltinCaller, frame.BuiltinPC
+		}
+	}
+	t.Mu.Unlock()
+	t.SetVM(machine)
 
 	if saved.State == task.TaskQueued {
 		s.QueueTask(t)
 	} else {
 		t.SetState(task.TaskSuspended)
 		t.WakeTime = saved.StartTime
+		if now := time.Now(); t.StartTime.After(now) {
+			// A live timed suspension keeps its start in StartTime and its
+			// deadline in WakeTime; the checkpoint saved only the deadline
+			// (task.State.PersistenceSnapshotLocked). Readiness waits for the
+			// later of the two (readyDeadlineLocked), so a future StartTime
+			// would hold an early resume() until the deadline; Toast's
+			// resume_task runs it at once. queued_tasks() lists WakeTime.
+			t.StartTime, t.QueueTime = now, now
+		}
+		if seconds := saved.StartTime.Unix(); seconds < 0 || seconds >= task.IndefiniteSuspendStartTime.Unix() {
+			// Toast writes an indefinite suspension's start time as INTNUM_MAX
+			// (tasks.cc enqueue_suspended_task, write_suspended_task), which a
+			// time.Time cannot compare: time.Unix(MaxInt64, 0) reads as long
+			// past. Barn writes IndefiniteSuspendStartTime for the same state.
+			// Older 64-bit Toast servers wrote INTNUM_MAX through "%d" as -1;
+			// Toast's reader treats a negative start time as indefinite
+			// (tasks.cc read_task_queue).
+			t.WakeTime = time.Time{}
+			t.StartTime = task.IndefiniteSuspendStartTime
+		}
 		s.taskManager.RegisterTask(t)
 	}
 	for {
@@ -102,10 +158,13 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("%s", diagnostics[0].Error())
 	}
+	// The saved code is the fork body alone; number it from the verb line
+	// the body began on, as Toast's read_task_queue sets first_lineno.
+	prog = prog.WithFirstLine(saved.FirstLine)
 
 	ticks, seconds := backgroundTaskLimits(s.session)
-	t := task.NewTaskFull(saved.ID, saved.Player, prog, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	t := NewTaskFull(saved.ID, saved.Player, prog, ticks, seconds)
+	s.populateContextDependencies(t.Context)
 
 	start := time.Unix(saved.StartTime, 0)
 	if saved.StartTime <= 0 {
@@ -123,12 +182,12 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	t.ForkCreator = s
 	t.ForkInfo = &types.ForkInfo{
 		SourceLines: append([]string(nil), saved.Code...),
-		Variables:   copyValueMap(saved.Variables),
 		ThisObj:     saved.This,
 		Player:      saved.Player,
 		Caller:      saved.Player,
 		Verb:        saved.Verb,
 		VerbLoc:     saved.VerbLoc,
+		Debug:       saved.Debug,
 	}
 
 	t.Context.ThisObj = saved.This
@@ -139,14 +198,33 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 
 	machine := vm.NewVM(s.store, s.session)
 	machine.Context = t.Context
-	machine.Task = t
+	machine.Task = &t.State
 	machine.TickLimit = ticks
 	configureVMStackLimit(machine, s.session)
 	frame := machine.PrepareVerbFrame(prog, saved.This, saved.Player, saved.Player, saved.Verb, saved.VerbLoc, nil)
-	for name, value := range saved.Variables {
-		vm.SetLocalByName(frame, prog, name, value)
+	// The fork runs with the debug flag read from its activation line, as
+	// Toast's read_activ_as_pi and do_forked_task do. That number is the
+	// definer's type code in a file Toast or Barn wrote, so the fork runs
+	// with debug on whatever its verb's d flag was.
+	frame.VerbDebug = saved.Debug
+	// A restored fork runs the recompiled isolated body. Its environment must
+	// use that program's names, not the enclosing parent's saved name table.
+	// Native reorder_rt_env leaves unmatched slots uninitialized, including
+	// implicit type constants; this is not a fresh verb's initialization.
+	variables, err := task.RestoreForkEnvironment(prog, saved.Variables)
+	if err != nil {
+		return err
 	}
-	t.SetBytecodeVM(machine)
+	t.ForkInfo.Variables = variables
+	for slot, name := range prog.VarNames {
+		frame.Locals[slot] = variables[name]
+	}
+	for _, name := range task.CommandVariableNames {
+		if value, present := variables[name]; present {
+			vm.SetLocalByName(frame, prog, name, value)
+		}
+	}
+	t.SetVM(machine)
 
 	t.PushFrame(types.ActivationFrame{
 		This:       saved.This,
@@ -156,7 +234,7 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 		Caller:     saved.Player,
 		Verb:       saved.Verb,
 		VerbLoc:    saved.VerbLoc,
-		LineNumber: 1,
+		LineNumber: max(saved.FirstLine, 1),
 	})
 
 	s.QueueTask(t)
@@ -170,15 +248,4 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 		}
 	}
 	return nil
-}
-
-func copyValueMap(values map[string]types.Value) map[string]types.Value {
-	if len(values) == 0 {
-		return nil
-	}
-	copied := make(map[string]types.Value, len(values))
-	for key, value := range values {
-		copied[key] = value
-	}
-	return copied
 }

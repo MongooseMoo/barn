@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/preposition"
 	"github.com/MongooseMoo/barn/types"
-	languageverb "github.com/MongooseMoo/barn/verb"
 )
 
 // VerbMatch is the result of verb lookup
@@ -72,7 +72,7 @@ func argspecMatches(spec string, objID types.ObjID, this types.ObjID) bool {
 }
 
 // prepMatches checks if a verb's prep spec matches the command's prep
-func prepMatches(verbPrep string, cmdPrep PrepSpec) bool {
+func prepMatches(verbPrep string, cmdPrep preposition.Spec) bool {
 	verbPrepLower := strings.ToLower(verbPrep)
 
 	// "any" matches any preposition
@@ -82,11 +82,11 @@ func prepMatches(verbPrep string, cmdPrep PrepSpec) bool {
 
 	// "none" means no preposition expected
 	if verbPrepLower == "none" {
-		return cmdPrep == PrepNone
+		return cmdPrep == preposition.None
 	}
 
 	// Otherwise, try to match the prep name against the shared aliases.
-	if prep, ok := languageverb.ParsePrepositionAlias(verbPrepLower); ok {
+	if prep, ok := preposition.ParseAlias(verbPrepLower); ok {
 		return prep == cmdPrep
 	}
 
@@ -147,20 +147,17 @@ func HasVerbNameMatch(store *dbstore.Store, player types.ObjID, location types.O
 // findDispatchVerb finds the first command verb candidate whose arg specs
 // match this parsed command.
 func findDispatchVerb(store *dbstore.Store, objID types.ObjID, cmd *ParsedCommand) *VerbMatch {
-	candidates, errCode := store.VerbCandidatesInAncestry(objID)
-	if errCode != types.E_NONE {
+	candidate, found := store.FindVerbInAncestry(objID, func(verb dbstore.VerbView) bool {
+		return verbMatches(verb, cmd, objID)
+	})
+	if !found {
 		return nil
 	}
-	for _, candidate := range candidates {
-		if verbMatches(candidate.Verb, cmd, objID) {
-			return &VerbMatch{
-				Verb:    candidate.Verb,
-				This:    objID,
-				VerbLoc: candidate.Definer,
-			}
-		}
+	return &VerbMatch{
+		Verb:    candidate.Verb,
+		This:    objID,
+		VerbLoc: candidate.Definer,
 	}
-	return nil
 }
 
 // FindVerb finds a verb matching the command

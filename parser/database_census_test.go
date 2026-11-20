@@ -12,9 +12,9 @@ import (
 
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/parser"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 type censusIdentity struct {
@@ -79,7 +79,7 @@ func collectDatabaseCensus(snapshot store.Snapshot, declared int) databaseCensus
 				report.Unprogrammed++
 				continue
 			}
-			identity := censusIdentity{object.ID, index, view.Name}
+			identity := censusIdentity{object.ID, index, strings.Join(view.Names, " ")}
 			if len(view.Code) == 0 {
 				report.EmptyPrograms = append(report.EmptyPrograms, identity)
 			}
@@ -213,19 +213,19 @@ func TestDatabaseProgramCensus(t *testing.T) {
 func TestDatabaseCensusIncludesEmptyProgramsAndContinuesPastFiftyAndRejections(t *testing.T) {
 	views := make([]store.VerbView, 60)
 	for i := range views {
-		views[i] = store.VerbView{Name: fmt.Sprintf("valid_%d", i), HasProgram: true, Code: []string{"return 1;"}}
+		views[i] = store.VerbView{Names: []string{fmt.Sprintf("valid_%d", i)}, HasProgram: true, Code: []string{"return 1;"}}
 	}
 	views = append(views,
-		store.VerbView{Name: "empty", HasProgram: true},
-		store.VerbView{Name: "never_programmed"},
-		store.VerbView{Name: "bad", HasProgram: true, Code: []string{"return 1"}},
-		store.VerbView{Name: "after_bad", HasProgram: true, Code: []string{"return 2;"}},
+		store.VerbView{Names: []string{"empty"}, HasProgram: true},
+		store.VerbView{Names: []string{"never_programmed"}},
+		store.VerbView{Names: []string{"bad"}, HasProgram: true, Code: []string{"return 1"}},
+		store.VerbView{Names: []string{"after_bad"}, HasProgram: true, Code: []string{"return 2;"}},
 	)
 	snapshot := store.Snapshot{Objects: map[types.ObjID]*store.SnapshotObject{
 		2: {ID: 2, VerbList: views},
-		1: {ID: 1, VerbList: []store.VerbView{{Name: "early_bad", HasProgram: true, Code: []string{"x = 1;", "return 1"}}}},
+		1: {ID: 1, VerbList: []store.VerbView{{Names: []string{"early_bad"}, HasProgram: true, Code: []string{"x = 1;", "return 1"}}}},
 	}, AnonymousObjects: []*store.SnapshotObject{
-		{ID: 9, Anonymous: true, VerbList: []store.VerbView{{Name: "anonymous", HasProgram: true, Code: []string{"return 3;"}}}},
+		{ID: 9, Anonymous: true, VerbList: []store.VerbView{{Names: []string{"anonymous"}, HasProgram: true, Code: []string{"return 3;"}}}},
 	}}
 	report := collectDatabaseCensus(snapshot, 65)
 	assertCensusAccounting(t, report)
@@ -250,7 +250,7 @@ func TestDatabaseCensusIncludesEmptyProgramsAndContinuesPastFiftyAndRejections(t
 func TestDatabaseCensusKeepsAllFailuresAndBoundsFamilyExamples(t *testing.T) {
 	views := make([]store.VerbView, 10)
 	for i := range views {
-		views[i] = store.VerbView{Name: fmt.Sprintf("bad_%d", i), HasProgram: true, Code: []string{"return 1"}}
+		views[i] = store.VerbView{Names: []string{fmt.Sprintf("bad_%d", i)}, HasProgram: true, Code: []string{"return 1"}}
 	}
 	report := collectDatabaseCensus(store.Snapshot{Objects: map[types.ObjID]*store.SnapshotObject{
 		4: {ID: 4, VerbList: views},
@@ -270,7 +270,7 @@ func TestDatabaseCensusRetainsParseErrorLineAndNormalizesDetail(t *testing.T) {
 	identity := censusIdentity{7, 3, "diagnostic"}
 	var report databaseCensus
 	report.reject(identity, "source_parse", fmt.Errorf("wrapped: %w", &parser.ParseError{
-		Position: verb.Position{Line: 17}, Msg: "syntax error", Detail: errors.New("  expected\n ';'\t after return statement  "),
+		Position: ir.Position{Line: 17}, Msg: "syntax error", Detail: errors.New("  expected\n ';'\t after return statement  "),
 	}))
 	want := censusFailure{censusIdentity: identity, Stage: "source_parse", Line: 17, Detail: "expected ';' after return statement"}
 	if !reflect.DeepEqual(report.Failures, []censusFailure{want}) {

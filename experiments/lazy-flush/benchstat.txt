@@ -1,0 +1,21 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                                 │ experiments/lazy-flush/base.txt │ experiments/lazy-flush/candidate.txt │
+                                 │             sec/op              │    sec/op      vs base               │
+TxnTopologyFlush/without_reads-4                      6.693µ ± 15%    6.742µ ± 11%       ~ (p=0.684 n=10)
+TxnTopologyFlush/with_reads-4                         8.224µ ± 18%    8.208µ ±  7%       ~ (p=1.000 n=10)
+geomean                                               7.419µ          7.439µ        +0.26%
+
+                                 │ experiments/lazy-flush/base.txt │ experiments/lazy-flush/candidate.txt │
+                                 │              B/op               │     B/op       vs base               │
+TxnTopologyFlush/without_reads-4                      7.109Ki ± 0%    6.781Ki ± 0%  -4.62% (p=0.000 n=10)
+TxnTopologyFlush/with_reads-4                         8.781Ki ± 0%    8.547Ki ± 0%  -2.67% (p=0.000 n=10)
+geomean                                               7.901Ki         7.613Ki       -3.65%
+
+                                 │ experiments/lazy-flush/base.txt │ experiments/lazy-flush/candidate.txt │
+                                 │            allocs/op            │  allocs/op    vs base                │
+TxnTopologyFlush/without_reads-4                        45.00 ± 0%     38.00 ± 0%  -15.56% (p=0.000 n=10)
+TxnTopologyFlush/with_reads-4                           53.00 ± 0%     48.00 ± 0%   -9.43% (p=0.000 n=10)
+geomean                                                 48.84          42.71       -12.55%

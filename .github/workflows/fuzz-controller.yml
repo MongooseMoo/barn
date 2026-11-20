@@ -1,0 +1,79 @@
+name: Nightly fuzz controller
+
+# Backup for the fuzz.yml job "Submit continuous successor", which submits each
+# next cycle itself. GitHub creates no workflow_run event for a cycle dispatched
+# with GITHUB_TOKEN, so the completion path below fires only after a cycle a
+# person dispatched, and GitHub rarely runs the schedule. This is its own
+# workflow because GitHub rejects a workflow_run trigger that names its own
+# workflow. It reads no artifacts and runs no candidate code: workflow_run and
+# schedule run this file and its checkout from the default branch.
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] Own master dispatches only; default-branch checkout; no artifact reads.
+    workflows: [Nightly fuzz]
+    types: [completed]
+    branches: [master]
+  # The watchdog resumes a chain whose successor was never submitted.
+  schedule:
+    - cron: '7,37 * * * *'
+
+permissions:
+  contents: read
+
+# A newer pending run cancels an older pending run in the same group, so a
+# scheduled watchdog run must never share a group with a pending replenish run.
+concurrency:
+  group: nightly-fuzz-controller-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  replenish:
+    # Restart after any cycle, accepted or not; fuzz_compute.cjs checks the
+    # source, the stop switch and that no newer or active cycle exists.
+    if: >-
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      contains(fromJSON('["success","failure"]'), github.event.workflow_run.conclusion) &&
+      contains(fromJSON('["Nightly fuzz / dedicated-continuous","Nightly fuzz / dedicated-continuous / native-only"]'), github.event.workflow_run.display_title) &&
+      github.event.workflow_run.head_branch == 'master' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      vars.FUZZ_CONTINUOUS_ENABLED == 'true'
+    runs-on:
+      group: barn-bug-discovery
+      labels: [self-hosted, Linux, X64, barn-fuzz]
+    permissions:
+      contents: read
+      actions: write
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          FUZZ_RUNNER_LABELS: ${{ vars.FUZZ_RUNNER_LABELS }}
+          FUZZ_RUNNER_POLICY_VERIFIED: ${{ vars.FUZZ_RUNNER_POLICY_VERIFIED }}
+          FUZZ_MAX_PARALLEL: ${{ vars.FUZZ_MAX_PARALLEL }}
+          FUZZ_CONTINUOUS_ENABLED: ${{ vars.FUZZ_CONTINUOUS_ENABLED }}
+        with:
+          script: await require('./scripts/fuzz_compute.cjs').replenish({github, context, core});
+
+  watchdog:
+    if: github.event_name == 'schedule' && vars.FUZZ_CONTINUOUS_ENABLED == 'true'
+    runs-on:
+      group: barn-bug-discovery
+      labels: [self-hosted, Linux, X64, barn-fuzz]
+    permissions:
+      contents: read
+      actions: write
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          FUZZ_RUNNER_LABELS: ${{ vars.FUZZ_RUNNER_LABELS }}
+          FUZZ_RUNNER_POLICY_VERIFIED: ${{ vars.FUZZ_RUNNER_POLICY_VERIFIED }}
+          FUZZ_MAX_PARALLEL: ${{ vars.FUZZ_MAX_PARALLEL }}
+          FUZZ_CONTINUOUS_ENABLED: ${{ vars.FUZZ_CONTINUOUS_ENABLED }}
+        with:
+          script: await require('./scripts/fuzz_compute.cjs').watchdog({github, context, core});

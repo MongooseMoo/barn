@@ -6,6 +6,52 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+// BenchmarkTxnTopologyFlush measures the staged move flushed before a coarse
+// builtin, with and without subsequent reads in the same transaction.
+func BenchmarkTxnTopologyFlush(b *testing.B) {
+	for _, postReads := range []bool{false, true} {
+		name := "without_reads"
+		if postReads {
+			name = "with_reads"
+		}
+		b.Run(name, func(b *testing.B) {
+			store := buildBenchStore(b)
+			if err := store.Add(NewObject(1, 0)); err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				tx := store.BeginSnapshot(0)
+				where := types.ObjNothing
+				if i%2 == 0 {
+					where = 0
+				}
+				if ec := tx.MoveObject(1, where, 0); ec != types.E_NONE {
+					b.Fatal(ec)
+				}
+				tx.PrepareLiveMutation()
+				if ec := tx.FlushStagedToLive(); ec != types.E_NONE {
+					b.Fatal(ec)
+				}
+				tx.MarkLiveMutated()
+				if postReads {
+					if _, ec := tx.Location(1); ec != types.E_NONE {
+						b.Fatal(ec)
+					}
+					if _, ec := tx.FindProperty(0, "counter"); ec != types.E_NONE {
+						b.Fatal(ec)
+					}
+				}
+				if ec := tx.Commit(); ec != types.E_NONE {
+					b.Fatal(ec)
+				}
+				tx.Release()
+			}
+		})
+	}
+}
+
 // buildBenchStore creates a single object carrying a writable "counter" property.
 func buildBenchStore(b *testing.B) *Store {
 	b.Helper()
@@ -34,6 +80,7 @@ func BenchmarkTxnPropertyWriteCommit(b *testing.B) {
 		if errCode := tx.Commit(); errCode != types.E_NONE {
 			b.Fatalf("Commit failed: %v", errCode)
 		}
+		tx.Release()
 	}
 }
 
@@ -52,5 +99,6 @@ func BenchmarkTxnReadOnlyCommit(b *testing.B) {
 		if errCode := tx.Commit(); errCode != types.E_NONE {
 			b.Fatalf("Commit failed: %v", errCode)
 		}
+		tx.Release()
 	}
 }

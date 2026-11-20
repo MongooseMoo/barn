@@ -10,7 +10,6 @@ import (
 func addMoveHookTestVerb(t *testing.T, store *dbstore.Store, object types.ObjID, name string, code ...string) {
 	t.Helper()
 	if _, errCode := store.AddVerb(object, dbstore.NewVerb(
-		name,
 		[]string{name},
 		2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
@@ -55,6 +54,7 @@ func TestMoveHooksResumeOnOwningVM(t *testing.T) {
 	)
 
 	runtime := NewRuntime(store)
+	t.Cleanup(runtime.Stop)
 	if line := runtime.EvalCommandOutput(2, "#13:run_move(#12, #11); return 1;"); line != "{1, 1}" {
 		t.Fatalf("eval result = %s, want {1, 1}", line)
 	}

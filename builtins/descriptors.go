@@ -7,6 +7,7 @@ import (
 
 	"github.com/MongooseMoo/barn/compiler"
 	"github.com/MongooseMoo/barn/config"
+	"github.com/MongooseMoo/barn/types"
 )
 
 type Visibility uint8
@@ -35,6 +36,42 @@ type Signature struct {
 	Alternatives     map[int][]int64
 	VariadicType     *int64
 	PlainArityError  bool
+	// PromotedFloat: under PROMOTE_NUMBERS each FLOAT position admits INT and
+	// function_info reports it numeric, as the Mongoose fork registers these
+	// math builtins TYPE_NUMERIC (numbers.cc register_numbers).
+	PromotedFloat bool
+	// IncarnationArgs are optional trailing positions admitted, and reported
+	// by function_info, only under VALID_INCARNATION: the Mongoose fork
+	// registers valid(ANY [, STR]) where stock Toast registers valid(ANY).
+	IncarnationArgs []int64
+}
+
+// optionSignature returns the signature admitted while the runtime option it
+// names is on (optionEnabled): FLOAT positions numeric (-2) when
+// PromotedFloat, IncarnationArgs appended as optional positions. It is nil
+// when the signature names no option.
+func (s Signature) optionSignature() *Signature {
+	if !s.PromotedFloat && len(s.IncarnationArgs) == 0 {
+		return nil
+	}
+	p := cloneSignature(&s)
+	if s.PromotedFloat {
+		for i, t := range p.ArgTypes {
+			if t == int64(types.TYPE_FLOAT) {
+				p.ArgTypes[i] = argNumeric
+			}
+		}
+	}
+	p.MaxArgs += int64(len(s.IncarnationArgs))
+	p.ArgTypes = append(p.ArgTypes, s.IncarnationArgs...)
+	p.PromotedFloat = false
+	p.IncarnationArgs = nil
+	return &p
+}
+
+// optionEnabled reports whether the runtime option this signature names is on.
+func (s Signature) optionEnabled(o config.Options) bool {
+	return (s.PromotedFloat && o.PromoteNumbers) || (len(s.IncarnationArgs) > 0 && o.ValidIncarnation)
 }
 
 // Descriptor is the complete construction input for one builtin. Construction
@@ -68,6 +105,18 @@ func (d Descriptor) withLineSync() Descriptor { d.LineSync = true; return d }
 func (d Descriptor) plainArityError() Descriptor {
 	sig := cloneSignature(d.Signature)
 	sig.PlainArityError = true
+	d.Signature = &sig
+	return d
+}
+func (d Descriptor) incarnationArgs(argTypes ...int64) Descriptor {
+	sig := cloneSignature(d.Signature)
+	sig.IncarnationArgs = argTypes
+	d.Signature = &sig
+	return d
+}
+func (d Descriptor) promotedFloat() Descriptor {
+	sig := cloneSignature(d.Signature)
+	sig.PromotedFloat = true
 	d.Signature = &sig
 	return d
 }
@@ -125,12 +174,24 @@ func (d Descriptor) validate() error {
 	if s.VariadicType != nil && (s.MaxArgs != -1 || !validArgType(*s.VariadicType)) {
 		return bad("invalid variadic type")
 	}
+	if len(s.IncarnationArgs) > 0 && s.MaxArgs == -1 {
+		return bad("incarnation arguments on a variadic signature")
+	}
+	if len(s.IncarnationArgs) > 0 && s.PromotedFloat {
+		// One signature names at most one runtime option (optionEnabled).
+		return bad("incarnation arguments on a promoted float signature")
+	}
+	for _, typ := range s.IncarnationArgs {
+		if !validArgType(typ) {
+			return bad("invalid incarnation argument type")
+		}
+	}
 	return nil
 }
 
 func validArgType(t int64) bool {
 	switch t {
-	case -2, -1, 0, 1, 2, 3, 4, 9, 10, 12, 13, 14:
+	case argFlag, argNumeric, argAny, 0, 1, 2, 3, 4, 9, 10, 12, 13, 14:
 		return true
 	}
 	return false
@@ -139,6 +200,7 @@ func validArgType(t int64) bool {
 func cloneSignature(s *Signature) Signature {
 	copy := *s
 	copy.ArgTypes = slices.Clone(s.ArgTypes)
+	copy.IncarnationArgs = slices.Clone(s.IncarnationArgs)
 	copy.Alternatives = make(map[int][]int64, len(s.Alternatives))
 	for i, alternatives := range s.Alternatives {
 		copy.Alternatives[i] = slices.Clone(alternatives)

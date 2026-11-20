@@ -1,0 +1,10 @@
+# Live PR #96 / issue #95 audit checkpoint
+
+- Scope: read-only audit of live GitHub PR #96 and issue #95, exact PR-head source/tests, sibling current conformance YAML, and CI workflow/log evidence. Historical project Markdown was not read.
+- Live issue contract: `startup_repair_anon2::cyclic_pending_finalization_is_written_to_output_db` must change Barn output from `0 values pending finalization` to `1`, while preserving the anonymous cycle across write/reload.
+- Live PR: draft; base `aa82abf05a6a23783ba69105d0c393f926304a13`; head `0450cf22c84d0c3ebdb96a9172b6072db1a7f56a`; one commit; five files; `Closes #95` present.
+- Live master: `56e1358f9f065f9b42d0f3d2554bee5b97b44c4d`; PR is 10 commits behind and one ahead. GitHub reports mergeable=true, mergeable_state=unstable, so the update is textually clean but not verified.
+- CI: build/unit succeeds; conformance fails. The PR run used the old merge base and produced 11,553 capability-probe errors because `OUTBOUND_NETWORK` returned `1`. Master later contains the server-option fix, but current master also has a failing conformance job, so fresh-head evidence is required.
+- Test contracts: VM tests expect one deterministic root for a bare cyclic pair and the graph-dominating root for a directed pair; store snapshot test expects pending roots rewritten to above-max serialization IDs; format roundtrip expects one pending root, two anonymous objects, and a valid cycle after reload.
+- Blockers: no added test exercises the actual startup/shutdown/final-checkpoint path; final checkpoint currently occurs before `scheduler.Stop()`/worker wait, so scheduler cancellation can append pending roots after the snapshot; multi-call store reachability computation is not an atomic store snapshot; changed `lookupAnonymousLocked` emission can include `Add`-backed anonymous test objects without covering verb-section duplication.
+- Next action: update PR head onto current master, add/verify lifecycle ordering coverage and atomic-root semantics, run focused Go tests and race tests, then the exact managed Anon1/Anon2 selector and full managed suite; require fresh green checks on the updated head.

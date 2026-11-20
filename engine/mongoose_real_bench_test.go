@@ -24,10 +24,19 @@ package engine
 //   BARN_MONGOOSE_STALE_READS non-empty samples the clock at property reads, so the
 //                             census can say which losses read an already-stale slot
 //   BARN_MONGOOSE_CENSUS_TOP  conflict-census rows printed per level (default 25)
-//   BARN_MONGOOSE_CPUPROFILE  write CPU profile of the measure windows
+//   BARN_MONGOOSE_SOUND_DB    the deployment's sound.sqlite; copied to
+//                             files/sqlite/sound.sqlite before #0:server_started
+//   BARN_MONGOOSE_MOO_PATCH   path to a MOO program evaluated once as #2 after the
+//                             snapshot repairs and before the workload (independent
+//                             of BARN_MONGOOSE_REPAIR); it must return a true value
+//                             on success, and the test fails otherwise
+//   BARN_MONGOOSE_CPUPROFILE  write Go CPU profile (startup, warmup, measurement, drain)
+//   BARN_MONGOOSE_MOOPROFILE prefix for MOO profiles, one per measured player level
+//   BARN_MONGOOSE_LOG_DIR    capture existing debug diagnostics as JSON run logs
 //   BARN_MONGOOSE_MEMPROFILE  write heap profile after the run
-//   BARN_MONGOOSE_GOGC        GC target percentage (cmd/barn sets 400; a test process
-//                             otherwise runs at Go's default, which the log line states)
+//   BARN_MONGOOSE_GOGC        GC target percentage; unset (and GOGC unset), the
+//                             server's default config.DefaultGCPercent, as cmd/barn
+//                             applies it; the log line states what is in effect
 //   BARN_MONGOOSE_MEMLIMIT_MIB soft memory limit in MiB (cmd/barn -gomemlimit-mib)
 //   BARN_MONGOOSE_MEMSTATS    non-empty returns load garbage to the system after load,
 //                             as server.LoadDatabase does, logs memory before the
@@ -37,14 +46,20 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	rtmetrics "runtime/metrics"
 	"runtime/pprof"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -58,11 +73,15 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/admission"
+	"github.com/MongooseMoo/barn/internal/leakcheck"
 	"github.com/MongooseMoo/barn/internal/listener"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/internal/mooprof"
+	"github.com/MongooseMoo/barn/logging"
 	"github.com/MongooseMoo/barn/metrics"
-	"github.com/MongooseMoo/barn/task"
+	taskpkg "github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 // --- stub connection manager ------------------------------------------------
@@ -72,18 +91,24 @@ import (
 // db code calling idle_seconds()/connected_seconds() (@who, room renders) gets
 // answers instead of E_INVARG (network.go resolveConnection nil → E_INVARG).
 type benchConnection struct {
+	id          int64
 	connectedAt time.Time
 	lastActive  atomic.Int64 // unix seconds
 }
 
-func (c *benchConnection) Send(string) error                                 { return nil }
-func (c *benchConnection) SendNotification(kernel.PendingNotification) error { return nil }
-func (c *benchConnection) Buffer(string)                                     {}
-func (c *benchConnection) Flush() error                                      { return nil }
-func (c *benchConnection) RemoteAddr() string                                { return "bench-harness" }
-func (c *benchConnection) GetOutputPrefix() string                           { return "" }
-func (c *benchConnection) GetOutputSuffix() string                           { return "" }
-func (c *benchConnection) BufferedOutputLength() int                         { return 0 }
+func (c *benchConnection) ConnectionID() int64 { return c.id }
+
+// Simulated benchmark players remain connected throughout the workload.
+func (c *benchConnection) Done() <-chan struct{} { return nil }
+
+func (c *benchConnection) Send(string) error                                  { return nil }
+func (c *benchConnection) SendNotification(taskpkg.PendingNotification) error { return nil }
+func (c *benchConnection) Buffer(string)                                      {}
+func (c *benchConnection) Flush() error                                       { return nil }
+func (c *benchConnection) RemoteAddr() string                                 { return "bench-harness" }
+func (c *benchConnection) GetOutputPrefix() string                            { return "" }
+func (c *benchConnection) GetOutputSuffix() string                            { return "" }
+func (c *benchConnection) BufferedOutputLength() int                          { return 0 }
 func (c *benchConnection) ConnectedSeconds() int64 {
 	return int64(time.Since(c.connectedAt).Seconds())
 }
@@ -109,8 +134,8 @@ type benchConnManager struct {
 func newBenchConnManager(players []types.ObjID) *benchConnManager {
 	m := &benchConnManager{players: players, conns: make(map[types.ObjID]*benchConnection, len(players))}
 	now := time.Now()
-	for _, p := range players {
-		c := &benchConnection{connectedAt: now}
+	for index, p := range players {
+		c := &benchConnection{id: int64(index + 1), connectedAt: now}
 		c.touch()
 		m.conns[p] = c
 	}
@@ -146,7 +171,7 @@ func (m *benchConnManager) AddListener(spec listener.Spec) (listener.Descriptor,
 	return listener.Descriptor{Port: spec.Port}, nil
 }
 func (m *benchConnManager) RemoveListener(listener.Descriptor) error { return nil }
-func (m *benchConnManager) OpenNetworkConnection(string, int64) (types.ObjID, error) {
+func (m *benchConnManager) OpenNetworkConnection(builtins.OutboundConnection) (types.ObjID, error) {
 	return types.ObjNothing, fmt.Errorf("bench: no outbound")
 }
 func (m *benchConnManager) ConnectionNameLookup(types.ObjID, bool) (string, error) {
@@ -192,8 +217,19 @@ func defaultRealShapes() []realShape {
 // terminal result. Retain the task before it runs, including across cleanup.
 type realCommandCompletion struct {
 	runtime *Runtime
-	task    *task.Task
+	task    *Task
 	result  chan types.Result
+}
+
+// Reuse the structured traceback identities without rendering source, arguments
+// or runtime-variable payloads. The exception snapshot survives stack unwinding.
+func realCommandFrames(stack []types.ActivationFrame) string {
+	frames := tbFrames(stack)
+	for i := range frames {
+		frames[i].Source = ""
+	}
+	encoded, _ := json.Marshal(frames) // tbFrame contains only strings, integers and bools.
+	return string(encoded)
 }
 
 func (c *realCommandCompletion) capture(s *Runtime, id int64) {
@@ -213,12 +249,12 @@ func (c *realCommandCompletion) blockers(now time.Time) string {
 	catalog := c.runtime.taskManager.Snapshot()
 	var out []string
 	seen := map[int64]bool{c.task.ID: true}
-	held := []*task.Task{c.task}
+	held := []*Task{c.task}
 	for len(held) != 0 {
 		target := held[0]
 		held = held[1:]
 		for _, other := range catalog {
-			if other == nil || other.PendingReadier(now) != target {
+			if other == nil || other.PendingReadier(now) != &target.State {
 				continue
 			}
 			c.runtime.mu.Lock()
@@ -229,7 +265,7 @@ func (c *realCommandCompletion) blockers(now time.Time) string {
 			if len(stack) != 0 {
 				top = fmt.Sprintf("%s:%d", stack[len(stack)-1].Verb, stack[len(stack)-1].LineNumber)
 			}
-			out = append(out, fmt.Sprintf("{task=%d holds=%d state=%s ready=%v lease=%d saved=%v verb=%s top=%s}", other.ID, target.ID, other.GetState(), !other.ReadyDeadline(now).IsZero(), lease, other.BytecodeVMValue() != nil, other.VerbName, top))
+			out = append(out, fmt.Sprintf("{task=%d holds=%d state=%s ready=%v lease=%d saved=%v verb=%s top=%s}", other.ID, target.ID, other.GetState(), !other.ReadyDeadline(now).IsZero(), lease, other.VM() != nil, other.VerbName, top))
 			if !seen[other.ID] {
 				seen[other.ID] = true
 				held = append(held, other)
@@ -237,6 +273,16 @@ func (c *realCommandCompletion) blockers(now time.Time) string {
 		}
 	}
 	return strings.Join(out, " ")
+}
+
+// timeline renders the command task's slice timeline on following lines, or
+// says why there is none (it is recorded only with BARN_MONGOOSE_STALE_READS).
+func (c *realCommandCompletion) timeline() string {
+	tl, ok := c.task.Timeline()
+	if !ok {
+		return "\n    timeline: not recorded (set BARN_MONGOOSE_STALE_READS=1)"
+	}
+	return "\n    timeline: " + strings.ReplaceAll(FormatTaskTimeline(tl), "\n", "\n    ")
 }
 
 func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
@@ -256,33 +302,130 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 			c.runtime.mu.Unlock()
 		}
 		reading, stack := c.task.ReadingPlayerValue(), c.task.GetCallStack()
-		frames := make([]string, len(stack))
-		for i, frame := range stack {
-			frames[i] = fmt.Sprintf("%s:%d", frame.Verb, frame.LineNumber)
+		frames := realCommandFrames(stack)
+		blockers := c.blockers(time.Now())
+		readiness, _ := json.Marshal(c.task.ReadinessSnapshot())
+		var admissionStatus string
+		if c.runtime != nil {
+			status, _ := json.Marshal(c.runtime.AdmissionStats())
+			admissionStatus = string(status)
 		}
-		if blockers := c.blockers(time.Now()); blockers != "" {
-			frames = append(frames, "blocked-by:"+blockers)
+		saved := c.task.VM() != nil
+		// The task whose fork or resume() readied this one; while that readier's
+		// execution is active this task stays queued (task.State.awaitingReadier).
+		readierStatus := "none"
+		if readier := c.task.Readier(); readier != nil {
+			snapshot := readier.ReadinessSnapshot()
+			readierLease := 0
+			if c.runtime != nil {
+				c.runtime.mu.Lock()
+				readierLease = c.runtime.lifecycle.ExecutingTasks[readier.ID]
+				c.runtime.mu.Unlock()
+			}
+			readierStatus = fmt.Sprintf("{task=%d state=%s execution_active=%v lease=%d}", readier.ID, snapshot.State, snapshot.ExecutionActive, readierLease)
 		}
-		if blockers := c.blockers(time.Now()); blockers != "" {
-			frames = append(frames, "blocked-by:"+blockers)
-		}
+		// Where the time went, while the task is still there to ask.
+		timeline := c.timeline()
 		c.task.Kill()
 		select {
 		case <-c.task.Done:
-			return false, "timeout:" + ctx.Err().Error()
+			return false, "timeout:" + ctx.Err().Error() + timeline
 		default:
-			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%v", ctx.Err(), c.task.ID, state, reading, ready, lease, c.task.BytecodeVMValue() != nil, frames)
+			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%s readier=%s blocked-by=%s readiness=%s admission=%s%s", ctx.Err(), c.task.ID, state, reading, ready, lease, saved, frames, readierStatus, blockers, readiness, admissionStatus, timeline)
 		}
 	}
 	select {
 	case result := <-c.result:
 		if result.Flow == types.FlowException {
-			return false, "uncaught:" + result.Error.String()
+			traceback := strings.Join(taskpkg.FormatTraceback(result.CallStack, result.ErrorMessage()), "\n    ")
+			return false, fmt.Sprintf("uncaught:%s task=%d stack=%s\n    %s%s", result.Error.String(), c.task.ID, realCommandFrames(result.CallStack), traceback, c.timeline())
 		}
 		return true, ""
 	default:
-		return false, "killed-before-completion"
+		return false, "killed-before-completion " + c.killDetail()
 	}
+}
+
+// killDetail says what stopped a task that settled without a result: its final
+// state and its published task row, whose By names the task whose kill_task()
+// committed the kill (builtins/tasks.go). With no killed row, the stop came
+// from a cancelled task context instead.
+func (c *realCommandCompletion) killDetail() string {
+	detail := fmt.Sprintf("task=%d state=%s", c.task.ID, c.task.GetState())
+	if c.runtime == nil {
+		return detail + " row=unknown" + c.timeline()
+	}
+	row, ok := c.runtime.store.TaskRow(c.task.ID)
+	if !ok {
+		return detail + " row=none" + c.timeline()
+	}
+	detail += fmt.Sprintf(" row={status=%d by=%d owner=#%d}", row.Status, row.By, row.Owner)
+	if killer := c.runtime.GetTask(row.By); killer != nil {
+		detail += fmt.Sprintf(" killer={task=%d this=#%d verb=%s state=%s}", killer.ID, killer.This, killer.VerbName, killer.GetState())
+	}
+	return detail + c.timeline()
+}
+
+// startRealMOOProfile uses the same collector as /debug/pprof/moo. Collect only
+// measured command windows (including their terminal drain), excluding setup.
+func startRealMOOProfile(t *testing.T, prefix string, players int) func() {
+	t.Helper()
+	if prefix == "" {
+		return func() {}
+	}
+	path := fmt.Sprintf("%s-players%d.pprof", prefix, players)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := mooprof.Start()
+	if err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			prof := session.Stop()
+			defer file.Close()
+			if err := prof.Write(file); err != nil {
+				t.Errorf("write MOO profile: %v", err)
+			}
+			t.Logf("MOO measurement profile: %s", path)
+		})
+	}
+	t.Cleanup(stop)
+	return stop
+}
+
+// copyBenchFile copies src over dst, creating dst's directory. When dst is
+// already the same file as src it returns copied=false without opening dst
+// for writing: os.Create would truncate src before the copy reads it.
+func copyBenchFile(src, dst string) (copied bool, err error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return false, err
+	}
+	defer in.Close()
+	srcInfo, err := in.Stat()
+	if err != nil {
+		return false, err
+	}
+	if dstInfo, err := os.Stat(dst); err == nil && os.SameFile(srcInfo, dstInfo) {
+		return false, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return false, err
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		return false, err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return false, err
+	}
+	return true, out.Close()
 }
 
 func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line string) (ok bool, failure string) {
@@ -342,6 +485,22 @@ func TestMongooseRealWorkload(t *testing.T) {
 	if os.Getenv("BARN_MONGOOSE_BENCH") == "" {
 		t.Skip("set BARN_MONGOOSE_BENCH=1 to run the real-database mongoose workload")
 	}
+	if runtime.GOOS == "windows" && (runtime.Version() == "go1.27.0" || runtime.Version() == "go1.27.1") && runtime.SetMutexProfileFraction(-1) > 0 {
+		t.Fatal("Windows mutex profiling can deadlock GC on this Go toolchain (golang/go#80982); use Go 1.27.2 or newer, or capture a block profile and execution trace")
+	}
+	if dir := os.Getenv("BARN_MONGOOSE_LOG_DIR"); dir != "" {
+		priorLogger, priorLevel := slog.Default(), logging.Level.Level()
+		// Keep detailed diagnostics in JSON without flooding the cohort report.
+		closeLog, err := logging.Setup(logging.Options{LevelStr: "debug", Dir: dir, Stderr: io.Discard})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			closeLog()
+			slog.SetDefault(priorLogger)
+			logging.Level.Set(priorLevel)
+		})
+	}
 	dbPath := os.Getenv("BARN_MONGOOSE_DB")
 	if dbPath == "" {
 		dbPath = "../mongoose.db.new"
@@ -357,6 +516,13 @@ func TestMongooseRealWorkload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDatabase(%s): %v", dbPath, err)
 	}
+	// Mirror server boot (server.LoadDatabase): the runtime's registry compiles
+	// the snapshot's calls to builtins it lacks as call_function calls.
+	registry, err := builtins.NewRegistryFromDescriptors(config.DefaultCapabilities(), vm.Descriptors())
+	if err != nil {
+		t.Fatalf("builtin registry: %v", err)
+	}
+	database.LowerUnknownBuiltinCalls(registry.Compiler())
 	store, _ := database.NewStoreFromDatabase()
 	t.Logf("loaded %s in %s", dbPath, time.Since(loadStart))
 	if memStats {
@@ -388,9 +554,8 @@ func TestMongooseRealWorkload(t *testing.T) {
 			t.Fatalf("create cpuprofile: %v", err)
 		}
 		defer f.Close()
-		// Profile covers measurement windows only (started after warm-up below
-		// would need restarts per level; instead start now and note that DB
-		// load is excluded and warm-up windows are included but identifiable).
+		// Loading is excluded; runtime startup, warm-up, drain and idle are included.
+		// The moo.task and moo.verb labels separate background and command work.
 		if err := pprof.StartCPUProfile(f); err != nil {
 			t.Fatalf("start cpuprofile: %v", err)
 		}
@@ -403,7 +568,48 @@ func TestMongooseRealWorkload(t *testing.T) {
 	// Strict arithmetic manufactures per-look E_TYPE storms this database's code
 	// never sees in production. Default ON; BARN_MONGOOSE_PROMOTE=0 for strict.
 	opts := config.Options{PromoteNumbers: os.Getenv("BARN_MONGOOSE_PROMOTE") != "0"}
-	s := newRuntimeWithWorkerCount(store, opts, runtime.GOMAXPROCS(0))
+	s := newRuntimeWithRegistry(store, opts, runtime.GOMAXPROCS(0), registry)
+	// Setup failures must stop the same runtime as a completed run.
+	defer s.Stop()
+	// Prepare the host, file sandbox and boot caches before restored tasks can
+	// execute, matching Server.LoadDatabase before InputProcessor.Start.
+	if err := os.Chdir(".."); err != nil {
+		t.Fatalf("chdir to repo root: %v", err)
+	}
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = newBenchConnManager(nil) })
+	if catalog := os.Getenv("BARN_MONGOOSE_SOUND_DB"); catalog != "" {
+		copied, err := copyBenchFile(catalog, "files/sqlite/sound.sqlite")
+		if err != nil {
+			t.Fatalf("install sound catalog: %v", err)
+		}
+		if copied {
+			t.Logf("sound catalog: %s", catalog)
+		} else {
+			t.Logf("sound catalog: %s (already in place at files/sqlite/sound.sqlite; not copied)", catalog)
+		}
+	} else {
+		// Not "say will raise": the snapshot repair below can still open a
+		// sound db, and its log line reports whether one is open.
+		t.Logf("sound catalog: none copied (BARN_MONGOOSE_SOUND_DB unset); see the snapshot repair line for the sound db state")
+	}
+	s.Session().LoadServerOptionsFromStore(store)
+	s.Session().LoadProtectedBuiltinsFromStore(store)
+	s.LoadQueuedTasks(database.QueuedTasks)
+	if err := s.LoadSuspendedTasks(database.SuspendedTasks); err != nil {
+		t.Fatalf("restore checkpoint continuations before dispatch: %v", err)
+	}
+	queuedRestored, suspendedRestored := 0, 0
+	for _, saved := range database.QueuedTasks {
+		if saved != nil && s.GetTask(saved.ID) != nil {
+			queuedRestored++
+		}
+	}
+	for _, saved := range database.SuspendedTasks {
+		if saved != nil && s.GetTask(saved.Snapshot.ID) != nil {
+			suspendedRestored++
+		}
+	}
+	t.Logf("checkpoint tasks: queued restored=%d/%d suspended restored=%d/%d (see native restore warnings for omissions)", queuedRestored, len(database.QueuedTasks), suspendedRestored, len(database.SuspendedTasks))
 	// Mirror server/input_processor.go processRuntimeTick: the input processor
 	// drives the runtime's ready-task loop on a ticker. Nothing else runs a
 	// forked, suspended, or resumed task, so without this loop the fork(0)
@@ -442,9 +648,10 @@ func TestMongooseRealWorkload(t *testing.T) {
 			}
 		}
 	}()
-	// Mirror server boot: this registry must load the snapshot it executes.
-	s.Session().LoadServerOptionsFromStore(store)
-	s.Session().LoadProtectedBuiltinsFromStore(store)
+	defer func() {
+		stopSched()
+		<-schedDone
+	}()
 
 	// Mirror server boot's #0:server_started (server.go callServerStarted) —
 	// it activates services including $sql_utils, which opens the SQLite
@@ -452,12 +659,6 @@ func TestMongooseRealWorkload(t *testing.T) {
 	// "This database is not open" through #3882::execute, an error the
 	// production server only sees in the restart window. The boot conn
 	// manager must be installed FIRST: $prod() checks listeners().
-	// SQLite/fileio confine paths to a CWD-relative files/ sandbox, so run
-	// from the repo root like the production server does.
-	if err := os.Chdir(".."); err != nil {
-		t.Fatalf("chdir to repo root: %v", err)
-	}
-	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = newBenchConnManager(nil) })
 	if memStats {
 		t.Logf("memory MiB after load: %s", readMemSample(t, s))
 	}
@@ -499,6 +700,27 @@ func TestMongooseRealWorkload(t *testing.T) {
 			"endif",
 			"return {#2585.sql:is_open() != 0, length($sql_utils.databases), sqlite_handles(), $prod(), cloaked};",
 		}, "\n")
+		// The checkpoint gives some players a home that refuses them (#71 and
+		// others at #62, whose inherited acceptable returns 0), so their `home`
+		// raises E_NACC in move(); Toast rejects that owner-driven move too.
+		// Repair every such player, once, to the designated player start. A
+		// missing accept verb refuses, as in move(). A player object with no
+		// home property (#10244, a nameless #5 child at #-1) has no home to refuse it.
+		homeRepair := strings.Join([]string{
+			"repaired = {};",
+			"for p in (players())",
+			"  h = `p.home ! E_PROPNF => $nothing';",
+			"  if (typeof(h) == OBJ && valid(h) && h != $player_start && !`h:accept(p) ! E_VERBNF => 0' && $player_start:accept(p))",
+			"    p.home = $player_start; repaired = {@repaired, p};",
+			"  endif",
+			"endfor",
+			"return {length(repaired), repaired};",
+		}, "\n")
+		homeOut := s.EvalCommandOutput(2, homeRepair)
+		if !strings.HasPrefix(homeOut, "{1, {") {
+			t.Fatalf("snapshot home repair failed: %s", homeOut)
+		}
+		t.Logf("snapshot home repair (as #2) {count, players moved to $player_start}: %s", homeOut)
 		var out string
 		for attempt := 0; attempt < 60; attempt++ {
 			out = s.EvalCommandOutput(2, repair)
@@ -507,14 +729,117 @@ func TestMongooseRealWorkload(t *testing.T) {
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
+		if !strings.HasPrefix(out, "{1, {1,") {
+			t.Fatalf("snapshot repair did not establish its prerequisites: %s", out)
+		}
 		t.Logf("snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked}: %s", out)
 	}
-	defer s.Stop()
-	defer func() {
-		stopSched()
-		<-schedDone
-	}()
-
+	// BARN_MONGOOSE_MOO_PATCH applies a candidate MOO change to this loaded
+	// snapshot, so one dump can be measured with and without it. The file is
+	// evaluated once as #2 with ordinary builtins (set_verb_code etc.) and must
+	// itself check its work and return a true value (1) on success; a compile
+	// error, uncaught error, or false result fails the test with the raw output.
+	if path := os.Getenv("BARN_MONGOOSE_MOO_PATCH"); path != "" {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("BARN_MONGOOSE_MOO_PATCH: %v", err)
+		}
+		t.Logf("MOO patch %s sha256=%x", path, sha256.Sum256(src))
+		outcome := s.Eval(2, strings.Split(string(src), "\n"))
+		out := outcome.CommandOutput()
+		if outcome.Panic != nil || len(outcome.Diagnostics) > 0 ||
+			outcome.Result.Flow == types.FlowException || !outcome.Result.Val.Truthy() {
+			t.Fatalf("MOO patch %s failed: %s", path, out)
+		}
+		t.Logf("MOO patch (as #2) result: %s", out)
+	}
+	// Give each measured player an empty room of its own, as location and home.
+	// The dump keeps 65 players in #15 and gives 188 the same home, so with every
+	// player in a few rooms each say and look scaled with the crowd (say fans a
+	// sound out to every listener) and `home` kept refilling one room.
+	// The candidate rooms (childless descendants of $room holding no player) are listed
+	// here from the store; the MOO side only moves, so move() decides who is
+	// accepted, and most rooms refuse.
+	// One string constant per list: a program holds at most 255 constants.
+	objRefs := func(ids []types.ObjID) string {
+		refs := make([]string, len(ids))
+		for i, id := range ids {
+			refs[i] = strconv.FormatInt(int64(id), 10)
+		}
+		return "{}; for n in (explode(\"" + strings.Join(refs, " ") + "\")) ids = {@ids, toobj(n)}; endfor"
+	}
+	isPlayer := make(map[types.ObjID]bool)
+	for _, pid := range store.Players() {
+		isPlayer[pid] = true
+	}
+	dt := store.DirectTxn()
+	roomVal, ec := dt.PropertyValue(0, "room")
+	if ec != types.E_NONE || roomVal.Type() != types.TYPE_OBJ {
+		t.Fatalf("separate rooms: #0.room = %v, %v", roomVal, ec)
+	}
+	var rooms []types.ObjID
+	queue := []types.ObjID{roomVal.Obj()}
+	seen := map[types.ObjID]bool{roomVal.Obj(): true}
+	for i := 0; i < len(queue); i++ {
+		children, _ := dt.Children(queue[i])
+		for _, c := range children {
+			if !seen[c] {
+				seen[c] = true
+				queue = append(queue, c)
+			}
+		}
+		// Only leaves: a room with children is a generic class, and writes to it
+		// by the movement verbs conflict with every reader of its descendants.
+		if i == 0 || isPlayer[queue[i]] || len(children) > 0 {
+			continue
+		}
+		contents, _ := dt.Contents(queue[i])
+		if !slices.ContainsFunc(contents, func(id types.ObjID) bool { return isPlayer[id] }) {
+			rooms = append(rooms, queue[i])
+		}
+	}
+	// One eval per player tries the next window of rooms and returns the index
+	// in the window of the room that took the player, or 0. Some players are
+	// refused everywhere (each refusal costs ~200 ms of accept filters), so a
+	// player a whole window refuses is skipped and the next candidate is
+	// measured in its place.
+	placeStart := time.Now()
+	next := 0
+	var placed, skipped []types.ObjID
+	for _, pid := range candidates {
+		if len(placed) == maxLevel || next >= len(rooms) {
+			break
+		}
+		window := rooms[next:min(next+50, len(rooms))]
+		out := s.EvalCommandOutput(2, strings.Join([]string{
+			"ids = " + objRefs(window) + ";",
+			"p = #" + strconv.FormatInt(int64(pid), 10) + ";",
+			"for i in [1..length(ids)]",
+			"  `move(p, ids[i]) ! ANY';",
+			"  if (p.location == ids[i])",
+			"    p.home = ids[i];",
+			"    return i;",
+			"  endif",
+			"endfor",
+			"return 0;",
+		}, "\n"))
+		var got int
+		if _, err := fmt.Sscanf(out, "{1, %d}", &got); err != nil {
+			t.Fatalf("separate rooms: placing #%d: %s", pid, out)
+		}
+		if got == 0 {
+			skipped = append(skipped, pid)
+			continue
+		}
+		next += got
+		placed = append(placed, pid)
+	}
+	if len(placed) < maxLevel {
+		t.Fatalf("separate rooms: placed %d players, need %d (skipped %v, %d candidate rooms)", len(placed), maxLevel, skipped, len(rooms))
+	}
+	candidates = placed
+	t.Logf("separate rooms: %d players placed in their own rooms (%d of %d candidate rooms tried) in %s; skipped, refused by a whole window: %v",
+		len(placed), next, len(rooms), time.Since(placeStart).Round(time.Millisecond), skipped)
 	totalWeight := 0
 	for _, sh := range realShapes {
 		totalWeight += sh.weight
@@ -542,17 +867,22 @@ func TestMongooseRealWorkload(t *testing.T) {
 		configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = cm })
 
 		type shapeStat struct {
-			ok, fail          int64
-			totalLat          time.Duration
-			attempts, retries uint64
+			ok, fail int64
+			totalLat time.Duration
 		}
 		type gstat struct {
 			shapes    []shapeStat
 			lats      []time.Duration
 			seen      int64
+			maxLat    time.Duration
 			failMsgs  []string
 			unsettled int64
+			// details is every failed command's full report (error,
+			// traceback, timeline), up to maxFailDetails per player.
+			details        []string
+			detailsDropped int
 		}
+		const maxFailDetails = 100
 		stats := make([]gstat, active)
 		for i := range stats {
 			stats[i].shapes = make([]shapeStat, len(realShapes))
@@ -578,25 +908,18 @@ func TestMongooseRealWorkload(t *testing.T) {
 							}
 							x -= cand.weight
 						}
-						// Per-command counter deltas are only attributable when a
-						// single player runs (sequential commands); with more
-						// players the deltas interleave and are recorded anyway
-						// as an aggregate approximation.
-						c0 := sampleCommitCounters(store)
 						t0 := time.Now()
 						if conn := cm.conns[players[idx]]; conn != nil {
 							conn.touch() // typing a command resets idle, as in production
 						}
 						ok, failure := runRealCommandLine(s, store, players[idx], realShapes[sh].line)
 						lat := time.Since(t0)
-						cd := sampleCommitCounters(store).sub(c0)
 						if !record {
 							continue
 						}
 						ss := &st.shapes[sh]
-						ss.attempts += cd.attempts
-						ss.retries += cd.retries
 						if ok {
+							st.maxLat = max(st.maxLat, lat)
 							ss.ok++
 							ss.totalLat += lat
 							st.seen++
@@ -610,9 +933,17 @@ func TestMongooseRealWorkload(t *testing.T) {
 							if strings.HasPrefix(failure, "unsettled:") {
 								st.unsettled++
 							}
+							// The sample keeps the first line, so identical
+							// failures group; the details keep everything.
+							first, _, _ := strings.Cut(failure, "\n")
 							if len(st.failMsgs) < 5 {
 								st.failMsgs = append(st.failMsgs,
-									realShapes[sh].name+" -> "+failure)
+									realShapes[sh].name+" -> "+first)
+							}
+							if len(st.details) < maxFailDetails {
+								st.details = append(st.details, fmt.Sprintf("player=#%d %s -> %s", players[idx], realShapes[sh].name, failure))
+							} else {
+								st.detailsDropped++
 							}
 						}
 					}
@@ -627,8 +958,10 @@ func TestMongooseRealWorkload(t *testing.T) {
 		var m0 runtime.MemStats
 		runtime.ReadMemStats(&m0)
 		store.ResetConflictCensus()
+		s.ResetGateHolds()
 		renewed0, refused0, declined0 := store.HotReadStats()
 		before := sampleCommitCounters(store)
+		waits0 := sampleWaitCounters(s, store)
 		uncaught0 := metrics.UncaughtExceptions.Value()
 		var samples []memSample
 		var held []string
@@ -655,13 +988,16 @@ func TestMongooseRealWorkload(t *testing.T) {
 		} else {
 			close(sampled)
 		}
+		stopProfile := startRealMOOProfile(t, os.Getenv("BARN_MONGOOSE_MOOPROFILE"), active)
 		measStart := time.Now()
 		runWindow(measure, true)
 		elapsed := time.Since(measStart)
+		stopProfile()
 		close(stopSampling)
 		<-sampled
 		cpu1 := readGCCPU()
 		delta := sampleCommitCounters(store).sub(before)
+		waits := sampleWaitCounters(s, store)
 		census := store.ConflictCensus()
 		renewed, refused, declined := store.HotReadStats()
 		var m1 runtime.MemStats
@@ -670,6 +1006,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 		var committed, failed int64
 		var unsettled int64
 		var allLats []time.Duration
+		var maxLat time.Duration
 		shapeAgg := make([]shapeStat, len(realShapes))
 		var failSamples []string
 		for i := range stats {
@@ -678,12 +1015,11 @@ func TestMongooseRealWorkload(t *testing.T) {
 				shapeAgg[j].ok += stats[i].shapes[j].ok
 				shapeAgg[j].fail += stats[i].shapes[j].fail
 				shapeAgg[j].totalLat += stats[i].shapes[j].totalLat
-				shapeAgg[j].attempts += stats[i].shapes[j].attempts
-				shapeAgg[j].retries += stats[i].shapes[j].retries
 				committed += stats[i].shapes[j].ok
 				failed += stats[i].shapes[j].fail
 			}
 			allLats = append(allLats, stats[i].lats...)
+			maxLat = max(maxLat, stats[i].maxLat)
 			failSamples = append(failSamples, stats[i].failMsgs...)
 		}
 		sort.Slice(allLats, func(a, b int) bool { return allLats[a] < allLats[b] })
@@ -709,12 +1045,15 @@ func TestMongooseRealWorkload(t *testing.T) {
 			bytesPerOp = float64(m1.TotalAlloc-m0.TotalAlloc) / float64(committed)
 		}
 		t.Logf("cohort submitted=%d completed=%d failed=%d unsettled_at_return=%d elapsed=%s drain=%s", committed+failed, committed, failed, unsettled, elapsed, max(time.Duration(0), elapsed-measure))
+		if failed != 0 {
+			t.Errorf("%d commands failed; measurement is invalid", failed)
+		}
 		if unsettled != 0 {
 			t.Errorf("%d commands left without terminal flush acknowledgement; measurement is invalid", unsettled)
 		}
-		t.Logf("players=%d goodput=%.0f/s failed=%d uncaught=%d abort=%.2f%% elided=%d p50=%s p99=%s max=%s allocs/op=%.0f bytes/op=%.0f GCs=%d",
+		t.Logf("players=%d goodput=%.0f/s failed=%d uncaught=%d abort=%.2f%% elided=%d p50=%s p99=%s p999=%s max=%s allocs/op=%.0f bytes/op=%.0f GCs=%d",
 			active, goodput, failed, metrics.UncaughtExceptions.Value()-uncaught0, abortRate, delta.elided,
-			latStr(pick(0.50)), latStr(pick(0.99)), latStr(pick(0.999)),
+			latStr(pick(0.50)), latStr(pick(0.99)), latStr(pick(0.999)), latStr(maxLat),
 			allocsPerOp, bytesPerOp, m1.NumGC-m0.NumGC)
 		if memStats {
 			logMemSamples(t, samples)
@@ -744,12 +1083,13 @@ func TestMongooseRealWorkload(t *testing.T) {
 			if agg.ok > 0 {
 				avg = agg.totalLat / time.Duration(agg.ok)
 			}
-			t.Logf("  shape %-10s ok=%-8d fail=%-6d avg=%s attempts=%d retries=%d",
-				sh.name, agg.ok, agg.fail, latStr(avg), agg.attempts, agg.retries)
+			t.Logf("  shape %-10s ok=%-8d fail=%-6d avg=%s",
+				sh.name, agg.ok, agg.fail, latStr(avg))
 		}
 		t.Logf("  commits: attempts=%d successes=%d conflicts=%d retries=%d hot_read_renewed=%d hot_read_refused=%d hot_read_declined=%d",
 			delta.attempts, delta.successes, delta.conflicts, delta.retries,
 			renewed-renewed0, refused-refused0, declined-declined0)
+		logWaitCounters(t, waits0, waits, s.GateHolds())
 		logConflictCensus(t, census, committed, censusTop, staleReads)
 		// Idle probe: with NO commands running, do background tasks (forks
 		// spawned by earlier commands) keep committing? Distinguishes a
@@ -773,6 +1113,14 @@ func TestMongooseRealWorkload(t *testing.T) {
 			sort.Strings(keys)
 			for _, k := range keys {
 				t.Logf("  failure sample (x%d): %s", uniq[k], k)
+			}
+		}
+		for i := range stats {
+			for _, d := range stats[i].details {
+				t.Logf("  failed command: %s", d)
+			}
+			if stats[i].detailsDropped > 0 {
+				t.Logf("  failed command: player=#%d %d more not printed", players[i], stats[i].detailsDropped)
 			}
 		}
 	}
@@ -802,6 +1150,8 @@ func applyBenchGCSettings(t *testing.T) {
 			t.Fatalf("BARN_MONGOOSE_GOGC=%q: %v", v, err)
 		}
 		debug.SetGCPercent(percent)
+	} else if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(config.DefaultGCPercent)
 	}
 	if v := os.Getenv("BARN_MONGOOSE_MEMLIMIT_MIB"); v != "" {
 		mib, err := strconv.Atoi(v)
@@ -855,13 +1205,10 @@ func holders(s *Runtime, store *dbstore.Store) string {
 // readHeapSample reads the Go runtime only, so it can run during a measure
 // window without adding a task to the workload. resident is left zero.
 func readHeapSample() memSample {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	live := []rtmetrics.Sample{{Name: "/gc/heap/live:bytes"}}
-	rtmetrics.Read(live)
+	m := leakcheck.ReadHeap()
 	return memSample{
-		heapAlloc: m.HeapAlloc, heapInuse: m.HeapInuse, heapSys: m.HeapSys, sys: m.Sys,
-		retained: m.Sys - m.HeapReleased, nextGC: m.NextGC, live: live[0].Value.Uint64(),
+		heapAlloc: m.Alloc, heapInuse: m.Inuse, heapSys: m.Sys, sys: m.TotalSys,
+		retained: m.Retained, nextGC: m.NextGC, live: m.Live,
 	}
 }
 
@@ -871,12 +1218,25 @@ func readHeapSample() memSample {
 func readMemSample(t *testing.T, s *Runtime) memSample {
 	sample := readHeapSample()
 	out := s.EvalCommandOutput(2, "return memory_usage()[2];")
-	resident, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimPrefix(out, "{1, "), "}"), 64)
+	resident, err := parseResidentSample(out, runtime.GOOS, os.Getpagesize())
 	if err != nil {
 		t.Errorf("memory_usage() = %s: %v", out, err)
 	}
-	sample.resident = uint64(resident)
+	sample.resident = resident
 	return sample
+}
+
+func parseResidentSample(out, goos string, pageSize int) (uint64, error) {
+	resident, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimPrefix(out, "{1, "), "}"), 64)
+	if err != nil {
+		return 0, err
+	}
+	bytes := uint64(resident)
+	// Linux memory_usage reads statm's page counts; Windows reports bytes.
+	if goos == "linux" {
+		bytes *= uint64(pageSize)
+	}
+	return bytes, nil
 }
 
 func logMemSamples(t *testing.T, samples []memSample) {
@@ -918,60 +1278,63 @@ func readGCCPU() gcCPU {
 // add up to the lost commits: sole_cause is the share of lost commits stale on
 // exactly one key, and keys_per_loss the mean number of stale keys.
 func logConflictCensus(t *testing.T, census dbstore.ConflictCensus, committed int64, top int, staleReads bool) {
-	var occurrences, sole uint64
-	for _, row := range census.Keys {
-		occurrences += row.Lost
-		sole += row.Sole
+	for _, line := range FormatConflictCensus(census, committed, top, staleReads) {
+		t.Logf("  %s", line)
 	}
-	occurrences += census.Overflow.Lost
-	sole += census.Overflow.Sole
-	share := func(n, of uint64) float64 {
-		if of == 0 {
-			return 0
-		}
-		return float64(n) / float64(of) * 100
+}
+
+// waitCounters holds the cumulative wall-time counters read around a measured
+// window: every runtime phase (metrics/runtime.go), the shared commit gate
+// waits of ordinary commits (store), and admission's totals.
+type waitCounters struct {
+	phases     [metrics.PhaseCount]metrics.PhaseStats
+	sharedGate SharedGateStats
+	admission  admission.Stats
+}
+
+func sampleWaitCounters(s *Runtime, store *dbstore.Store) waitCounters {
+	var w waitCounters
+	for p := metrics.Phase(0); p < metrics.PhaseCount; p++ {
+		w.phases[p] = metrics.RuntimePhaseStats(p)
 	}
-	keysPerLoss := 0.0
-	if census.LostTxns > 0 {
-		keysPerLoss = float64(occurrences) / float64(census.LostTxns)
+	w.sharedGate = s.SharedGate()
+	w.admission = s.AdmissionStats()
+	return w
+}
+
+// logWaitCounters prints where the window's wall time went. Phase intervals
+// overlap (slice contains vm_attempt, which contains readmission); a phase's
+// max is the upper bound of the highest bucket that grew in the window. Gate
+// holds were reset at the start of the window, so they are the window's own.
+func logWaitCounters(t *testing.T, before, after waitCounters, holds []GateHold) {
+	var b strings.Builder
+	for p := metrics.Phase(0); p < metrics.PhaseCount; p++ {
+		d := after.phases[p].Sub(before.phases[p])
+		if d.Count == 0 {
+			continue
+		}
+		bound := ">10s"
+		for i := len(d.Buckets) - 1; i >= 0; i-- {
+			if d.Buckets[i] > 0 {
+				if i < len(d.UpperNS) {
+					bound = "<=" + time.Duration(d.UpperNS[i]).String()
+				}
+				break
+			}
+		}
+		fmt.Fprintf(&b, " %s=%d/%s/max%s", p, d.Count, time.Duration(d.TotalNS).Round(time.Microsecond), bound)
 	}
-	t.Logf("  conflicts: lost_commits=%d refused_renewals=%d keys=%d overflow_losses=%d sole_cause=%.1f%% keys_per_loss=%.2f",
-		census.LostTxns, census.RefusedRenewals, len(census.Keys), census.Overflow.Lost,
-		share(sole, census.LostTxns), keysPerLoss)
-	for i, row := range census.Keys {
-		if i >= top {
-			break
-		}
-		var key string
-		switch row.Kind {
-		case dbstore.ConflictProperty:
-			key = fmt.Sprintf("#%d.%s", row.ObjID, row.Name)
-		case dbstore.ConflictVerb:
-			key = fmt.Sprintf("#%d:%s", row.ObjID, row.Name)
-		case dbstore.ConflictVerbShape:
-			key = "(any verb or ancestry)"
-		case dbstore.ConflictWaif:
-			key = row.Name
-		default:
-			key = fmt.Sprintf("#%d", row.ObjID)
-		}
-		stale := "n/a"
-		if staleReads && row.Kind == dbstore.ConflictProperty {
-			stale = fmt.Sprintf("%.1f%%", share(row.StaleAtRead, row.Lost))
-		}
-		perCommand := 0.0
-		if committed > 0 {
-			perCommand = float64(row.Lost) / float64(committed)
-		}
-		var by []string
-		for _, label := range row.Labels {
-			by = append(by, fmt.Sprintf("#%d:%s=%d", label.Obj, label.Verb, label.Lost))
-		}
-		if row.OtherLabels > 0 {
-			by = append(by, fmt.Sprintf("other=%d", row.OtherLabels))
-		}
-		t.Logf("  conflict %-14s %-28s lost=%-6d %5.1f%% sole=%-6d refused=%-5d stale_at_read=%-6s per_command=%.2f by=[%s]",
-			row.Kind, key, row.Lost, share(row.Lost, census.LostTxns), row.Sole, row.Refused,
-			stale, perCommand, strings.Join(by, " "))
+	t.Logf("  wall phases (count/total/max):%s", b.String())
+
+	for _, line := range FormatCommitGate(CommitGateReport{Holds: holds, Shared: after.sharedGate.Sub(before.sharedGate)}, 8) {
+		t.Logf("  %s", line)
 	}
+
+	a0, a1 := before.admission, after.admission
+	readmit := after.phases[metrics.Readmission].Sub(before.phases[metrics.Readmission])
+	// The engine observes Readmission only when Yield's wait is nonzero
+	// (task_runtime.go), so preemptions can exceed the readmission count.
+	t.Logf("  admission: preemptions=%d readmission_nonzero_waits=%d readmission_total=%s service=%s gate_wait=%s (shared+exclusive, clipped per segment) at_end active=%d queued=%d preempted=%d",
+		a1.Preemptions-a0.Preemptions, readmit.Count, latStr(time.Duration(readmit.TotalNS)),
+		latStr(a1.Service-a0.Service), latStr(a1.GateWait-a0.GateWait), a1.Active, a1.Queued, a1.Preempted)
 }

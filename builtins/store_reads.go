@@ -27,20 +27,23 @@ func markLiveStoreMutated(ctx *Execution) {
 // could not undo: an irreversible external effect or a direct live-store
 // mutation. It reports whether the act may proceed. False means the runtime is
 // abandoning this attempt at its irreversible-effect boundary (see
-// kernel.TaskContext.BeforeIrreversibleEffect) and the builtin returns
-// abortedAttempt() having done nothing.
-func beginIrreversible(ctx *Execution) bool {
-	if ctx == nil || ctx.TaskContext == nil {
+// task.Context.BeforeIrreversibleEffect) and the builtin returns
+// abortedAttempt() having done nothing. builtin names the builtin crossing the
+// boundary, for the runtime's commit gate accounting.
+func beginIrreversible(ctx *Execution, builtin string) bool {
+	if ctx == nil || ctx.Context == nil {
 		return true
 	}
-	tc := ctx.TaskContext
+	tc := ctx.Context
+	// Counted per calling site for the conflict census; nothing without tracking.
+	tc.StoreTxn.NoteBuiltinCall(builtin)
 	if tc.ConflictRetryRequested {
 		return false
 	}
 	if tc.IrreversibleSideEffect || tc.LiveStoreMutated || tc.BeforeIrreversibleEffect == nil {
 		return true // the boundary is behind us, or this context has no retry to protect
 	}
-	return !tc.BeforeIrreversibleEffect()
+	return !tc.BeforeIrreversibleEffect(builtin)
 }
 
 // abortedAttempt is the result a builtin returns when beginIrreversible
@@ -51,9 +54,9 @@ func abortedAttempt() types.Result {
 
 // beforeCoarse is the prologue of every coarse builtin: cross the
 // irreversible-effect boundary, then flush staged topology to live. When ok is
-// false the builtin returns res as is.
-func beforeCoarse(ctx *Execution) (res types.Result, ok bool) {
-	if !beginIrreversible(ctx) {
+// false the builtin returns res as is. builtin names the calling builtin.
+func beforeCoarse(ctx *Execution, builtin string) (res types.Result, ok bool) {
+	if !beginIrreversible(ctx, builtin) {
 		return abortedAttempt(), false
 	}
 	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
@@ -157,6 +160,25 @@ func definedPropertyNamesForRead(ctx *Execution, objID types.ObjID) ([]string, t
 
 func findPropertyForRead(ctx *Execution, objID types.ObjID, name string) (dbstore.PropertyView, types.ErrorCode) {
 	return readTxn(ctx).FindProperty(objID, name)
+}
+
+// serverIntOption reads $server_options.<name> at call time, as Toast's
+// server_int_option does (server.cc:1420-1428): the value when it is an
+// integer, truncated to a C int, otherwise defallt. An execution without a
+// store has no $server_options.
+func serverIntOption(ctx *Execution, name string, defallt int32) int32 {
+	if ctx == nil || readTxn(ctx) == nil {
+		return defallt
+	}
+	options, err := findPropertyForRead(ctx, 0, "server_options")
+	if err != types.E_NONE || options.Value.Type() != types.TYPE_OBJ {
+		return defallt
+	}
+	prop, err := findPropertyForRead(ctx, options.Value.Obj(), name)
+	if err != types.E_NONE || prop.Value.Type() != types.TYPE_INT {
+		return defallt
+	}
+	return int32(prop.Value.Int())
 }
 
 func localPropertyForRead(ctx *Execution, objID types.ObjID, name string) (dbstore.PropertyView, bool, types.ErrorCode) {

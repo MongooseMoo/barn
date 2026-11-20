@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -35,7 +36,21 @@ const (
 	maxConflictKeys = 4096
 	// maxConflictLabels bounds the labels counted separately per key.
 	maxConflictLabels = 8
+	// maxHotReadKeys bounds the hot property slots whose renewals are counted
+	// separately.
+	maxHotReadKeys = 1024
 )
+
+// HotReadCount is, for one hot property slot, the renewals at a stale read of
+// it that were made, refused and declined: the store-wide HotReadStats split
+// per slot, counted while tracking is on.
+type HotReadCount struct {
+	ObjID    types.ObjID
+	Name     string
+	Renewed  uint64
+	Refused  uint64
+	Declined uint64
+}
 
 // ConflictKind says which kind of read a transaction lost validation on.
 type ConflictKind uint8
@@ -63,6 +78,18 @@ const (
 	// ConflictObjectID is an object id the transaction allocated and another
 	// commit took first. It is not a read, but it loses and retries like one.
 	ConflictObjectID
+	// ConflictMapKey is an entry of a map-valued property read through keyed
+	// access, or the slot's owner, perms or map type that such access relied on.
+	ConflictMapKey
+	// ConflictTask is a task's row; Name is the task id.
+	ConflictTask
+	// ConflictExternal is state outside the store, such as an SQLite database,
+	// written since the transaction read it (store_external_reads.go).
+	ConflictExternal
+	// ConflictPropertyMemoShape is a memoized property resolution, stale
+	// because some property slot's presence or clear flag, or some ancestry,
+	// changed anywhere in the store.
+	ConflictPropertyMemoShape
 )
 
 var conflictKindNames = [...]string{
@@ -76,6 +103,11 @@ var conflictKindNames = [...]string{
 	ConflictVerbShape:     "verb-shape",
 	ConflictWaif:          "waif",
 	ConflictObjectID:      "object-id",
+	ConflictMapKey:        "map-key",
+	ConflictTask:          "task",
+	ConflictExternal:      "external",
+
+	ConflictPropertyMemoShape: "property-memo-shape",
 }
 
 func (k ConflictKind) String() string {
@@ -83,6 +115,11 @@ func (k ConflictKind) String() string {
 		return conflictKindNames[k]
 	}
 	return "unknown"
+}
+
+// MarshalText gives a kind its name in JSON.
+func (k ConflictKind) MarshalText() ([]byte, error) {
+	return []byte(k.String()), nil
 }
 
 // ReadConflict is one read that was no longer current at validation. Name is
@@ -99,6 +136,8 @@ type ReadConflict struct {
 	Missing bool
 	// staleAtRead: the slot had been rewritten before the transaction read it.
 	staleAtRead bool
+	// diag is what tracking found out about the read (store_conflict_diag.go).
+	diag conflictDiagNote
 }
 
 // ConflictLabel names the task a transaction runs for: the object and verb it
@@ -131,16 +170,47 @@ type ConflictCount struct {
 	StaleAtRead uint64
 	Labels      []ConflictLabelCount
 	OtherLabels uint64
+	Diag        ConflictDiag
 }
 
 // ConflictCensus is a copy of the store's census. Keys is ordered most lost
 // first, then by kind, object and name. Overflow sums the keys met after the
-// census was full; its Kind, ObjID and Name mean nothing.
+// census was full; its Kind, ObjID and Name mean nothing. SliceAttempts[i]
+// counts the slices that resolved after i+1 attempts; its last element every
+// slice that took more than maxSliceAttempts. TotalTicks sums the ticks those
+// slices executed over all their attempts, committed and lost; WastedTicks sums
+// the ticks of the attempts among them that were discarded and re-run, so it
+// never exceeds TotalTicks. Both come from the engine's count of each attempt
+// and stay 0 unless tracking is on. EarlyDetection is what the count-only
+// early-abort check found (store_early_detect.go); it too stays 0 unless
+// tracking is on. Paths is the losses per (key, loser root verb, read site),
+// most losses first, and PathOverflow the paths met after maxConflictPaths;
+// Verbs is each root verb's slices, retries and committed/wasted ticks, most
+// wasted ticks first, and VerbOverflow the verbs met after maxGoodputVerbs
+// (store_conflict_diag.go). BuiltinCalls counts the calls of boundary-checking
+// builtins by calling site, most first, and BuiltinCallOverflow the calls from
+// sites met after maxBuiltinCallSites (store_conflict_paths.go). HotReads is
+// the hot-read renewal outcomes per slot, most renewals first, and
+// HotReadOverflow those of slots met after maxHotReadKeys; it is separate from
+// Keys, so a renewed slot that never lost has no key row. All of these stay
+// empty unless tracking is on.
 type ConflictCensus struct {
-	LostTxns        uint64
-	RefusedRenewals uint64
-	Keys            []ConflictCount
-	Overflow        ConflictCount
+	LostTxns            uint64
+	RefusedRenewals     uint64
+	Keys                []ConflictCount
+	Overflow            ConflictCount
+	SliceAttempts       []uint64
+	TotalTicks          int64
+	WastedTicks         int64
+	EarlyDetection      EarlyDetection
+	Paths               []ConflictPath
+	PathOverflow        ConflictPath
+	Verbs               []VerbGoodput
+	VerbOverflow        VerbGoodput
+	BuiltinCalls        []BuiltinCallCount
+	BuiltinCallOverflow uint64
+	HotReads            []HotReadCount
+	HotReadOverflow     HotReadCount
 }
 
 type conflictKey struct {
@@ -155,6 +225,32 @@ type conflictCensus struct {
 	refused  uint64
 	keys     map[conflictKey]*ConflictCount
 	overflow ConflictCount
+	// tracking has transactions sample the clock at their property reads for
+	// the census (SetConflictCensusTracking).
+	tracking atomic.Bool
+	// writers holds, per property slot, the latest versions published with
+	// tracking on and who published them; attempts is the attempts histogram.
+	// See store_conflict_diag.go.
+	writers  map[propertyReadKey]*writerRing
+	attempts [maxSliceAttempts + 1]uint64
+	// totalTicks and wastedTicks are ConflictCensus.TotalTicks and WastedTicks.
+	totalTicks, wastedTicks int64
+	// early is ConflictCensus.EarlyDetection.
+	early earlyDetection
+	// paths/pathOverflow and verbs/verbOverflow are ConflictCensus.Paths,
+	// PathOverflow, Verbs and VerbOverflow.
+	paths        map[conflictPathKey]*ConflictPath
+	pathOverflow ConflictPath
+	verbs        map[ConflictLabel]*VerbGoodput
+	verbOverflow VerbGoodput
+	// builtinCalls and builtinCallOverflow are ConflictCensus.BuiltinCalls and
+	// BuiltinCallOverflow (store_conflict_paths.go).
+	builtinCalls        map[builtinCallKey]uint64
+	builtinCallOverflow uint64
+	// hotReads and hotReadOverflow are ConflictCensus.HotReads and
+	// HotReadOverflow.
+	hotReads        map[propertyReadKey]*HotReadCount
+	hotReadOverflow HotReadCount
 }
 
 // countLocked returns the row c counts into: its own, or the overflow row once
@@ -196,6 +292,10 @@ func (tx *StoreTxn) lostValidation() {
 		return
 	}
 	tx.lossCounted = true
+	var lossTicks int64
+	if tx.diag != nil && tx.diag.siteFn != nil {
+		_, lossTicks = tx.diag.siteFn()
+	}
 	census := &tx.store.conflicts
 	census.mu.Lock()
 	defer census.mu.Unlock()
@@ -212,6 +312,45 @@ func (tx *StoreTxn) lostValidation() {
 			count.StaleAtRead++
 		}
 		count.addLabel(tx.conflictLabel)
+		if tx.diag != nil {
+			tx.addDiagLocked(census, count, c, lossTicks)
+		}
+	}
+	if tx.diag != nil {
+		tx.noteEarlyLossLocked(census, lossTicks)
+	}
+}
+
+type hotReadOutcome uint8
+
+const (
+	hotReadRenewed hotReadOutcome = iota
+	hotReadRefused
+	hotReadDeclined
+)
+
+// noteHotReadOutcome counts, on the stale hot slot's HotReads row, what
+// renewing a tracking transaction at a read of it did (store_hot_read.go).
+func (s *Store) noteHotReadOutcome(key propertyReadKey, outcome hotReadOutcome) {
+	census := &s.conflicts
+	census.mu.Lock()
+	defer census.mu.Unlock()
+	count := census.hotReads[key]
+	if count == nil {
+		if len(census.hotReads) >= maxHotReadKeys {
+			count = &census.hotReadOverflow
+		} else {
+			count = &HotReadCount{ObjID: key.objID, Name: key.name}
+			lazySet(&census.hotReads, key, count)
+		}
+	}
+	switch outcome {
+	case hotReadRenewed:
+		count.Renewed++
+	case hotReadRefused:
+		count.Refused++
+	default:
+		count.Declined++
 	}
 }
 
@@ -232,15 +371,69 @@ func (s *Store) ConflictCensus() ConflictCensus {
 	census := &s.conflicts
 	census.mu.Lock()
 	out := ConflictCensus{
-		LostTxns:        census.lost,
-		RefusedRenewals: census.refused,
-		Keys:            make([]ConflictCount, 0, len(census.keys)),
-		Overflow:        census.overflow.snapshot(),
+		LostTxns:            census.lost,
+		RefusedRenewals:     census.refused,
+		Keys:                make([]ConflictCount, 0, len(census.keys)),
+		Overflow:            census.overflow.snapshot(),
+		SliceAttempts:       slices.Clone(census.attempts[:]),
+		TotalTicks:          census.totalTicks,
+		WastedTicks:         census.wastedTicks,
+		EarlyDetection:      census.early.snapshot(),
+		PathOverflow:        census.pathOverflow.snapshot(),
+		VerbOverflow:        census.verbOverflow.snapshot(),
+		BuiltinCalls:        census.builtinCallsLocked(),
+		BuiltinCallOverflow: census.builtinCallOverflow,
+		HotReadOverflow:     census.hotReadOverflow,
+	}
+	if len(census.hotReads) > 0 {
+		out.HotReads = make([]HotReadCount, 0, len(census.hotReads))
+		for _, h := range census.hotReads {
+			out.HotReads = append(out.HotReads, *h)
+		}
 	}
 	for _, count := range census.keys {
 		out.Keys = append(out.Keys, count.snapshot())
 	}
+	if len(census.paths) > 0 {
+		out.Paths = make([]ConflictPath, 0, len(census.paths))
+		for _, p := range census.paths {
+			out.Paths = append(out.Paths, p.snapshot())
+		}
+	}
+	if len(census.verbs) > 0 {
+		out.Verbs = make([]VerbGoodput, 0, len(census.verbs))
+		for _, v := range census.verbs {
+			out.Verbs = append(out.Verbs, v.snapshot())
+		}
+	}
 	census.mu.Unlock()
+	slices.SortFunc(out.HotReads, func(a, b HotReadCount) int {
+		return cmp.Or(
+			cmp.Compare(b.Renewed, a.Renewed),
+			cmp.Compare(a.ObjID, b.ObjID),
+			cmp.Compare(a.Name, b.Name),
+		)
+	})
+	slices.SortFunc(out.Paths, func(a, b ConflictPath) int {
+		return cmp.Or(
+			cmp.Compare(b.Lost, a.Lost),
+			cmp.Compare(b.WastedTicks, a.WastedTicks),
+			cmp.Compare(a.Kind, b.Kind),
+			cmp.Compare(a.ObjID, b.ObjID),
+			cmp.Compare(a.Name, b.Name),
+			cmp.Compare(a.Loser.Obj, b.Loser.Obj),
+			cmp.Compare(a.Loser.Verb, b.Loser.Verb),
+			compareSite(a.ReadSite, b.ReadSite),
+		)
+	})
+	slices.SortFunc(out.Verbs, func(a, b VerbGoodput) int {
+		return cmp.Or(
+			cmp.Compare(b.WastedTicks, a.WastedTicks),
+			cmp.Compare(b.Retries(), a.Retries()),
+			cmp.Compare(a.Verb.Obj, b.Verb.Obj),
+			cmp.Compare(a.Verb.Verb, b.Verb.Verb),
+		)
+	})
 	slices.SortFunc(out.Keys, func(a, b ConflictCount) int {
 		return cmp.Or(
 			cmp.Compare(b.Lost, a.Lost),
@@ -256,6 +449,7 @@ func (s *Store) ConflictCensus() ConflictCensus {
 // object and verb.
 func (count *ConflictCount) snapshot() ConflictCount {
 	out := *count
+	out.Diag = count.Diag.snapshot()
 	out.Labels = slices.Clone(count.Labels)
 	slices.SortFunc(out.Labels, func(a, b ConflictLabelCount) int {
 		return cmp.Or(
@@ -275,13 +469,20 @@ func (s *Store) ResetConflictCensus() {
 	census.lost, census.refused = 0, 0
 	census.keys = nil
 	census.overflow = ConflictCount{}
+	census.attempts = [maxSliceAttempts + 1]uint64{}
+	census.totalTicks, census.wastedTicks = 0, 0
+	census.early.reset()
+	census.paths, census.pathOverflow = nil, ConflictPath{}
+	census.verbs, census.verbOverflow = nil, VerbGoodput{}
+	census.builtinCalls, census.builtinCallOverflow = nil, 0
+	census.hotReads, census.hotReadOverflow = nil, HotReadCount{}
 }
 
 // SetConflictCensusTracking switches the sampling of the clock at each first
 // read of a property slot, which is what StaleAtRead is counted from. It takes
 // effect for transactions begun afterwards.
 func (s *Store) SetConflictCensusTracking(on bool) {
-	s.conflictTracking.Store(on)
+	s.conflicts.tracking.Store(on)
 }
 
 // Conflicts returns the reads the last validation of tx found stale. It is
@@ -323,9 +524,9 @@ func (tx *StoreTxn) propertyWasStaleAtRead(key propertyReadKey, read uint64) boo
 		return false
 	}
 	s := tx.store
-	s.historyMu.Lock()
-	history := s.history[key.objID]
-	s.historyMu.Unlock()
+	s.history.mu.Lock()
+	history := s.history.byID[key.objID]
+	s.history.mu.Unlock()
 
 	passedRead := false
 	rewrittenAt := func(image *Object) (uint64, bool) {

@@ -3,8 +3,8 @@ package parser
 import (
 	"testing"
 
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 // TestFixF29_EIntrptParsesToCode18 asserts the full E_INTRPT round-trip: the
@@ -22,19 +22,19 @@ func TestFixF29_EIntrptParsesToCode18(t *testing.T) {
 		t.Fatalf("BUG: parser rejected E_INTRPT literal: %v", err)
 	}
 
-	assign, ok := stmts.Statements[0].(*verb.ExprStmt)
+	assign, ok := stmts.Statements[0].(*ir.ExprStmt)
 	if !ok {
 		t.Fatalf("expected *verb.ExprStmt, got %T", stmts.Statements[0])
 	}
-	bin, ok := assign.Expr.(*verb.AssignExpr)
+	bin, ok := assign.Expr.(*ir.AssignExpr)
 	if !ok {
 		t.Fatalf("expected *AssignExpr, got %T", assign.Expr)
 	}
-	lit, ok := bin.Value.(*verb.LiteralExpr)
+	lit, ok := bin.Value.(*ir.LiteralExpr)
 	if !ok {
 		t.Fatalf("expected *LiteralExpr RHS, got %T", bin.Value)
 	}
-	if lit.Kind != verb.LiteralErr {
+	if lit.Kind != ir.LiteralErr {
 		t.Fatalf("expected LiteralErr, got kind %d", lit.Kind)
 	}
 	if lit.ErrorName != "E_INTRPT" {

@@ -18,6 +18,7 @@ func TestCompactInternalLocalOperands(t *testing.T) {
 		{"no fork binding", []byte{byte(OP_FORK_LOCAL_WIDE), 0, 0, 0, 0, 0, 1}, []byte{byte(OP_FORK_LOCAL_WIDE), 0, 0, 0, 0, 0, 1}},
 		{"fork binding", []byte{byte(OP_FORK_LOCAL_WIDE), 1, 0, 0, 0, 0, 1}, []byte{byte(OP_FORK_LOCAL_WIDE), 0, 3, 0, 0, 0, 1}},
 		{"catch", []byte{byte(OP_TRY_EXCEPT_LOCAL_WIDE), 1, 1, 5, 1, 0, 0, 0, 0, 255}, []byte{byte(OP_TRY_EXCEPT_LOCAL_WIDE), 1, 1, 5, 0, 3, 0, 0, 0, 255}},
+		{"expression codes", []byte{byte(OP_TRY_EXCEPT_LOCAL_WIDE), 1, 2, ExceptCodesInLocal, 254, 1, 0, 0, 0, 0, 255}, []byte{byte(OP_TRY_EXCEPT_LOCAL_WIDE), 1, 2, ExceptCodesInLocal, 1, 0, 3, 0, 0, 0, 255}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := &Program{Code: bytes.Clone(tc.before), NumLocals: 256, VarNames: []string{"source"}}

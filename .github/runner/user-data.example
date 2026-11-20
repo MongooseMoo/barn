@@ -1,0 +1,41 @@
+#cloud-config
+hostname: barn-compute
+manage_etc_hosts: true
+disable_root: false
+ssh_pwauth: false
+users:
+  - name: root
+    lock_passwd: true
+    ssh_authorized_keys:
+      - REPLACE_WITH_OPERATOR_PUBLIC_SSH_KEY
+  - name: runner
+    lock_passwd: true
+    shell: /bin/bash
+    groups: []
+package_update: true
+package_upgrade: false
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - build-essential
+  - python3
+  - python3-venv
+  - jq
+  - libicu72
+  - libssl-dev
+  - cmake
+  - autoconf
+  - automake
+  - libtool
+  - bison
+  - gperf
+  - pkg-config
+  - libpcre2-dev
+  - libsqlite3-dev
+  - libcurl4-openssl-dev
+  - zlib1g-dev
+  - nettle-dev
+  - libargon2-dev
+  - libaspell-dev
+  - libjemalloc-dev

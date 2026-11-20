@@ -3,13 +3,14 @@ package format
 import (
 	"bufio"
 	"fmt"
+
 	"github.com/MongooseMoo/barn/types"
 )
 
 // parseV17 parses a version 17 database
 func (database *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	// Players section
-	if err := database.readPlayersV17(r); err != nil {
+	if err := database.readPlayers(r); err != nil {
 		return nil, fmt.Errorf("read players: %w", err)
 	}
 
@@ -48,9 +49,12 @@ func (database *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read object count: %w", err)
 	}
+	if objCount < 0 {
+		return nil, fmt.Errorf("invalid object count %d", objCount)
+	}
 	// Objects
 	for i := 0; i < objCount; i++ {
-		obj, err := database.readObject(r)
+		obj, err := database.readObjectCommon(r, true, types.ObjID(i))
 		if err != nil {
 			return nil, fmt.Errorf("read object %d: %w", i, err)
 		}
@@ -69,6 +73,9 @@ func (database *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read verb count: %w", err)
 	}
+	if verbCount < 0 {
+		return nil, fmt.Errorf("invalid verb count %d", verbCount)
+	}
 	database.DeclaredPrograms = verbCount
 
 	for i := 0; i < verbCount; i++ {
@@ -84,23 +91,4 @@ func (database *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	database.resolveWaifProperties()
 
 	return database, nil
-}
-
-// readPlayersV17 reads the players list for version 17 format
-func (database *Database) readPlayersV17(r *bufio.Reader) error {
-	// Format: nplayers, player[0], player[1], ...
-	count, err := readInt(r)
-	if err != nil {
-		return err
-	}
-
-	database.Players = make([]types.ObjID, count)
-	for i := 0; i < count; i++ {
-		objID, err := readObjID(r)
-		if err != nil {
-			return err
-		}
-		database.Players[i] = objID
-	}
-	return nil
 }

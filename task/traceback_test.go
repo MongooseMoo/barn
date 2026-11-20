@@ -16,7 +16,7 @@ func TestFormatTracebackJoinsStoredVerbNamesLazily(t *testing.T) {
 		LineNumber:      3,
 	}
 
-	traceback := FormatTraceback([]types.ActivationFrame{frame}, types.E_INVARG)
+	traceback := FormatTraceback([]types.ActivationFrame{frame}, types.E_INVARG.Message())
 	if got := traceback[0]; !strings.Contains(got, "#2:eval*-d evaluate ") {
 		t.Fatalf("traceback did not use joined stored verb names: %q", got)
 	}

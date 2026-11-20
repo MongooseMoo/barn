@@ -1,0 +1,320 @@
+name: suspended_finally_checkpoint
+description: A task suspended inside a finally body resumes after restart and then continues what brought it into the finally, one test per reason.
+requires:
+  builtins: [create, recycle, add_property, delete_property, add_verb, set_verb_code, verb_code, raise, suspend, dump_database]
+  config: [managed_server]
+tests:
+  - name: suspended_finally_fall_through_checkpoint_roundtrip
+    description: The try body ended normally, so the statement after endtry runs.
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_finally_fall_through", o, {player, ""});
+          for name in ({"before", "after", "finished"}) add_property(o, name, 0, {player, ""}); endfor
+          add_verb(o, {player, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {"try", "  this.before = this.before + 1;", "finally", "  suspend(20);", "  this.after = this.after + 1;", "endtry", "this.finished = this.finished + 1;"});
+          if (errors) raise(E_INVARG, "start compile failed", errors); endif
+          fork (0) o:start(); endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_finally_fall_through;
+          return {o.before, o.after, o.finished};
+        expect:
+          value: [1, 0, 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_finally_fall_through;
+          return {o.before, o.after, o.finished};
+        expect:
+          value: [1, 1, 1]
+    cleanup:
+      - run: |
+          o = #1.conformance_finally_fall_through;
+          delete_property(#1, "conformance_finally_fall_through");
+          recycle(o);
+          return 0;
+
+  - name: suspended_finally_called_verb_checkpoint_roundtrip
+    description: The suspension is in a verb the finally body calls, so the frame holding the finally is not the top one.
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_finally_called_verb", o, {player, ""});
+          for name in ({"before", "after", "result", "finished"}) add_property(o, name, 0, {player, ""}); endfor
+          add_verb(o, {player, "rxd", "pause"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "pause", {"this.before = this.before + 1;", "suspend(20);", "return 41;"});
+          if (errors) raise(E_INVARG, "pause compile failed", errors); endif
+          add_verb(o, {player, "rxd", "helper"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "helper", {"try", "  return 5;", "finally", "  this.after = this:pause() + 1;", "endtry", "return 6;"});
+          if (errors) raise(E_INVARG, "helper compile failed", errors); endif
+          add_verb(o, {player, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {"this.result = this:helper();", "this.finished = this.finished + 1;"});
+          if (errors) raise(E_INVARG, "start compile failed", errors); endif
+          fork (0) o:start(); endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_finally_called_verb;
+          return {o.before, o.after, o.result, o.finished};
+        expect:
+          value: [1, 0, 0, 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_finally_called_verb;
+          return {o.before, o.after, o.result, o.finished};
+        expect:
+          value: [1, 42, 5, 1]
+    cleanup:
+      - run: |
+          o = #1.conformance_finally_called_verb;
+          delete_property(#1, "conformance_finally_called_verb");
+          recycle(o);
+          return 0;
+
+  - name: suspended_finally_raise_checkpoint_roundtrip
+    description: An error with a handler entered the finally, so the handler then catches it with its code, message and value.
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_finally_raise", o, {player, ""});
+          for name in ({"before", "after", "skipped", "result", "finished"}) add_property(o, name, 0, {player, ""}); endfor
+          add_verb(o, {player, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {"try", "  try", "    raise(E_PERM, \"finally raise\", 7);", "  finally", "    this.before = this.before + 1;", "    suspend(20);", "    this.after = this.after + 1;", "  endtry", "  this.skipped = this.skipped + 1;", "except e (E_PERM)", "  this.result = e[1..3];", "endtry", "this.finished = this.finished + 1;"});
+          if (errors) raise(E_INVARG, "start compile failed", errors); endif
+          fork (0) o:start(); endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_finally_raise;
+          return {o.before, o.after, o.skipped, o.result, o.finished};
+        expect:
+          value: [1, 0, 0, 0, 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_finally_raise;
+          return {o.before, o.after, o.skipped, o.result, o.finished};
+        expect:
+          value: [1, 1, 0, [E_PERM, "finally raise", 7], 1]
+    cleanup:
+      - run: |
+          o = #1.conformance_finally_raise;
+          delete_property(#1, "conformance_finally_raise");
+          recycle(o);
+          return 0;
+
+  - name: suspended_finally_uncaught_checkpoint_roundtrip
+    description: An error with no handler entered the finally. The task ends after the finally body and its caller's finally body, and because it suspended there, #0:handle_uncaught_error is not called for it; it is called for the same error in a task that did not suspend.
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_finally_uncaught", o, {player, ""});
+          for name in ({"before", "after", "outer", "finished", "control"}) add_property(o, name, 0, {player, ""}); endfor
+          add_property(o, "handled", {}, {player, ""});
+          add_property(o, "saved", verb_code(#0, "handle_uncaught_error"), {player, ""});
+          errors = set_verb_code(#0, "handle_uncaught_error", {"o = #1.conformance_finally_uncaught;", "o.handled = {@o.handled, args[2]};", "return 1;"});
+          if (errors) raise(E_INVARG, "handler compile failed", errors); endif
+          add_verb(o, {player, "rxd", "control"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "control", {"try", "  raise(E_PERM, \"finally control\", 7);", "finally", "  this.control = this.control + 1;", "endtry"});
+          if (errors) raise(E_INVARG, "control compile failed", errors); endif
+          add_verb(o, {player, "rxd", "inner"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "inner", {"try", "  raise(E_PERM, \"finally uncaught\", 7);", "finally", "  this.before = this.before + 1;", "  suspend(20);", "  this.after = this.after + 1;", "endtry", "this.finished = this.finished + 1;"});
+          if (errors) raise(E_INVARG, "inner compile failed", errors); endif
+          add_verb(o, {player, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {"try", "  this:inner();", "finally", "  this.outer = this.outer + 1;", "endtry", "this.finished = this.finished + 1;"});
+          if (errors) raise(E_INVARG, "start compile failed", errors); endif
+          fork (0) o:control(); endfork
+          fork (0) o:start(); endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_finally_uncaught;
+          return {o.before, o.after, o.outer, o.finished, o.control, o.handled};
+        expect:
+          value: [1, 0, 0, 0, 1, ["finally control"]]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_finally_uncaught;
+          return {o.before, o.after, o.outer, o.finished, o.control, o.handled};
+        expect:
+          value: [1, 1, 1, 0, 1, ["finally control"]]
+    cleanup:
+      - run: |
+          o = #1.conformance_finally_uncaught;
+          set_verb_code(#0, "handle_uncaught_error", o.saved);
+          delete_property(#1, "conformance_finally_uncaught");
+          recycle(o);
+          return 0;
+
+  - name: suspended_finally_return_checkpoint_roundtrip
+    description: A return inside the try entered the finally, so the verb then returns that value to its caller.
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_finally_return", o, {player, ""});
+          for name in ({"before", "after", "skipped", "result", "finished"}) add_property(o, name, 0, {player, ""}); endfor
+          add_verb(o, {player, "rxd", "helper"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "helper", {"try", "  return 5;", "finally", "  this.before = this.before + 1;", "  suspend(20);", "  this.after = this.after + 1;", "endtry", "this.skipped = this.skipped + 1;", "return 6;"});
+          if (errors) raise(E_INVARG, "helper compile failed", errors); endif
+          add_verb(o, {player, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {"this.result = this:helper();", "this.finished = this.finished + 1;"});
+          if (errors) raise(E_INVARG, "start compile failed", errors); endif
+          fork (0) o:start(); endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_finally_return;
+          return {o.before, o.after, o.skipped, o.result, o.finished};
+        expect:
+          value: [1, 0, 0, 0, 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_finally_return;
+          return {o.before, o.after, o.skipped, o.result, o.finished};
+        expect:
+          value: [1, 1, 0, 5, 1]
+    cleanup:
+      - run: |
+          o = #1.conformance_finally_return;
+          delete_property(#1, "conformance_finally_return");
+          recycle(o);
+          return 0;
+
+  - name: suspended_finally_break_checkpoint_roundtrip
+    description: A break out of the try entered the finally, so the loop then ends without running the rest of its body.
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_finally_break", o, {player, ""});
+          for name in ({"before", "after", "count", "finished"}) add_property(o, name, 0, {player, ""}); endfor
+          add_verb(o, {player, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {"for i in ({1, 2, 3})", "  try", "    if (i == 2)", "      break;", "    endif", "  finally", "    if (i == 2)", "      this.before = this.before + 1;", "      suspend(20);", "      this.after = this.after + 1;", "    endif", "  endtry", "  this.count = this.count + 1;", "endfor", "this.finished = this.finished + 1;"});
+          if (errors) raise(E_INVARG, "start compile failed", errors); endif
+          fork (0) o:start(); endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_finally_break;
+          return {o.before, o.after, o.count, o.finished};
+        expect:
+          value: [1, 0, 1, 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_finally_break;
+          return {o.before, o.after, o.count, o.finished};
+        expect:
+          value: [1, 1, 1, 1]
+    cleanup:
+      - run: |
+          o = #1.conformance_finally_break;
+          delete_property(#1, "conformance_finally_break");
+          recycle(o);
+          return 0;
+
+  - name: suspended_finally_continue_checkpoint_roundtrip
+    description: A continue out of the try entered the finally, so the loop then goes on with its next element.
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_finally_continue", o, {player, ""});
+          for name in ({"before", "after", "count", "finished"}) add_property(o, name, 0, {player, ""}); endfor
+          add_verb(o, {player, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {"for i in [1..3]", "  try", "    if (i == 2)", "      continue;", "    endif", "  finally", "    if (i == 2)", "      this.before = this.before + 1;", "      suspend(20);", "      this.after = this.after + 1;", "    endif", "  endtry", "  this.count = this.count + i;", "endfor", "this.finished = this.finished + 1;"});
+          if (errors) raise(E_INVARG, "start compile failed", errors); endif
+          fork (0) o:start(); endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_finally_continue;
+          return {o.before, o.after, o.count, o.finished};
+        expect:
+          value: [1, 0, 1, 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_finally_continue;
+          return {o.before, o.after, o.count, o.finished};
+        expect:
+          value: [1, 1, 4, 1]
+    cleanup:
+      - run: |
+          o = #1.conformance_finally_continue;
+          delete_property(#1, "conformance_finally_continue");
+          recycle(o);
+          return 0;

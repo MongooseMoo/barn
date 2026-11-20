@@ -72,6 +72,7 @@ func (s *Store) SnapshotWithRoots(roots []types.Value) (Snapshot, SnapshotValueR
 	// Keep the established lock order (commitGate, then s.mu) used by Commit.
 	grant, _ := s.commitGate.Acquire(context.Background(), commitgate.Exclusive)
 	defer grant.Release()
+	s.noteExclusiveGrant()
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -195,28 +196,32 @@ func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) 
 	}
 	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
-		if obj == nil || !validLiveObject(obj) || obj.anonymous {
+		// Seed from every numbered object the dump writes a body for. An
+		// object flagged invalid but not recycled is still written in full
+		// (the snapshot loop below rewrites it too), so its references need
+		// plan entries like a valid object's.
+		if obj == nil || obj.recycled || obj.anonymous {
 			return true
 		}
-		for _, prop := range obj.properties.all() {
-			refs := make(map[types.ObjID]struct{})
-			collectAnonymousObjectRefs(prop.value, refs)
-			for id := range refs {
-				enqueue(id)
-			}
+		// last_move is written with the object like a property value, so its
+		// anonymous references need a plan entry too (dangling -> NOTHING).
+		refs := make(map[types.ObjID]struct{})
+		collectObjectAnonymousRefs(obj, refs, false)
+		for id := range refs {
+			enqueue(id)
 		}
 		return true
 	})
 	for _, value := range s.pendingFinalizations {
 		refs := make(map[types.ObjID]struct{})
-		collectAnonymousObjectRefs(value, refs)
+		types.CollectAnonymousRefs(value, refs, false)
 		for id := range refs {
 			enqueue(id)
 		}
 	}
 	for _, value := range additionalRoots {
 		refs := make(map[types.ObjID]struct{})
-		collectAnonymousObjectRefs(value, refs)
+		types.CollectAnonymousRefs(value, refs, false)
 		for id := range refs {
 			enqueue(id)
 		}
@@ -236,12 +241,10 @@ func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) 
 			continue
 		}
 		reachablePresent[id] = struct{}{}
-		for _, prop := range obj.properties.all() {
-			refs := make(map[types.ObjID]struct{})
-			collectAnonymousObjectRefs(prop.value, refs)
-			for nid := range refs {
-				enqueue(nid)
-			}
+		refs := make(map[types.ObjID]struct{})
+		collectObjectAnonymousRefs(obj, refs, false)
+		for nid := range refs {
+			enqueue(nid)
 		}
 	}
 
@@ -345,9 +348,8 @@ func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) 
 		}
 		return types.NewList(out), true
 	case types.TYPE_MAP:
-		// Insertion order, NOT traversal order: rebuilding from Pairs() would
-		// reverse waif/anon/bool-keyed topology (Pairs is reversed insertion
-		// for those types) and cancel the reversal dump/reload itself performs.
+		// Rebuild in the source's insertion order; key order comes from the
+		// rewritten keys themselves.
 		pairs := v.PairsInInsertionOrder()
 		out := make([][2]types.Value, len(pairs))
 		changed := false
@@ -427,7 +429,7 @@ func (s *Store) snapshotPropertyNamesLocked(obj *Object) []string {
 			}
 		}
 		for _, parentID := range o.parents {
-			walk(s.liveObjectLocked(parentID))
+			walk(s.parentObjectLocked(parentID))
 		}
 	}
 	walk(obj)
@@ -449,6 +451,3 @@ func (s *Store) snapshotPropertyNamesLocked(obj *Object) []string {
 	// emitted: with no backing definition the reader has no slot for them.
 	return names
 }
-
-// Get retrieves an object by ID
-// Returns nil if object doesn't exist or is recycled

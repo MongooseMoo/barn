@@ -1,0 +1,45 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                                                       │ experiments/object-lifecycle/empty-base-store.txt │ experiments/object-lifecycle/empty-candidate-store.txt │
+                                                       │                      sec/op                       │             sec/op              vs base                │
+ObjectLifecycle/anon=false/slots=0/Create/parents=1-4                                         185.2µ ±  5%                     165.3µ ±  4%  -10.78% (p=0.000 n=10)
+ObjectLifecycle/anon=false/slots=0/Recycle/parents=1-4                                        170.8µ ± 16%                     147.4µ ±  4%  -13.70% (p=0.000 n=10)
+ObjectLifecycle/anon=false/slots=0/Pair/parents=1-4                                           334.7µ ± 11%                     301.3µ ±  2%  -10.00% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=0/Create/parents=1-4                                          63.83µ ±  3%                     62.80µ ±  1%        ~ (p=0.165 n=10)
+ObjectLifecycle/anon=true/slots=0/Recycle/parents=1-4                                         24.12µ ±  2%                     21.74µ ± 13%   -9.90% (p=0.009 n=10)
+ObjectLifecycle/anon=true/slots=0/Pair/parents=1-4                                            83.98µ ±  2%                     82.68µ ±  2%   -1.55% (p=0.007 n=10)
+geomean                                                                                       105.4µ                           96.91µ         -8.04%
+
+                                                       │ experiments/object-lifecycle/empty-base-store.txt │ experiments/object-lifecycle/empty-candidate-store.txt │
+                                                       │                    objects/op                     │          objects/op            vs base                 │
+ObjectLifecycle/anon=false/slots=0/Create/parents=1-4                                           32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=0/Recycle/parents=1-4                                          32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=0/Pair/parents=1-4                                             32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=0/Create/parents=1-4                                            32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=0/Recycle/parents=1-4                                           32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=0/Pair/parents=1-4                                              32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                                                                                         32.00                           32.00       +0.00%
+¹ all samples are equal
+
+                                                       │ experiments/object-lifecycle/empty-base-store.txt │ experiments/object-lifecycle/empty-candidate-store.txt │
+                                                       │                       B/op                        │              B/op                vs base               │
+ObjectLifecycle/anon=false/slots=0/Create/parents=1-4                                         197.6Ki ± 0%                      197.6Ki ± 0%       ~ (p=0.243 n=10)
+ObjectLifecycle/anon=false/slots=0/Recycle/parents=1-4                                        176.5Ki ± 0%                      176.5Ki ± 0%       ~ (p=0.350 n=10)
+ObjectLifecycle/anon=false/slots=0/Pair/parents=1-4                                           343.1Ki ± 0%                      343.1Ki ± 0%       ~ (p=0.350 n=10)
+ObjectLifecycle/anon=true/slots=0/Create/parents=1-4                                          72.78Ki ± 0%                      72.78Ki ± 0%       ~ (p=1.000 n=10)
+ObjectLifecycle/anon=true/slots=0/Recycle/parents=1-4                                         23.75Ki ± 0%                      23.75Ki ± 0%       ~ (p=1.000 n=10)
+ObjectLifecycle/anon=true/slots=0/Pair/parents=1-4                                            92.77Ki ± 0%                      92.77Ki ± 0%       ~ (p=1.000 n=10)
+geomean                                                                                       111.5Ki                           111.5Ki       +0.00%
+
+                                                       │ experiments/object-lifecycle/empty-base-store.txt │ experiments/object-lifecycle/empty-candidate-store.txt │
+                                                       │                     allocs/op                     │           allocs/op            vs base                 │
+ObjectLifecycle/anon=false/slots=0/Create/parents=1-4                                          1.346k ± 0%                     1.346k ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=0/Recycle/parents=1-4                                         1.101k ± 0%                     1.101k ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=0/Pair/parents=1-4                                            2.382k ± 0%                     2.382k ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=0/Create/parents=1-4                                            538.0 ± 0%                      538.0 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=0/Recycle/parents=1-4                                           224.0 ± 0%                      224.0 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=0/Pair/parents=1-4                                              762.0 ± 0%                      762.0 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                                                                                         828.8                           828.8       +0.00%
+¹ all samples are equal

@@ -28,7 +28,7 @@ func builtinRunGC(ctx *Execution, args []types.Value) types.Result {
 	if runGC := hostOf(ctx).RunGC; runGC != nil {
 		aborted := false
 		err := runGC(ctx, func() bool {
-			if !beginIrreversible(ctx) {
+			if !beginIrreversible(ctx, "run_gc") {
 				aborted = true
 				return false
 			}

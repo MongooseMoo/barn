@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -33,6 +34,15 @@ func (vm *VM) Peek(offset int) types.Value {
 		panic("stack underflow")
 	}
 	return vm.Stack[vm.SP-1-offset]
+}
+
+// splicedArgs returns the arguments of a spliced call, f(@list), as the list's
+// own elements rather than a copy. Lists are immutable, so the callee may keep
+// them; it must not write into them. The capacity is clipped so an append
+// copies instead of reaching the list's spare backing.
+func splicedArgs(list types.Value) []types.Value {
+	elements := list.Elements()
+	return elements[:len(elements):len(elements)]
 }
 
 // PopN pops N values from the stack
@@ -106,14 +116,12 @@ func (vm *VM) Return(value types.Value) error {
 			continue
 		}
 		frame.ExceptStack = frame.ExceptStack[:i]
-		frame.PendingReturn = value
-		frame.HasPendingReturn = true
+		vm.abandonPendingTo(handler.HandlerIP)
+		frame.PendingReasons = append(frame.PendingReasons, pendingReason{Kind: task.PendingReturn, FinallyIP: handler.HandlerIP, Value: value})
 		vm.SP = handler.StackDepth
 		frame.IP = handler.HandlerIP
 		return nil
 	}
-	frame.HasPendingReturn = false
-
 	// Eval frame returning normally: wrap result in {1, value}
 	if frame.IsEvalFrame {
 		wrapped := types.NewList([]types.Value{
@@ -160,13 +168,19 @@ func (vm *VM) Return(value types.Value) error {
 	recycleContinuation := frame.RecycleContinuation
 	base := frame.BasePointer
 	discardReturn := frame.DiscardReturn
+	returnLocal := frame.ReturnLocal
 	vm.popFrame() // frame is recycled here; nothing below may read it
 	vm.SP = base
+	if returnLocal != 0 {
+		caller := vm.CurrentFrame()
+		vm.releaseLocal(caller.Locals[returnLocal-1])
+		caller.Locals[returnLocal-1] = value
+	}
 	if continuation != nil {
 		result := vm.resumeMoveLifecycle(continuation, types.Ok(value))
 		switch result.Flow {
 		case types.FlowException:
-			return VMException{Code: result.Error, Value: result.Val}
+			return VMException{Code: result.Error, Value: result.Val, Reason: result.Reason}
 		case types.FlowBuiltinPush:
 			return nil
 		case types.FlowNormal, types.FlowReturn:
@@ -180,7 +194,7 @@ func (vm *VM) Return(value types.Value) error {
 		result := vm.resumeRecycleLifecycle(recycleContinuation, types.Ok(value))
 		switch result.Flow {
 		case types.FlowException:
-			return VMException{Code: result.Error, Value: result.Val}
+			return VMException{Code: result.Error, Value: result.Val, Reason: result.Reason}
 		case types.FlowBuiltinPush:
 			return nil
 		case types.FlowNormal, types.FlowReturn:

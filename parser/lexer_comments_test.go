@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 )
 
 func TestBlockCommentProgramContract(t *testing.T) {
@@ -52,12 +52,12 @@ func TestBlockCommentTokenPositions(t *testing.T) {
 	source := "/*a\nb*/\n /*c*/ return 7;"
 	l := NewLexer(source)
 	got := l.NextToken()
-	want := verb.Position{Line: 3, Column: 8, Offset: strings.Index(source, "return")}
+	want := ir.Position{Line: 3, Column: 8, Offset: strings.Index(source, "return")}
 	if got.Type != TOKEN_RETURN || got.Position != want {
 		t.Fatalf("token=%v position=%+v want RETURN at %+v", got.Type, got.Position, want)
 	}
 	unterminated := NewLexer("\n  /* unfinished").NextToken()
-	if unterminated.Type != TOKEN_ILLEGAL || unterminated.Position != (verb.Position{Line: 2, Column: 3, Offset: 3}) {
+	if unterminated.Type != TOKEN_ILLEGAL || unterminated.Position != (ir.Position{Line: 2, Column: 3, Offset: 3}) {
 		t.Fatalf("unterminated comment token: %+v", unterminated)
 	}
 	if next := l.NextToken(); next.Type != TOKEN_INT || next.Value != "7" {

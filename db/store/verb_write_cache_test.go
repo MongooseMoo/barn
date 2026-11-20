@@ -57,7 +57,7 @@ func BenchmarkVerbLookupAfterUnrelatedWrite(b *testing.B) {
 			s.ChangeParents(id, []types.ObjID{id - 1})
 		}
 	}
-	v := NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)
+	v := NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)
 	s.AddVerb(0, v)
 	tx := s.BeginSnapshot(0)
 	defer tx.Release()

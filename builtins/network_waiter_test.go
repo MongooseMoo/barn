@@ -10,7 +10,7 @@ import (
 )
 
 func suspendedHTTPWaiter(id int64) httpReadWaiter {
-	t := task.NewTask(id, 7, 1000, 5)
+	t := task.NewState(id, 7, 1000, 5)
 	t.SetState(task.TaskSuspended)
 	return httpReadWaiter{task: t, kind: "request"}
 }
@@ -25,11 +25,105 @@ func assertHTTPWaiterSlotsCleared(t *testing.T, slots []httpReadWaiter) {
 }
 
 func retainedHTTPWaiterState(waiters []httpReadWaiter) (*Session, *httpHeldInput) {
-	r := NewSession(NewRegistry(), NoHost())
-	r.setConnectionOption(7, "hold-input", types.NewInt(1))
+	r := ctxWithConnManager(&stubConnManager{conn: &stubConn{id: 7}}).Session
+	r.setConnectionOption(7, nil, "hold-input", types.NewInt(1))
 	state := &httpHeldInput{buffer: []byte("partial"), invalidCount: 2, waiters: waiters}
 	r.runtime.heldHTTPInput.byPlayer[7] = state
 	return r, state
+}
+
+type optionProbeConnManager struct {
+	stubConnManager
+	lookups int
+}
+
+func (m *optionProbeConnManager) GetConnection(player types.ObjID) Connection {
+	m.lookups++
+	return m.stubConnManager.GetConnection(player)
+}
+
+func TestHeldInputUsesProducerIDWithoutManagerLookup(t *testing.T) {
+	const connectionID int64 = 91
+	manager := &optionProbeConnManager{stubConnManager: stubConnManager{conn: &stubConn{id: connectionID}}}
+	session := ctxWithConnManager(manager).Session
+	if handled, _ := session.HandleHeldInput(7, connectionID, "ordinary input", false); handled {
+		t.Fatal("default input was held")
+	}
+	session.setConnectionOption(connectionID, nil, "hold-input", types.NewInt(1))
+	request := "GET / HTTP/1.1~0D~0A~0D~0A"
+	if handled, _ := session.HandleHeldInput(7, connectionID, request, false); !handled {
+		t.Fatal("producer's hold-input option was ignored")
+	}
+	if value, complete := session.prepareHTTPRead(7, connectionID, "request", nil); !complete || value.Type() != types.TYPE_MAP {
+		t.Fatalf("buffered read = %v, complete=%v", value, complete)
+	}
+	session.setConnectionOption(connectionID, nil, "flush-command", types.NewStr(".flush"))
+	if handled, lines := session.HandleHeldInput(7, connectionID, ".flush", false); !handled || !reflect.DeepEqual(lines, []string{request}) {
+		t.Fatalf("flush = %v, %q", handled, lines)
+	}
+	if manager.lookups != 0 {
+		t.Fatalf("producer-ID operations performed %d manager lookups", manager.lookups)
+	}
+}
+
+func TestReadUsesAdmittedPhysicalIDWithoutSecondLookup(t *testing.T) {
+	const connectionID int64 = 91
+	manager := &optionProbeConnManager{stubConnManager: stubConnManager{conn: &stubConn{id: connectionID}}}
+	ctx := ctxWithConnManager(manager)
+	ctx.IsWizard = true
+	args := []types.Value{types.NewObj(7), types.NewInt(1)}
+	if result := builtinRead(ctx, args); result.IsError() || result.Val.Int() != 0 {
+		t.Fatalf("nonblocking read with defaults = %+v", result)
+	}
+	ctx.Session.setConnectionOption(connectionID, nil, "hold-input", types.NewInt(1))
+	if result := builtinRead(ctx, args); !result.IsError() || result.Error != types.E_INVARG {
+		t.Fatalf("read while producer holds input = %+v", result)
+	}
+	if manager.lookups != 2 {
+		t.Fatalf("two reads performed %d lookups, want one admission lookup each", manager.lookups)
+	}
+}
+
+func TestHTTPCancellationUsesReplacementBeforeNewInput(t *testing.T) {
+	for _, replacementHeld := range []bool{false, true} {
+		t.Run(map[bool]string{false: "replacement defaults", true: "replacement held"}[replacementHeld], func(t *testing.T) {
+			const oldID, replacementID int64 = 91, 92
+			manager := &optionProbeConnManager{stubConnManager: stubConnManager{conn: &stubConn{id: oldID}}}
+			session := ctxWithConnManager(manager).Session
+			session.setConnectionOption(oldID, nil, "hold-input", types.NewInt(1))
+			removed, survivor := suspendedHTTPWaiter(9040), suspendedHTTPWaiter(9041)
+			if _, complete := session.prepareHTTPRead(7, oldID, "request", removed.task); complete {
+				t.Fatal("empty HTTP read completed")
+			}
+			state := session.runtime.heldHTTPInput.byPlayer[7]
+			state.waiters = append(state.waiters, survivor)
+			state.buffer, state.invalidCount = []byte("partial"), 1
+			// Replacement changes the current mapping before any new input/read.
+			manager.conn = &stubConn{id: replacementID}
+			if replacementHeld {
+				session.setConnectionOption(replacementID, nil, "hold-input", types.NewInt(1))
+			}
+			session.CancelHTTPReadTask(9999)
+			if string(state.buffer) != "partial" || len(state.waiters) != 2 || state.invalidCount != 1 {
+				t.Fatal("unrelated cancellation changed retained input")
+			}
+			session.CancelHTTPReadTask(removed.task.ID)
+			if len(state.waiters) != 1 || state.waiters[0] != survivor || state.buffer != nil || state.invalidCount != 0 {
+				t.Fatal("matched cancellation changed survivor or failed to clear input")
+			}
+			session.CancelHTTPReadTask(survivor.task.ID)
+			if retained := session.runtime.heldHTTPInput.byPlayer[7] != nil; retained != replacementHeld {
+				t.Fatalf("empty state retained=%v, replacement held=%v", retained, replacementHeld)
+			}
+			if manager.lookups != 3 {
+				t.Fatalf("cancellation lookups=%d, want 3", manager.lookups)
+			}
+			session.CloseHeldHTTPInput(7)
+			if session.runtime.heldHTTPInput.byPlayer[7] != nil {
+				t.Fatal("teardown retained HTTP state")
+			}
+		})
+	}
 }
 
 func TestHTTPPruneClearsDiscardedBackingSlots(t *testing.T) {
@@ -113,7 +207,7 @@ func TestHTTPWakeClearsConsumedBackingSlots(t *testing.T) {
 					state.buffer = append(state.buffer, wantBuffer...)
 				}
 				r.runtime.heldHTTPInput.mu.Lock()
-				wakes := r.collectHTTPWakeupsLocked(7, state)
+				wakes := r.collectHTTPWakeupsLocked(7, 7, state)
 				r.runtime.heldHTTPInput.mu.Unlock()
 				if len(wakes) != 1 || wakes[0].task != removed.task {
 					t.Fatalf("wakes=%v, want the consumed task once", wakes)

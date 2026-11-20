@@ -90,8 +90,13 @@ const (
 	OP_FOR_LIST_LOAD                                       // for-in element load [listVar,idxVar,valueVar,isPairsVar]: value = list[idx] (unwrapping {value,key} pairs when isPairs)
 	OP_FOR_LIST_LOAD_KV                                    // for-in k,v element load [listVar,idxVar,valueVar,indexVar]: elem={value,key}=list[idx]; value=elem[1]; index=elem[2]
 	OP_FOR_RANGE_NEXT                                      // Range-for increment+loopback [valueVar:byte, endVar:byte, loopOffset:short]: increment value (or lower end at the ceiling); IP -= loopOffset
-	OP_BREAK                                               // DEAD: replaced by OP_JUMP with patching (never emitted by compiler)
-	OP_CONTINUE                                            // DEAD: replaced by OP_JUMP/OP_LOOP with patching (never emitted by compiler)
+	// OP_PUSH_WIDE reuses the number of OP_BREAK, which no compiler emitted and
+	// the decoder rejected, because every other byte is taken. It is OP_PUSH
+	// for a constant index that does not fit a byte: the compiler emits it only
+	// for indices above 255, so programs with at most 256 constants keep the
+	// bytes that suspended tasks were saved against.
+	OP_PUSH_WIDE // Push constant from pool [index:short]
+	OP_CONTINUE  // DEAD: replaced by OP_JUMP/OP_LOOP with patching (never emitted by compiler)
 )
 
 // Exception Handling
@@ -101,14 +106,26 @@ const (
 	OP_TRY_FINALLY                                 // Push finally handler [finally_offset]
 	OP_END_FINALLY                                 // Finish matching finally handler [finally_offset]
 	OP_CATCH                                       // DEAD: replaced by OP_TRY_EXCEPT/OP_END_EXCEPT pattern (never emitted by compiler)
-	OP_RAISE                                       // DEAD: replaced by Go error returns (never emitted by compiler)
+	// OP_MAPHASKEY_KEYED reuses the number of OP_RAISE, which no compiler
+	// emitted and the decoder rejected, because every other byte is taken.
+	//
+	// It sits between the arguments of maphaskey(obj.prop, key) and the
+	// OP_CALL_BUILTIN that runs it, after OP_GET_PROP_KEYED fetched obj.prop:
+	// pop key, coll, obj; push coll, key. It tells the store which entry of
+	// obj.prop the call tests (db/store/store_txn_mapkeys.go); the slot is read
+	// whole instead when the call may be handed to a protected builtin's #0
+	// wrapper, which receives the whole map, or when the key's type leaves the
+	// lookup's answer depending on other keys. It has no Toast counterpart and
+	// charges no tick.
+	// [name:short, func_id:short]
+	OP_MAPHASKEY_KEYED
 )
 
 // Function/Verb Calls
 const (
-	OP_CALL_BUILTIN OpCode = OP_RAISE + 1 + iota // Call builtin function [func_id, argc]
-	OP_CALL_VERB                                 // Pop obj; call obj:verb [argc]
-	OP_SCATTER                                   // Scatter assignment [pattern]
+	OP_CALL_BUILTIN OpCode = OP_MAPHASKEY_KEYED + 1 + iota // Call builtin function [func_id, argc]
+	OP_CALL_VERB                                           // Pop obj; call obj:verb [argc]
+	OP_SCATTER                                             // Pop list; bind every scatter target [targets, required, rest position, then per target: local, optional]
 )
 
 // Collection Operations
@@ -180,10 +197,10 @@ const (
 // sequences of ordinary opcodes; these let the compiler state exactly which
 // instructions carry Toast's tick charges (see InstructionTicks).
 const (
-	OP_TICKS               OpCode = OP_CHECK_MAP_LIMIT + 1 + iota // Prefix [ticks:byte]: the next instruction charges ticks&0x7F instead of its default; TicksUnchecked (0x80) set = charged without the limit check
+	OP_TICKS               OpCode = OP_CHECK_MAP_LIMIT + 1 + iota // Prefix [ticks:byte]: the next instruction charges ticks&0x7F instead of its default (PrefixTicks)
 	OP_SET_LOCAL                                                  // Pop and store to local [index] without a tick (compiler-internal stores)
 	OP_PUSH_INT                                                   // Push int64 immediate [value:8 bytes big-endian]
-	OP_SCATTER_TAKE                                               // Scatter element [listVar,cursorVar,targetVar,step]: target = list[cursor]; cursor += 1 (step 0) or -= 1 (step 1)
+	OP_SCATTER_TAKE                                               // DEAD: OP_SCATTER binds every target itself (never emitted by compiler)
 	OP_FOR_LIST_CHECK_WIDE                                        // for-in condition [idxVar,lenVar,exitOffset:uint32]: FOR_RANGE_CHECK_WIDE with Toast's EOP_FOR_LIST tick
 )
 
@@ -201,12 +218,30 @@ const (
 	OP_FOR_LIST_LOAD_VALUE                                            // [valuesVar,cursorVar,valueVar]
 )
 
-// TicksUnchecked marks an OP_TICKS charge that, like a Toast extended opcode
-// at or above EOP_CATCH, decrements the budget without testing it.
+// Keyed access to a map-valued property, so the store can track the entry a
+// task reads or writes rather than the whole value (db/store/store_txn_mapkeys.go).
+// Each stands for the Toast opcode named and charges what it charges; the
+// property name is a static constant [index:short].
+const (
+	OP_GET_PROP_KEYED   OpCode = OP_FOR_LIST_LOAD_VALUE + 1 + iota // obj.prop of obj.prop[key] (OP_PUSH_GET_PROP): pop obj; push obj, obj.prop
+	OP_INDEX_KEYED                                                 // [key] of obj.prop[key] (OP_REF): pop key, coll, obj; push coll[key]
+	OP_GET_PROP_KEYBASE                                            // obj.prop of obj.prop[key] = v (OP_PUSH_GET_PROP): pop obj; push obj.prop
+	OP_SET_PROP_KEYED                                              // writeback of obj.prop[key] = v (OP_PUT_PROP): pop obj, key, value; set obj.prop
+)
+
+// Loop exits carry an absolute target and the number of enclosing handlers
+// retained at that target. Ordinary branches keep their historical meaning.
+const OP_UNWIND_JUMP OpCode = OP_SET_PROP_KEYED + 1
+
+// TicksUnchecked is a retired OP_TICKS flag bit. It marked a charge that,
+// like a Toast extended opcode before 2.8, decremented the budget without
+// testing it. The compiler no longer sets it; bytecode persisted with
+// suspended tasks may still carry it, and PrefixTicks ignores it.
 const TicksUnchecked byte = 0x80
 
 // OpCodeNames maps opcodes to their string names for debugging
 var OpCodeNames = map[OpCode]string{
+	OP_UNWIND_JUMP:           "UNWIND_JUMP",
 	OP_PUSH:                  "PUSH",
 	OP_POP:                   "POP",
 	OP_DUP:                   "DUP",
@@ -247,14 +282,14 @@ var OpCodeNames = map[OpCode]string{
 	OP_FOR_LIST_LOAD:         "FOR_LIST_LOAD",
 	OP_FOR_LIST_LOAD_KV:      "FOR_LIST_LOAD_KV",
 	OP_FOR_RANGE_NEXT:        "FOR_RANGE_NEXT",
-	OP_BREAK:                 "DEAD_BREAK",
+	OP_PUSH_WIDE:             "PUSH_WIDE",
 	OP_CONTINUE:              "DEAD_CONTINUE",
 	OP_TRY_EXCEPT:            "TRY_EXCEPT",
 	OP_END_EXCEPT:            "END_EXCEPT",
 	OP_TRY_FINALLY:           "TRY_FINALLY",
 	OP_END_FINALLY:           "END_FINALLY",
 	OP_CATCH:                 "DEAD_CATCH",
-	OP_RAISE:                 "DEAD_RAISE",
+	OP_MAPHASKEY_KEYED:       "MAPHASKEY_KEYED",
 	OP_CALL_BUILTIN:          "CALL_BUILTIN",
 	OP_CALL_VERB:             "CALL_VERB",
 	OP_SCATTER:               "SCATTER",
@@ -298,12 +333,16 @@ var OpCodeNames = map[OpCode]string{
 	OP_TICKS:                 "TICKS",
 	OP_SET_LOCAL:             "SET_LOCAL",
 	OP_PUSH_INT:              "PUSH_INT",
-	OP_SCATTER_TAKE:          "SCATTER_TAKE",
+	OP_SCATTER_TAKE:          "DEAD_SCATTER_TAKE",
 	OP_FOR_LIST_CHECK_WIDE:   "FOR_LIST_CHECK_WIDE",
 	OP_CALL_BUILTIN_WIDE:     "CALL_BUILTIN_WIDE",
 	OP_ITER_PREP_COLUMNS:     "ITER_PREP_COLUMNS",
 	OP_FOR_LIST_LOAD_COLUMNS: "FOR_LIST_LOAD_COLUMNS",
 	OP_FOR_LIST_LOAD_VALUE:   "FOR_LIST_LOAD_VALUE",
+	OP_GET_PROP_KEYED:        "GET_PROP_KEYED",
+	OP_INDEX_KEYED:           "INDEX_KEYED",
+	OP_GET_PROP_KEYBASE:      "GET_PROP_KEYBASE",
+	OP_SET_PROP_KEYED:        "SET_PROP_KEYED",
 }
 
 // String returns the name of an opcode
@@ -332,19 +371,29 @@ func instructionOperandCount(op OpCode, remaining []byte) int {
 		return 8
 	case OP_AND, OP_OR, OP_JUMP, OP_JUMP_IF_FALSE, OP_JUMP_IF_TRUE, OP_LOOP,
 		OP_TRY_FINALLY, OP_END_FINALLY, OP_GET_PROP_WIDE, OP_SET_PROP_WIDE,
-		OP_CALL_BUILTIN, OP_CALL_VERB:
+		OP_CALL_BUILTIN, OP_CALL_VERB, OP_PUSH_WIDE,
+		OP_GET_PROP_KEYED, OP_INDEX_KEYED, OP_GET_PROP_KEYBASE, OP_SET_PROP_KEYED:
 		return 2
 	case OP_AND_WIDE, OP_OR_WIDE, OP_JUMP_WIDE, OP_JUMP_IF_FALSE_WIDE,
 		OP_JUMP_IF_TRUE_WIDE, OP_LOOP_WIDE, OP_TRY_FINALLY_WIDE, OP_END_FINALLY_WIDE:
 		return 4
-	case OP_SCATTER, OP_FORK, OP_CALL_VERB_WIDE, OP_CALL_BUILTIN_WIDE, OP_FOR_LIST_LOAD_VALUE:
+	case OP_FORK, OP_CALL_VERB_WIDE, OP_CALL_BUILTIN_WIDE, OP_FOR_LIST_LOAD_VALUE:
 		return 3
+	case OP_SCATTER:
+		// targets, required, rest position, then a local and a flag per target.
+		if len(remaining) == 0 {
+			return 3
+		}
+		return 3 + 2*int(remaining[0])
+	case OP_MAPHASKEY_KEYED:
+		return 4
 	case OP_FORK_WIDE, OP_FOR_LIST_LOAD_COLUMNS:
 		return 5
 	case OP_FORK_LOCAL_WIDE:
 		return 6
-	case OP_FOR_RANGE_CHECK, OP_FOR_RANGE_NEXT, OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV,
-		OP_SCATTER_TAKE:
+	case OP_UNWIND_JUMP:
+		return 6
+	case OP_FOR_RANGE_CHECK, OP_FOR_RANGE_NEXT, OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV:
 		return 4
 	case OP_FOR_RANGE_CHECK_WIDE, OP_FOR_RANGE_NEXT_WIDE, OP_FOR_LIST_CHECK_WIDE:
 		return 6
@@ -394,18 +443,17 @@ func MakeImmediateOpcode(value int) (OpCode, bool) {
 }
 
 // Tick accounting follows ToastStunt (src/include/opcode.h): every executed
-// opcode numbered at or below OP_G_PUT costs one tick, tested against the
-// budget before the opcode runs (COUNT_TICK, execute.cc), and every extended
-// opcode at or above EOP_CATCH costs one tick that is subtracted without the
-// test (COUNT_EOP_TICK). Each Barn opcode is charged what the Toast opcodes it
-// implements would charge. Compiler-synthesized helper instructions that have
-// no Toast counterpart are either tick-free opcodes (OP_SET_LOCAL,
-// OP_SCATTER_TAKE, OP_PUSH_INT) or carry an OP_TICKS prefix.
+// opcode numbered at or below OP_G_PUT (COUNT_TICK) and every extended opcode
+// at or above EOP_CATCH (COUNT_EOP_TICK) costs one tick, tested against the
+// budget before the opcode runs (execute.cc; extended opcodes since 2.8,
+// fdfa9ae). Each Barn opcode is charged what the Toast opcodes it implements
+// would charge. Compiler-synthesized helper instructions that have no Toast
+// counterpart are either tick-free opcodes (OP_SET_LOCAL, OP_PUSH_INT) or
+// carry an OP_TICKS prefix.
 const (
-	tickFree      uint8 = iota // no tick
-	tickOne                    // one checked tick (Toast COUNT_TICK opcode)
-	tickUnchecked              // one unchecked tick (Toast COUNT_EOP_TICK opcode)
-	tickDynamic                // cost depends on operands; see dynamicTicks
+	tickFree    uint8 = iota // no tick
+	tickOne                  // one tick (a Toast COUNT_TICK or COUNT_EOP_TICK opcode)
+	tickDynamic              // cost depends on operands; see DynamicTicks
 )
 
 var tickTable = func() (t [256]uint8) {
@@ -415,6 +463,7 @@ var tickTable = func() (t [256]uint8) {
 		// OP_GET_PROP / OP_PUSH_GET_PROP / OP_PUT_PROP
 		OP_GET_PROP, OP_SET_PROP, OP_GET_PROP_DYNAMIC, OP_SET_PROP_DYNAMIC,
 		OP_GET_PROP_WIDE, OP_SET_PROP_WIDE,
+		OP_GET_PROP_KEYED, OP_GET_PROP_KEYBASE, OP_SET_PROP_KEYED,
 		// arithmetic, comparison, logic, unary
 		OP_ADD, OP_STRING_APPEND, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_NEG,
 		OP_EQ, OP_NE, OP_LT, OP_LE, OP_GT, OP_GE, OP_IN, OP_NOT,
@@ -424,19 +473,15 @@ var tickTable = func() (t [256]uint8) {
 		// OP_FOR_RANGE (the per-iteration test)
 		OP_FOR_RANGE_CHECK, OP_FOR_RANGE_CHECK_WIDE,
 		// OP_REF / OP_INDEXSET / OP_RANGE_REF / OP_CHECK_LIST_FOR_SPLICE
-		OP_INDEX, OP_INDEX_SET, OP_RANGE, OP_SPLICE,
+		OP_INDEX, OP_INDEX_SET, OP_RANGE, OP_SPLICE, OP_INDEX_KEYED,
 		// OP_FORK / OP_FORK_WITH_ID
 		OP_FORK, OP_FORK_WIDE, OP_FORK_LOCAL_WIDE,
-	} {
-		t[op] = tickOne
-	}
-	for _, op := range []OpCode{
 		// EOP_EXP and the bitwise extended opcodes
 		OP_POW, OP_BITOR, OP_BITAND, OP_BITXOR, OP_BITNOT, OP_SHL, OP_SHR,
 		// EOP_SCATTER, EOP_TRY_FINALLY, EOP_FOR_LIST_1/2
 		OP_SCATTER, OP_TRY_FINALLY, OP_TRY_FINALLY_WIDE, OP_FOR_LIST_CHECK_WIDE,
 	} {
-		t[op] = tickUnchecked
+		t[op] = tickOne
 	}
 	for _, op := range []OpCode{
 		OP_CALL_BUILTIN, OP_CALL_BUILTIN_WIDE, OP_PASS, OP_CALL_VERB, OP_CALL_VERB_DYNAMIC, OP_CALL_VERB_WIDE,
@@ -448,14 +493,20 @@ var tickTable = func() (t [256]uint8) {
 }()
 
 // InstructionTicks returns the ticks charged by the instruction at code[ip]
-// (whose opcode is op), split into ticks tested against the budget before the
-// instruction runs and ticks subtracted without that test. OP_TICKS prefixes
-// are handled by the caller.
-func InstructionTicks(op OpCode, code []byte, ip int) (checked, unchecked int64) {
+// (whose opcode is op), all tested against the budget before the instruction
+// runs. OP_TICKS prefixes are handled by the caller (PrefixTicks).
+func InstructionTicks(op OpCode, code []byte, ip int) int64 {
 	if kind := tickTable[op]; kind != TickDynamic {
 		return StaticTicks(kind)
 	}
 	return DynamicTicks(op, code, ip)
+}
+
+// PrefixTicks returns the charge an OP_TICKS prefix with operand b states. The
+// retired TicksUnchecked bit, still present in bytecode persisted with
+// suspended tasks, is ignored: that charge is tested like any other.
+func PrefixTicks(b byte) int64 {
+	return int64(b &^ TicksUnchecked)
 }
 
 // TickDynamic is the TickKind of an opcode whose charge depends on its
@@ -467,30 +518,32 @@ const TickDynamic = tickDynamic
 // combined InstructionTicks is too large to inline.
 func TickKind(op OpCode) uint8 { return tickTable[op] }
 
-// StaticTicks decodes a non-dynamic TickKind (free = 0, one checked = 1, one
-// unchecked = 2).
-func StaticTicks(kind uint8) (checked, unchecked int64) {
-	return int64(kind & tickOne), int64(kind >> 1)
+// StaticTicks decodes a non-dynamic TickKind (free = 0, one = 1).
+func StaticTicks(kind uint8) int64 {
+	return int64(kind)
 }
 
 // DynamicTicks returns the charge of an opcode whose TickKind is TickDynamic.
-func DynamicTicks(op OpCode, code []byte, ip int) (checked, unchecked int64) {
+func DynamicTicks(op OpCode, code []byte, ip int) int64 {
 	switch op {
 	case OP_CALL_BUILTIN, OP_CALL_VERB:
 		// OP_BI_FUNC_CALL / OP_CALL_VERB, plus MAKE_SINGLETON_LIST or
 		// CHECK_LIST_FOR_SPLICE for a nonempty argument list (0xFF = spliced).
-		return 1 + nonzero(code[ip+2]), 0
+		return 1 + nonzero(code[ip+2])
 	case OP_CALL_VERB_WIDE, OP_CALL_BUILTIN_WIDE:
-		return 1 + nonzero(code[ip+3]), 0
+		return 1 + nonzero(code[ip+3])
 	case OP_PASS, OP_CALL_VERB_DYNAMIC:
-		return 1 + nonzero(code[ip+1]), 0
+		return 1 + nonzero(code[ip+1])
 	case OP_MAKE_LIST:
 		// A list literal charges MAKE_SINGLETON_LIST once for its first element.
-		return nonzero(code[ip+1]), 0
+		return nonzero(code[ip+1])
 	case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE, OP_TRY_EXCEPT_LOCAL_WIDE:
-		// Each arm with an explicit code list builds it (one checked
+		// Each arm with an explicit code list builds it (one
 		// MAKE_SINGLETON_LIST or CHECK_LIST_FOR_SPLICE; ANY is a free
-		// immediate), then EOP_TRY_EXCEPT / EOP_CATCH ticks unchecked.
+		// immediate), then EOP_TRY_EXCEPT / EOP_CATCH ticks once. An
+		// ExceptCodesInLocal arm's list was built, and charged, by the
+		// instructions that evaluated it. None of these has an effect
+		// visible after an abort, so the charge is tested as one.
 		varBytes, ipBytes := 1, 2
 		if op != OP_TRY_EXCEPT {
 			ipBytes = 4
@@ -501,16 +554,17 @@ func DynamicTicks(op OpCode, code []byte, ip int) (checked, unchecked int64) {
 		pos := ip + 1
 		clauses := int(code[pos])
 		pos++
+		ticks := int64(1)
 		for clause := 0; clause < clauses; clause++ {
 			codes := int(code[pos])
-			if codes != 0 {
-				checked++
+			if codes != 0 && !clauseCodesInLocal(code[pos:]) {
+				ticks++
 			}
 			pos += 1 + codes + varBytes + ipBytes
 		}
-		return checked, 1
+		return ticks
 	}
-	return 0, 0
+	return 0
 }
 
 func nonzero(b byte) int64 {

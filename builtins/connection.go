@@ -1,11 +1,15 @@
 package builtins
 
 import (
+	"context"
+	"errors"
 	"sort"
+	"strings"
+	"syscall"
+	"time"
 
 	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/internal/listener"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -34,10 +38,15 @@ func builtinRead(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Check player is connected
-	if cm := hostOf(ctx).ConnManager; cm == nil || cm.GetConnection(player) == nil {
+	cm := hostOf(ctx).ConnManager
+	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if ctx.Session.HasPendingHTTPRead(player) || ctx.Session.heldInputEnabled(player) {
+	conn := cm.GetConnection(player)
+	if conn == nil {
+		return types.Err(types.E_INVARG)
+	}
+	if ctx.Session.HasPendingHTTPRead(player) || ctx.Session.heldInputEnabled(conn.ConnectionID()) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -64,7 +73,7 @@ func builtinRead(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 
 	return types.Suspend(-1)
 }
@@ -112,11 +121,10 @@ func inputReceipt(ctx *Execution) func() {
 }
 
 func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Result {
-	// The no-argument form describes the current connection and therefore uses
-	// Player as its default target, never as an authority source.
+	// The no-argument form reports the cached maximum output buffer size.
 	target := ctx.Player
 	if len(args) == 0 {
-		return types.Ok(types.NewInt(65536))
+		return types.Ok(types.NewInt(ctx.Session.maxQueuedOutputFor(ctx.Context)))
 	}
 	if len(args) == 1 {
 		if !isObjectRef(args[0]) {
@@ -133,19 +141,25 @@ func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Resul
 		return types.Err(types.E_INVARG)
 	}
 
+	return types.Ok(types.NewInt(int64(queuedOutputLength(ctx, conn, target))))
+}
+
+// queuedOutputLength counts the MOO output bytes queued for target: the
+// connection's buffer plus this task's deferred notifications to target.
+func queuedOutputLength(ctx *Execution, conn Connection, target types.ObjID) int {
 	length := conn.BufferedOutputLength()
 	if ctx != nil {
 		for _, effect := range ctx.PendingEffects {
-			if effect.Kind != kernel.PendingEffectNotification {
+			if effect.Kind != task.PendingEffectNotification {
 				continue
 			}
 			note := effect.Notification
 			if note.Player == target {
-				length++
+				length += note.ByteLength()
 			}
 		}
 	}
-	return types.Ok(types.NewInt(int64(length)))
+	return length
 }
 
 func builtinConnectionOptions(ctx *Execution, args []types.Value) types.Result {
@@ -156,7 +170,8 @@ func builtinConnectionOptions(ctx *Execution, args []types.Value) types.Result {
 	if !ctx.IsWizard && target != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
-	if resolveConnection(ctx, target) == nil {
+	conn := resolveConnection(ctx, target)
+	if conn == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -168,14 +183,14 @@ func builtinConnectionOptions(ctx *Execution, args []types.Value) types.Result {
 		if !validConnectionOption(name) {
 			return types.Err(types.E_INVARG)
 		}
-		value, ok := ctx.Session.getConnectionOption(target, name)
+		value, ok := ctx.Session.getConnectionOption(conn.ConnectionID(), name)
 		if !ok {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Ok(value)
 	}
 
-	options := ctx.Session.getConnectionOptions(target)
+	options := ctx.Session.getConnectionOptions(conn.ConnectionID())
 	names := make([]string, 0, len(options))
 	for name := range options {
 		names = append(names, name)
@@ -239,6 +254,11 @@ func builtinListen(ctx *Execution, args []types.Value) types.Result {
 		Object:   args[0].Obj(),
 		Port:     port,
 	}
+	// Toast (server.cc bf_listen) looks option keys up without regard to case
+	// and reads "TLS", "certificate" and "key" in that order; a non-string
+	// path leaves its message, the key's last.
+	useTLS := false
+	pathMessage := ""
 	if len(args) >= 3 {
 		if args[2].Type() != types.TYPE_MAP {
 			return types.Err(types.E_TYPE)
@@ -247,7 +267,9 @@ func builtinListen(ctx *Execution, args []types.Value) types.Result {
 			if pair[0].Type() != types.TYPE_STR {
 				continue
 			}
-			switch pair[0].Str() {
+			switch strings.ToLower(pair[0].Str()) {
+			case "tls":
+				useTLS = pair[1].Truthy()
 			case "print-messages":
 				spec.PrintMessages = pair[1].Truthy()
 			case "ipv6":
@@ -272,15 +294,35 @@ func builtinListen(ctx *Execution, args []types.Value) types.Result {
 				spec.Path = pair[1].Str()
 			case "certificate":
 				if pair[1].Type() != types.TYPE_STR {
-					return types.Err(types.E_TYPE)
+					if pathMessage == "" {
+						pathMessage = "Certificate path should be a string"
+					}
+					continue
 				}
 				spec.TLSCertificatePath = pair[1].Str()
 			case "key":
 				if pair[1].Type() != types.TYPE_STR {
-					return types.Err(types.E_TYPE)
+					pathMessage = "Private key path should be a string"
+					continue
 				}
 				spec.TLSKeyPath = pair[1].Str()
 			}
+		}
+	}
+	if pathMessage != "" {
+		return types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_INVARG,
+			Val:   types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr(pathMessage), types.NewInt(0)}),
+		}
+	}
+	if spec.Protocol == listener.ProtocolTCP {
+		if useTLS {
+			spec.Protocol = listener.ProtocolTLS
+		} else {
+			// Toast uses certificate and key only on a TLS listener.
+			spec.TLSCertificatePath = ""
+			spec.TLSKeyPath = ""
 		}
 	}
 
@@ -332,6 +374,38 @@ func builtinOpenNetworkConnection(ctx *Execution, args []types.Value) types.Resu
 	if port <= 0 || port > 65535 {
 		return types.Err(types.E_INVARG)
 	}
+	request := OutboundConnection{Host: args[0].Str(), Port: port}
+	// Toast (server.cc bf_open_network_connection) reads the option keys
+	// without regard to case, before it checks that outbound connections are
+	// enabled. "tls_verify" is read there but never used, so it is not read
+	// here.
+	if len(args) == 3 {
+		var listenerValue types.Value
+		for _, pair := range args[2].Pairs() {
+			if pair[0].Type() != types.TYPE_STR {
+				continue
+			}
+			switch strings.ToLower(pair[0].Str()) {
+			case "tls":
+				request.TLS = pair[1].Truthy()
+			case "ipv6":
+				request.IPv6 = pair[1].Truthy()
+			case "listener":
+				listenerValue = pair[1]
+				request.HasListener = true
+			}
+		}
+		if request.HasListener {
+			if listenerValue.Type() != types.TYPE_OBJ {
+				return types.Result{
+					Flow:  types.FlowException,
+					Error: types.E_TYPE,
+					Val:   types.NewList([]types.Value{types.NewErr(types.E_TYPE), types.NewStr("listener should be an object"), listenerValue}),
+				}
+			}
+			request.Listener = listenerValue.Obj()
+		}
+	}
 	if !ctx.RuntimeOptions.OutboundNetwork {
 		return types.Err(types.E_PERM)
 	}
@@ -339,11 +413,53 @@ func builtinOpenNetworkConnection(ctx *Execution, args []types.Value) types.Resu
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
-	conn, err := cm.OpenNetworkConnection(args[0].Str(), port)
+	request.Timeout = outboundConnectTimeout(ctx)
+	conn, err := cm.OpenNetworkConnection(request)
+	var handshakeErr *TLSHandshakeError
+	if errors.As(err, &handshakeErr) {
+		// network.cc open_connection: make_raise_pack(E_INVARG,
+		// "TLS connection failed", tls_error_msg).
+		return types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_INVARG,
+			Val:   types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr("TLS connection failed"), types.NewStr(handshakeErr.Detail)}),
+		}
+	}
+	var lookupErr *HostLookupError
+	if errors.As(err, &lookupErr) {
+		// network.cc open_connection: make_raise_pack(E_INVARG,
+		// "getaddrinfo error", gai_strerror(rv)).
+		return types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_INVARG,
+			Val:   types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr("getaddrinfo error"), types.NewStr(lookupErr.Detail)}),
+		}
+	}
 	if err != nil {
-		return types.Err(types.E_INVARG)
+		// network.cc network_open_connection: make_raise_pack(E_INVARG,
+		// "Connection failure", strerror(errno)).
+		detail := err.Error()
+		var errno syscall.Errno
+		if errors.As(err, &errno) {
+			detail = errno.Error()
+		} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			detail = syscall.ETIMEDOUT.Error()
+		}
+		return types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_INVARG,
+			Val:   types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr("Connection failure"), types.NewStr(detail)}),
+		}
 	}
 	return types.Ok(types.NewObj(conn))
+}
+
+// outboundConnectTimeout reads $server_options.outbound_connect_timeout at call
+// time with default 5, as Toast's server_int_option does; Toast passes it to
+// set_timer as an unsigned seconds count (network.cc:1122).
+func outboundConnectTimeout(ctx *Execution) time.Duration {
+	seconds := uint32(serverIntOption(ctx, "outbound_connect_timeout", 5))
+	return time.Duration(seconds) * time.Second
 }
 
 func connectionDescriptors() []Descriptor {

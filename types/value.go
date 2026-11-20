@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"unsafe"
+
+	"github.com/MongooseMoo/barn/internal/floattext"
 )
 
 // Value is a value-typed tagged union representing every MOO value.
@@ -197,22 +199,7 @@ func (v Value) String() string {
 // formatFloat renders a float in MOO/ToastStunt style: 15 significant digits
 // (printf "%.15g"), with a trailing .0 for integral values and special spellings
 // for NaN/Inf.
-func formatFloat(f float64) string {
-	if math.IsNaN(f) {
-		return "NaN"
-	}
-	if math.IsInf(f, 1) {
-		return "Inf"
-	}
-	if math.IsInf(f, -1) {
-		return "-Inf"
-	}
-	s := strconv.FormatFloat(f, 'g', 15, 64)
-	if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
-		s += ".0"
-	}
-	return s
-}
+func formatFloat(f float64) string { return floattext.Format(f) }
 
 // ---- equality ----------------------------------------------------------
 
@@ -354,6 +341,10 @@ func (v Value) Identical(other Value) bool {
 }
 
 func normalizeBinaryString(s string) string {
+	// Only a "~" can start an escape; without one the loop below copies s.
+	if strings.IndexByte(s, '~') < 0 {
+		return s
+	}
 	var result strings.Builder
 	for i := 0; i < len(s); i++ {
 		if i+2 < len(s) && s[i] == '~' {
@@ -403,9 +394,32 @@ func (v Value) Len() int {
 // ---- heap payload helpers ----------------------------------------------
 //
 // These cast the ref word back to its concrete payload pointer. They are the
-// only place unsafe.Pointer is dereferenced; every site is guarded by the tag.
+// only place unsafe.Pointer is dereferenced. Typed methods such as Str, Get
+// and MapGet call them without checking the tag themselves, so each cast
+// checks it: a caller that skipped its Type() check gets a panic instead of
+// reading one payload type as another. The check is a bounds check on a
+// one-element array: index 0 only for the expected tag, an index-out-of-range
+// panic otherwise. A panic call would put these and the typed methods built
+// on them over the inlining budget.
 
-func (v Value) strRep() *strRep       { return (*strRep)(v.ref) }
-func (v Value) sliceList() *sliceList { return (*sliceList)(v.ref) }
-func (v Value) goMap() *goMap         { return (*goMap)(v.ref) }
-func (v Value) waifRep() *waifRep     { return (*waifRep)(v.ref) }
+var payloadTag [1]struct{}
+
+func (v Value) strRep() *strRep {
+	_ = payloadTag[v.tag^TYPE_STR]
+	return (*strRep)(v.ref)
+}
+
+func (v Value) sliceList() *sliceList {
+	_ = payloadTag[v.tag^TYPE_LIST]
+	return (*sliceList)(v.ref)
+}
+
+func (v Value) goMap() *goMap {
+	_ = payloadTag[v.tag^TYPE_MAP]
+	return (*goMap)(v.ref)
+}
+
+func (v Value) waifRep() *waifRep {
+	_ = payloadTag[v.tag^TYPE_WAIF]
+	return (*waifRep)(v.ref)
+}

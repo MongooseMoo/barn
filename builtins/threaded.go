@@ -1,9 +1,23 @@
 package builtins
 
 import (
-	"github.com/MongooseMoo/barn/kernel"
+	"time"
+
+	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
+
+func runtimeIdentity(ctx *Execution) metrics.Identity {
+	if ctx.Task == nil {
+		return metrics.Identity{}
+	}
+	id := metrics.Identity{TaskID: ctx.Task.ID, This: int64(ctx.Task.This), Verb: ctx.Task.VerbName}
+	if ctx.CommandDiagnostic != nil {
+		id.CommandID = ctx.CommandDiagnostic.ID
+	}
+	return id
+}
 
 // Threaded builtins mirror ToastStunt's background_thread() (background.cc).
 // While the calling activation's thread mode is on (the default), Toast runs
@@ -15,7 +29,7 @@ import (
 // value included, is returned as is.
 //
 // Barn suspends only where the suspension is honored: a builtin called from a
-// nested VM (create()'s :initialize, for example) runs its work inline instead.
+// synchronous host VM runs its work inline instead.
 
 // threadedCall reports whether a threaded builtin called now suspends the task.
 func threadedCall(ctx *Execution) bool {
@@ -29,7 +43,7 @@ func backgroundValue(ctx *Execution, work func() types.Value) types.Result {
 		return runInBackground(ctx, func() types.Result { return types.Ok(work()) })
 	}
 	value := work()
-	if ctx.TaskContext != nil && !ctx.ThreadMode {
+	if ctx.Context != nil && !ctx.ThreadMode {
 		return types.Ok(value)
 	}
 	// Toast would suspend here but this call cannot, so it gets what the
@@ -65,16 +79,26 @@ func runInBackground(ctx *Execution, operation func() types.Result) types.Result
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 	gen := t.SuspendGeneration()
+	id := runtimeIdentity(ctx) // Capture before the task can resume on another goroutine.
 	start := func() {
 		go func() {
+			metrics.AsyncStarted.Add(1)
+			metrics.RuntimeEvent("start", id, gen, false)
+			started := time.Now()
 			result := operation()
+			metrics.ObserveRuntime(metrics.AsyncWork, id, time.Since(started), 0)
+			value := result.Val
 			if result.IsError() {
-				_ = t.ResumeGeneration(gen, types.NewErr(result.Error))
-				return
+				value = types.NewErr(result.Error)
 			}
-			_ = t.ResumeGeneration(gen, result.Val)
+			accepted := t.ResumeGeneration(gen, value)
+			metrics.AsyncCompleted.Add(1)
+			if !accepted {
+				metrics.AsyncRejected.Add(1)
+			}
+			metrics.RuntimeEvent("complete", id, gen, accepted)
 		}()
 	}
 	if readTxn(ctx).IsDirect() {
@@ -83,7 +107,7 @@ func runInBackground(ctx *Execution, operation func() types.Result) types.Result
 		// start now, exactly as notify() sends immediately on this path.
 		start()
 	} else {
-		enqueuePendingEffect(ctx, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: start})
+		enqueuePendingEffect(ctx, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: start})
 	}
 	return types.Suspend(-1)
 }

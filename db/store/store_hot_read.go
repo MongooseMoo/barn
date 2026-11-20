@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -36,8 +37,12 @@ import (
 // slots the stale lookup read for the first time are not carried: the task has
 // used nothing from that lookup, which is repeated on S1.
 //
+// Keyed map state (store_txn_mapkeys.go) is carried per key: its entries are
+// validated like any carried read, and a slot written only by keyed assignments
+// is re-staged without a whole read, so commit still rebases it onto the live map.
+//
 // Renewal is declined unless the only writes staged are property values, and is
-// refused when a carried read is stale. Either way the task keeps the
+// refused when a carried read is stale or a keyed assignment is in flight. Either way the task keeps the
 // transaction it had and proceeds exactly as it would have without this file.
 
 const (
@@ -58,6 +63,11 @@ type hotProperties struct {
 	events uint32
 	// set is the hot keys, replaced wholesale so readers load it lock-free.
 	set atomic.Pointer[map[propertyReadKey]struct{}]
+	// renewals, refusals and declines count what renewing a transaction at a
+	// stale hot read did (HotReadStats).
+	renewals atomic.Uint64
+	refusals atomic.Uint64
+	declines atomic.Uint64
 }
 
 // noteHotProperty scores one lost validation on key, or one stale read of it
@@ -135,7 +145,7 @@ func (s *Store) MarkHotProperty(objID types.ObjID, name string) {
 // because a carried read was stale too, and renewals declined because the
 // transaction had staged something other than property values.
 func (s *Store) HotReadStats() (renewed, refused, declined uint64) {
-	return s.hotReadRenewals.Load(), s.hotReadRefusals.Load(), s.hotReadDeclines.Load()
+	return s.hotProps.renewals.Load(), s.hotProps.refusals.Load(), s.hotProps.declines.Load()
 }
 
 // FindPropertyRenewing is FindProperty for a caller that can replace its
@@ -143,17 +153,43 @@ func (s *Store) HotReadStats() (renewed, refused, declined uint64) {
 // renewed one (tx is then released) when this lookup read a hot property at a
 // superseded version and tx could be moved to the current clock.
 func (tx *StoreTxn) FindPropertyRenewing(objID types.ObjID, name string) (PropertyView, types.ErrorCode, *StoreTxn) {
+	return tx.findPropertyRenewing(objID, nil, name)
+}
+
+// FindLivePropertyRenewing is ObjectExists(objID) and then, when objID exists,
+// FindPropertyRenewing(objID, name), with one fetch of objID for both. A
+// missing or recycled objID returns ObjectExists's code and tx.
+func (tx *StoreTxn) FindLivePropertyRenewing(objID types.ObjID, name string) (PropertyView, types.ErrorCode, *StoreTxn) {
+	obj, ec := tx.existingObject(objID)
+	if ec != types.E_NONE {
+		return PropertyView{}, ec, tx
+	}
+	return tx.findPropertyRenewing(objID, obj, name)
+}
+
+// findPropertyRenewing is FindPropertyRenewing given root, tx's view of objID,
+// or nil to fetch it.
+func (tx *StoreTxn) findPropertyRenewing(objID types.ObjID, root *Object, name string) (PropertyView, types.ErrorCode, *StoreTxn) {
 	if tx.direct || len(tx.store.hotPropertySet()) == 0 {
-		view, errCode := tx.FindProperty(objID, name)
-		return view, errCode, tx
+		prop, actualName, errCode := tx.findPropertyFrom(objID, root, name)
+		if errCode != types.E_NONE {
+			return PropertyView{}, errCode, tx
+		}
+		return prop.View(actualName), types.E_NONE, tx
 	}
 	tx.newReads = tx.newReads[:0]
 	tx.trackNewReads = true
-	prop, actualName, errCode := tx.findProperty(objID, name)
+	prop, actualName, errCode := tx.findPropertyFrom(objID, root, name)
 	tx.trackNewReads = false
+	newReads := tx.newReads
 	if next := tx.renewAtStaleHotRead(); next != nil {
 		tx = next
+		// root is the old transaction's view; the renewed one fetches its own.
 		prop, actualName, errCode = tx.findProperty(objID, name)
+	}
+	if tx.diag != nil && len(newReads) > 0 {
+		// The renewed transaction read the same slots again at its clock.
+		tx.diag.noteHotReads(newReads, tx.store.hotPropertySet())
 	}
 	if errCode != types.E_NONE {
 		return PropertyView{}, errCode, tx
@@ -196,17 +232,34 @@ func (tx *StoreTxn) renewAtStaleHotRead() *StoreTxn {
 		}
 	}
 	if !tx.onlyPropertyValuesStaged() {
-		s.hotReadDeclines.Add(1)
+		s.hotProps.declines.Add(1)
+		if tx.diag != nil {
+			s.noteHotReadOutcome(staleKey, hotReadDeclined)
+		}
 		debugHotRead("declined", staleKey)
 		return nil
 	}
 	next := tx.renewAtCurrentClock(tx.newReads)
 	if next == nil {
-		s.hotReadRefusals.Add(1)
+		s.hotProps.refusals.Add(1)
+		if tx.diag != nil {
+			s.noteHotReadOutcome(staleKey, hotReadRefused)
+		}
 		debugHotRead("refused", staleKey)
 		return nil
 	}
-	s.hotReadRenewals.Add(1)
+	s.hotProps.renewals.Add(1)
+	if tx.diag != nil {
+		s.noteHotReadOutcome(staleKey, hotReadRenewed)
+	}
+	if next.diag != nil {
+		for _, key := range tx.newReads {
+			if _, isHot := hot[key]; isHot {
+				next.diag.noteRenewed(key)
+			}
+		}
+	}
+	isolationprobe.Note("hot_renewal")
 	debugHotRead("renewed", staleKey)
 	return next
 }
@@ -224,8 +277,8 @@ func (tx *StoreTxn) onlyPropertyValuesStaged() bool {
 	return !tx.direct && !tx.gateExempt && !tx.liveMutated && !tx.validationFail &&
 		tx.terminalErr == types.E_NONE && !tx.privateVerbShape &&
 		len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 &&
-		len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 &&
-		len(tx.verbDeletes) == 0 && len(tx.createdObjects) == 0 && len(tx.recycleWrites) == 0
+		len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyRenames) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 &&
+		len(tx.verbDeletes) == 0 && len(tx.createdObjects) == 0 && len(tx.recycleWrites) == 0 && len(tx.taskWrites) == 0
 }
 
 // renewAtCurrentClock returns a transaction at the current clock that carries
@@ -233,12 +286,23 @@ func (tx *StoreTxn) onlyPropertyValuesStaged() bool {
 // values. tx is released. It returns nil, leaving tx as it was, when a carried
 // read is no longer current or the staging does not come out the same.
 func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
+	for _, st := range tx.mapKeys {
+		if st.hasPendingBase {
+			// The writeback of a keyed assignment in flight would find a slot that
+			// no longer holds its base and stage a whole write built on the old map.
+			return nil
+		}
+	}
 	s := tx.store
 	next := s.BeginSnapshot(0)
-	// A memoized verb resolution holds while no verb shape has changed since the
-	// snapshot it was made on; next's own commit covers changes after its own.
+	// A memoized verb or property resolution holds while no verb or property
+	// shape has changed since the snapshot it was made on; next's own commit
+	// covers changes after its own.
 	// max_object() and the like answer from the watermarks without a read mark.
-	if (tx.usedVerbMemo && s.verbShapeChangeTS.Load() > tx.readTS) ||
+	verbMemoStale := tx.usedVerbMemo && s.dispatch.shapeChangeTS.Load() > tx.readTS
+	memoGuardBypassed := verbMemoStale && isolationprobe.Fault("hot-memo-guard")
+	if (verbMemoStale && !memoGuardBypassed) ||
+		(tx.usedPropMemo && s.props.shapeChangeTS.Load() > tx.readTS) ||
 		next.maxObjID != tx.maxObjID || next.highWaterID != tx.highWaterID {
 		next.Release()
 		return nil
@@ -253,9 +317,35 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	next.propertyShapeScans = maps.Clone(tx.propertyShapeScans)
 	next.verbReads = maps.Clone(tx.verbReads)
 	next.verbScans = maps.Clone(tx.verbScans)
+	next.taskReads = maps.Clone(tx.taskReads)
+	next.externalRead, next.externalEpoch = tx.externalRead, tx.externalEpoch
+	// The carried reads were made on tx's snapshot; keep the earlier hold clock.
+	if tx.overlapsHold {
+		if !next.overlapsHold || tx.holdClock < next.holdClock {
+			next.holdClock = tx.holdClock
+		}
+		next.overlapsHold = true
+	}
 	next.usedVerbMemo = tx.usedVerbMemo
 	next.verbMemoDisabled = tx.verbMemoDisabled
 	next.verbMemoHits = slices.Clone(tx.verbMemoHits)
+	next.usedPropMemo = tx.usedPropMemo
+	next.propMemoDisabled = tx.propMemoDisabled
+	next.propMemoHits = slices.Clone(tx.propMemoHits)
+	if tx.diag != nil && next.diag != nil {
+		// The slots in drop are read again at the new clock.
+		tx.diag.carryOrigin(next.diag)
+		next.diag.point = tx.diag.point
+		next.diag.renewed = maps.Clone(tx.diag.renewed)
+		next.diag.degraded = maps.Clone(tx.diag.degraded)
+		next.diag.readSites, next.diag.readValues = maps.Clone(tx.diag.readSites), maps.Clone(tx.diag.readValues)
+		for _, key := range drop {
+			delete(next.diag.readSites, key)
+			delete(next.diag.readValues, key)
+		}
+		// Hot slots carry; a detection does not, since next's reads are current.
+		next.diag.hotReads = slices.Clone(tx.diag.hotReads)
+	}
 	// A WAIF image is carried with what tx staged on it. Validation below
 	// checks that its base is still the live image, so the staged properties
 	// are the same change made to the same image at the new clock.
@@ -265,13 +355,31 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 			next.waifs[id] = &waifTxnImage{value: image.value, base: image.base, staged: maps.Clone(image.staged)}
 		}
 	}
+	// Keyed dependencies and writes are carried per key; validateReads checks the
+	// carried entries at the new clock.
+	for rkey, st := range tx.mapKeys {
+		c := *st
+		c.reads, c.written = slices.Clone(st.reads), slices.Clone(st.written)
+		if isolationprobe.Fault("hot-map-carry") {
+			c.reads = nil // omit the observations made before the hot renewal
+		}
+		// With nothing written, next sees the slot as it is at the new clock, so an
+		// entry read from here on is told from the snapshot's by that map. The
+		// version stays: a degrade then records a whole read at the original.
+		if obj := next.object(rkey.objID); len(c.written) == 0 && validLiveObject(obj) {
+			if _, prop, ok := obj.properties.find(rkey.name); ok {
+				c.baseline = prop.value
+			}
+		}
+		lazySet(&next.mapKeys, rkey, &c)
+	}
 	if next.validateReads() != types.E_NONE {
 		s.noteRefusedRenewal(next.conflicts)
 		next.Release()
 		return nil
 	}
 	for key, write := range tx.propertyWrites {
-		if next.SetPropertyValue(key.objID, write.name, write.value) != types.E_NONE {
+		if !next.restagePropertyValue(key, write) {
 			next.Release()
 			return nil
 		}
@@ -283,8 +391,44 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	next.gateWait = tx.gateWait
 	next.commitContext = tx.commitContext
 	next.conflictLabel = tx.conflictLabel
+	if tx.diag != nil && next.diag != nil {
+		// Re-staging recorded the current site; the sites the writes were
+		// staged at are tx's.
+		for key, site := range tx.diag.writeSites {
+			lazySet(&next.diag.writeSites, key, site)
+		}
+	}
+	if memoGuardBypassed {
+		// The fault let through a renewal the guard would have refused.
+		isolationprobe.Fired("hot-memo-guard")
+	}
 	tx.Release()
 	return next
+}
+
+// restagePropertyValue stages write on tx as it was staged on the transaction
+// being renewed. A slot written only through keyed assignments is staged as
+// SetPropertyMapKey stages it, with no whole read, so commit still rebases its
+// entries onto the live map; every other write is SetPropertyValue.
+func (tx *StoreTxn) restagePropertyValue(key propertyWriteKey, write propertyWrite) bool {
+	rkey := propertyReadKey(key)
+	_, whole := tx.propertyReads[rkey]
+	if st := tx.mapKeys[rkey]; st == nil || len(st.written) == 0 || whole {
+		return tx.SetPropertyValue(key.objID, write.name, write.value) == types.E_NONE
+	}
+	obj := tx.mutableFacets(key.objID, facetProperties)
+	if !validLiveObject(obj) {
+		return false
+	}
+	actualName, prop, ok := obj.properties.find(write.name)
+	if !ok {
+		return false
+	}
+	before := prop
+	prop.value = write.value
+	obj.properties.put(actualName, prop)
+	tx.stagePropertyValue(key.objID, actualName, prop, write.value, before, true)
+	return true
 }
 
 // sameStagedPropertyValues reports whether re-staging produced the writes it

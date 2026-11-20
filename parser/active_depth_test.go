@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 )
 
 func TestActiveDepthRejectsBeforeDescendingBeyondBudget(t *testing.T) {
@@ -19,7 +19,7 @@ func TestActiveDepthRejectsBeforeDescendingBeyondBudget(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := NewParser(source)
 			program, err := p.ParseProgram()
-			if program != nil || !errors.Is(err, verb.ErrMaxNestingDepth) {
+			if program != nil || !errors.Is(err, ir.ErrMaxNestingDepth) {
 				t.Fatalf("program %v / error %v", program, err)
 			}
 			if p.current.Position.Offset > len(source)/5 {
@@ -39,7 +39,7 @@ func TestActiveDepthCombinesStatementsAndParentheses(t *testing.T) {
 			if err != nil || program == nil {
 				t.Fatalf("combined depth %d unexpectedly rejected: %v", depth, err)
 			}
-		} else if program != nil || !errors.Is(err, verb.ErrMaxNestingDepth) {
+		} else if program != nil || !errors.Is(err, ir.ErrMaxNestingDepth) {
 			t.Fatalf("combined depth %d accepted: %v / %v", depth, program, err)
 		}
 	}

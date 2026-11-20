@@ -37,10 +37,10 @@ func TestWaifPruneUnchangedFloorDoesNotTakePublicationLock(t *testing.T) {
 	}
 	waifNumber(t, old, w, 0)
 	old.Release()
-	if len(s.waifHistory) != 0 {
+	if len(s.waifs.history) != 0 {
 		t.Fatal("last old reader did not promptly prune retained history")
 	}
-	if _, ok := w.WaifImageAt(s.waifDomain, 16); ok {
+	if _, ok := w.WaifImageAt(s.waifs.domain, 16); ok {
 		t.Fatal("obsolete property image remains after last reader")
 	}
 }
@@ -61,10 +61,10 @@ func TestWaifPrunePublicationInvalidatesPreviouslyVisitedFloor(t *testing.T) {
 		}
 		waifNumber(t, old, w, 0)
 		old.Release()
-		if len(s.waifHistory) != 0 {
+		if len(s.waifs.history) != 0 {
 			t.Fatalf("publication %d retained history at repeated floor 100", i)
 		}
-		if _, ok := w.WaifImageAt(s.waifDomain, 10); ok {
+		if _, ok := w.WaifImageAt(s.waifs.domain, 10); ok {
 			t.Fatalf("publication %d retained obsolete image", i)
 		}
 	}

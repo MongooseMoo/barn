@@ -7,7 +7,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -86,10 +85,10 @@ func TestSavedProgramRetainsAndChecksRegistryLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := &task.VMSnapshot{MaxStackDepth: 50, Frames: []task.VMFrameSnapshot{{Program: cloned, Locals: make([]types.Value, cloned.NumLocals)}}}
-	if _, err := RestoreVMSnapshot(snapshot, dbstore.NewStore(), builtins.NewSession(core, builtins.NoHost()), kernel.NewTaskContext()); err == nil {
+	if _, err := RestoreVMSnapshot(snapshot, dbstore.NewStore(), builtins.NewSession(core, builtins.NoHost()), task.NewContext()); err == nil {
 		t.Fatal("foreign saved layout accepted")
 	}
-	if _, err := RestoreVMSnapshot(snapshot, dbstore.NewStore(), builtins.NewSession(full, builtins.NoHost()), kernel.NewTaskContext()); err != nil {
+	if _, err := RestoreVMSnapshot(snapshot, dbstore.NewStore(), builtins.NewSession(full, builtins.NoHost()), task.NewContext()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -165,7 +164,7 @@ func TestVMLegacyPassRespectsCapabilities(t *testing.T) {
 						Program: cloneProgram(program), Locals: make([]types.Value, program.NumLocals),
 						This: 1, Verb: "test_return", VerbLoc: 1, VerbDebug: debug,
 					}}}
-					machine, err := RestoreVMSnapshot(snapshot, store, builtins.NewSession(registry, builtins.NoHost()), kernel.NewTaskContext())
+					machine, err := RestoreVMSnapshot(snapshot, store, builtins.NewSession(registry, builtins.NoHost()), task.NewContext())
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -207,7 +206,7 @@ func TestVMOwnedDescriptorAdmissionParity(t *testing.T) {
 	}
 	for _, name := range []string{"eval", "pass"} {
 		session := builtins.NewSession(r, builtins.NoHost())
-		ctx := session.NewExecution(kernel.NewTaskContext(), nil)
+		ctx := session.NewExecution(task.NewContext(), nil)
 		id, _ := r.GetID(name)
 		for _, args := range [][]types.Value{nil, {types.NewInt(1)}, {types.NewStr("return 1;")}} {
 			byID := session.CallByIDWithExecution(id, ctx, args)

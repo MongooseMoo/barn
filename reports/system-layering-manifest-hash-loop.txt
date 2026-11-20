@@ -1,0 +1,26 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/profile
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkChecksumFile/config-32 20095 11932 ns/op 1.76 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/config-32 20512 11789 ns/op 1.78 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/config-32 20433 11654 ns/op 1.80 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/config-32 20563 11771 ns/op 1.78 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/config-32 20707 11617 ns/op 1.81 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/config-32 20422 11547 ns/op 1.82 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/config-32 15570 15762 ns/op 1.33 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/config-32 20557 11628 ns/op 1.80 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/config-32 20485 11672 ns/op 1.80 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/config-32 19916 11916 ns/op 1.76 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/database-32 12 19687353 ns/op 1704.36 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/database-32 10 20264946 ns/op 1655.79 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/database-32 12 19749855 ns/op 1698.97 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/database-32 12 19506721 ns/op 1720.15 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/database-32 12 19964069 ns/op 1680.74 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/database-32 12 20229014 ns/op 1658.73 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/database-32 10 20395308 ns/op 1645.20 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/database-32 12 19595899 ns/op 1712.32 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/database-32 12 19848688 ns/op 1690.51 MB/s 328 B/op 6 allocs/op
+BenchmarkChecksumFile/database-32 12 19916865 ns/op 1684.72 MB/s 328 B/op 6 allocs/op
+PASS
+ok github.com/MongooseMoo/barn/profile 5.184s

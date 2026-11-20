@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 )
 
 type checkpointIO struct {
@@ -316,6 +318,16 @@ func recoverCheckpointPair(outPath string, fs checkpointIO) (resultErr error) {
 	if err := checkCheckpointGeneration(outPath, journal.Next); err == nil {
 		return finishCheckpointPublication(outPath, generation, fs)
 	}
+	if isolationprobe.Fault("checkpoint-mixed-pair") {
+		// Deliberate defect for the Jepsen negative control: keep the next
+		// database without its WAIF identities instead of restoring a pair.
+		if database, err := hashCheckpointFile(outPath); err == nil && database.digest == journal.Next.Database {
+			if err := os.Remove(outPath + waifIdentitySidecarSuffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			return finishCheckpointPublication(outPath, generation, fs)
+		}
+	}
 	member := "next"
 	digest := journal.Next
 	if journal.Previous != nil {
@@ -342,6 +354,7 @@ func recoverCheckpointPair(outPath string, fs checkpointIO) (resultErr error) {
 			return fmt.Errorf("restore checkpoint database (saved pair %s): %w", source, err)
 		}
 		if digest.HasSidecar {
+			isolationprobe.Pause(isolationprobe.CheckpointRecoveryDatabaseRestored, outPath, outPath+checkpointJournalSuffix, generation, restored)
 			if err := fs.rename(restored+waifIdentitySidecarSuffix, outPath+waifIdentitySidecarSuffix); err != nil {
 				return fmt.Errorf("restore checkpoint sidecar (saved pair %s): %w", source, err)
 			}
@@ -367,12 +380,18 @@ func publishHashedCheckpointPair(outPath, tempPath string, staged checkpointGene
 	if err != nil {
 		return fmt.Errorf("prepare checkpoint recovery (staged pair %s, recovery directory %s): %w", tempPath, generation, err)
 	}
+	artifacts := []string{outPath, tempPath, outPath + checkpointJournalSuffix, generation}
+	isolationprobe.Pause(isolationprobe.CheckpointJournalPublished, artifacts...)
 	publishErr := fs.rename(tempPath, outPath)
 	if publishErr == nil {
+		isolationprobe.Pause(isolationprobe.CheckpointDatabaseRenamed, artifacts...)
 		publishErr = fs.rename(tempPath+waifIdentitySidecarSuffix, outPath+waifIdentitySidecarSuffix)
 	}
 	if publishErr == nil {
 		publishErr = fs.syncDirectory(outPath)
+	}
+	if publishErr == nil {
+		isolationprobe.Pause(isolationprobe.CheckpointPairRenamed, artifacts...)
 	}
 	if publishErr != nil {
 		recoveryErr := recoverCheckpointPair(outPath, fs)

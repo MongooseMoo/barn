@@ -30,7 +30,7 @@ func TestTraceLoginKeepsPayloadOutOfHostOutput(t *testing.T) {
 				`return #-1;`,
 			})
 			addTestVerb(store, 10, "echo", `return args[1];`)
-			store.AddVerb(10, dbstore.NewVerb("fail", []string{"fail"}, 2,
+			store.AddVerb(10, dbstore.NewVerb([]string{"fail"}, 2,
 				dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 				dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 				[]string{`raise(E_INVARG, args[1], args);`}))

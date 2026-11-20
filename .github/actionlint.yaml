@@ -1,0 +1,4 @@
+# Custom label verified on the four server discovery runners.
+self-hosted-runner:
+  labels:
+    - barn-fuzz

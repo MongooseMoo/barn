@@ -14,7 +14,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -31,7 +30,9 @@ var vmBenchWorkloads = []struct {
 	{"builtin_abs_200k", "x = 0; for i in [1..200000]; x = x + abs(-i); endfor; return x;"},
 	{"tostr_200k", "n = 0; for i in [1..200000]; n = n + length(tostr(i)); endfor; return n;"},
 	{"nested_1k", "c = 0; for i in [1..1000]; for j in [1..1000]; c = c + 1; endfor; endfor; return c;"},
-	{"list_iter_1M", "l = {1..1000000}; s = 0; for x in (l); s = s + x; endfor; return s;"},
+	// MOO has no list-range literal (the parser rejects {1..n}, as Toast does),
+	// so build a 1000-element list and iterate it 1000 times.
+	{"list_iter_1M", "l = {}; for i in [1..1000]; l = {@l, i}; endfor; s = 0; for k in [1..1000]; for x in (l); s = s + x; endfor; endfor; return s;"},
 	{"while_lt_1M", "i = 0; while (i < 1000000) i = i + 1; endwhile; return i;"},
 	{"if_chain_1M", "c = 0; for i in [1..1000000]; if (i % 2 == 0) c = c + 1; elseif (i > 500000) c = c - 1; else c = c * 2; endif; endfor; return c;"},
 	// prop_access_1M mirrors bench_differ's workload; the next three split it
@@ -81,12 +82,12 @@ func BenchmarkVM(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				ctx := kernel.NewTaskContext()
+				ctx := task.NewContext()
 				ctx.Store = store
 				ctx.TicksRemaining = 1 << 60
 				m := NewVM(store, newTestSession(registry))
 				m.Context = ctx
-				m.Task = task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
+				m.Task = task.NewState(1, types.ObjID(0), ctx.TicksRemaining, 1)
 				m.TickLimit = 1 << 60
 				res := m.Run(prog)
 				if res.Flow == types.FlowException {

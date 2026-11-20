@@ -6,7 +6,6 @@ import (
 
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -30,8 +29,8 @@ func TestSuspendedActivationThreadModesSurviveCheckpointRoundTrip(t *testing.T) 
 	}
 	registry := BuildVMRegistry()
 	session := newTestSessionWithTaskManager(registry)
-	newContext := func() *kernel.TaskContext {
-		ctx := kernel.NewTaskContext()
+	newContext := func() *task.Context {
+		ctx := task.NewContext()
 		ctx.Store = store
 		ctx.Player = 2
 		ctx.Programmer = 2
@@ -39,7 +38,7 @@ func TestSuspendedActivationThreadModesSurviveCheckpointRoundTrip(t *testing.T) 
 		return ctx
 	}
 	ctx := newContext()
-	taskValue := task.NewTask(1, 2, ctx.TicksRemaining, 1)
+	taskValue := task.NewState(1, 2, ctx.TicksRemaining, 1)
 
 	program, diagnostics := registry.Compiler().CompileMOO([]string{
 		"set_thread_mode(0);",

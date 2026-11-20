@@ -3,16 +3,18 @@ package compiler
 import (
 	"encoding/binary"
 	"fmt"
-	"math"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 // emit adds an opcode to the bytecode
 func (c *lowerer) emit(op bytecode.OpCode) int {
 	pos := len(c.program.Code)
+	if c.importLayout != nil {
+		c.importLayout.emit(c, pos)
+	}
 	c.program.Code = append(c.program.Code, byte(op))
 	return pos
 }
@@ -82,36 +84,40 @@ func (c *lowerer) patchWide(offset, value int) {
 	c.program.Code[offset+3] = byte(uint32(value))
 }
 
-// emitConstant adds a constant and emits bytecode.OP_PUSH.
+// emitConstant adds a constant and pushes it, using the wide form for
+// indices that do not fit a byte.
 // If the constant pool overflows, c.err is set by addConstant.
 func (c *lowerer) emitConstant(v types.Value) {
 	idx := c.addConstant(v)
+	if idx > 0xff {
+		c.emit(bytecode.OP_PUSH_WIDE)
+		c.emitShort(uint16(idx))
+		return
+	}
 	c.emit(bytecode.OP_PUSH)
 	c.emitByte(byte(idx))
 }
 
+// maxConstants is the constant pool's capacity: the widest constant operand
+// is a 16-bit index. ToastStunt widens literal references to four bytes
+// (code_gen.cc ref_size) and so has no such limit.
+const maxConstants = 1 << 16
+
 // addConstant adds a value to the constant pool (with deduplication).
-// If the constant pool exceeds 255 entries, sets c.err and returns 0
-// as a safe fallback index.
+// If the constant pool is full, sets c.err and returns 0 as a safe fallback
+// index.
 func (c *lowerer) addConstant(v types.Value) int {
 	// Check if constant already exists
-	key := fmt.Sprintf("%d:%s", int(v.Type()), v.String())
-	if v.Type() == types.TYPE_FLOAT {
-		f := v.Float()
-		if f == 0 {
-			f = 0
-		}
-		key = fmt.Sprintf("%d:%016x", int(v.Type()), math.Float64bits(f))
-	}
+	key := bytecode.ConstantKey(v)
 	if idx, ok := c.constants[key]; ok {
 		return idx
 	}
 
 	// Check overflow before adding
 	idx := len(c.program.Constants)
-	if idx > 255 {
+	if idx >= maxConstants {
 		if c.err == nil {
-			c.err = fmt.Errorf("too many constants (max 255)")
+			c.err = fmt.Errorf("too many constants (max %d)", maxConstants)
 		}
 		return 0 // safe fallback; c.err will be checked at Compile boundary
 	}
@@ -174,9 +180,19 @@ func (c *lowerer) currentOffset() int {
 
 // trackLine records a line number entry if the semantic node's line differs
 // from the last recorded line. This populates Program.LineInfo so that runtime
-// errors can include source line numbers.
-func (c *lowerer) trackLine(node verb.Node) {
+// errors can include line numbers. With statement lines, a statement's code is
+// on its Toast line (numberStatements) and an expression is on the line of the
+// statement or except arm it belongs to.
+func (c *lowerer) trackLine(node ir.Node) {
 	line := node.Position().Line
+	if c.lines != nil {
+		if stmt, ok := node.(ir.Stmt); ok {
+			if statementLine, ok := c.lines.statements[stmt]; ok {
+				c.statementLine = statementLine
+			}
+		}
+		line = c.statementLine
+	}
 	if line > 0 && line != c.lastLine {
 		c.program.LineInfo = append(c.program.LineInfo, bytecode.LineEntry{
 			StartIP: len(c.program.Code),

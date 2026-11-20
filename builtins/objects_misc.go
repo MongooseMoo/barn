@@ -8,7 +8,7 @@ import (
 // Reassigns object to lowest available object ID
 // Returns the new object ID
 func builtinRenumber(ctx *Execution, args []types.Value) types.Result {
-	if res, ok := beforeCoarse(ctx); !ok {
+	if res, ok := beforeCoarse(ctx, "renumber"); !ok {
 		return res
 	}
 	store := ctx.Store

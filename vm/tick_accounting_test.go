@@ -2,9 +2,11 @@ package vm
 
 import (
 	"testing"
+	"time"
 
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -49,8 +51,11 @@ func TestTickChargesMatchToast(t *testing.T) {
 		{"for_map", "", "for v, k in ([1 -> 2, 3 -> 4]) endfor", 5},
 		{"break_continue", "", "for z in [1..3] continue; endfor for z in [1..3] break; endfor", 11},
 		{"try_except", "y = 0;", "try x = 1 / y; except e (E_DIV) endtry try x = 1; except (ANY) endtry", 8},
+		// An expression code list is the same Toast argument list a literal one is.
+		{"try_except_expression_codes", "y = 0;", "try x = 1 / y; except e (\"E_DIV\", E_DIV) endtry try x = 1; except (ANY) endtry", 8},
 		{"try_finally", "", "try x = 1; finally y = 2; endtry", 5},
 		{"catch_expression", "y = 0;", "x = `1 / y ! E_DIV'; x = `1 / y ! ANY => 5';", 10},
+		{"catch_expression_codes", "y = 0;", "x = `1 / y ! \"E_DIV\", E_DIV'; x = `1 / y ! ANY => 5';", 10},
 		{"scatter", "", "{p, q} = {1, 2}; {p, ?q = 7} = {1}; {p, @r} = {1, 2, 3}; {?p, @r, ?q} = {1};", 11},
 	}
 	for _, tc := range cases {
@@ -97,6 +102,54 @@ func TestTickExhaustionStopsBeforeTheChargingOpcode(t *testing.T) {
 	}
 	if x.Type() != types.TYPE_INT || x.Int() != 2 {
 		t.Fatalf("x = %v at exhaustion; want 2", x)
+	}
+}
+
+// A named except variable is stored by Toast's OP_PUT, which tests the
+// budget. Before ToastStunt 2.8 that store was this loop's only tested tick
+// (the named while, try and for-list ticks are extended opcodes, which now
+// test it too), so the loop must end on ticks. Found by
+// FuzzStructuredSourceExecution (issue #800), where it never ended.
+func TestNamedExceptStoreTestsTickBudget(t *testing.T) {
+	machine, prog := newTickTestVM(t, "while o (1) try try for n in (2) endfor except f (ANY) endtry finally endtry endwhile")
+	machine.TickLimit = 100
+	requireExceptionReason(t, machine.Run(prog), types.ExceptionReasonTickBudget)
+}
+
+// Since ToastStunt 2.8 (fdfa9ae) an extended opcode at or above EOP_CATCH
+// tests the budget like an ordinary ticking opcode. The first FOR_LIST, the
+// PUT of m and the list literal cost 3, so with a budget of 4 the second
+// iteration's FOR_LIST reaches zero and aborts the task before its body raises
+// E_TYPE on the list key; with 5 that body runs.
+func TestExtendedOpcodeTickTestsTheBudget(t *testing.T) {
+	run := func(limit int64) types.Result {
+		machine, prog := newTickTestVM(t, "for c in ({1, {}}) m = [c -> 1]; endfor")
+		machine.TickLimit = limit
+		return machine.Run(prog)
+	}
+	requireExceptionReason(t, run(4), types.ExceptionReasonTickBudget)
+	if result := run(5); result.Flow != types.FlowException || result.Error != types.E_TYPE {
+		t.Fatalf("limit 5: result = %v %v; want E_TYPE from the second body", result.Flow, result.Error)
+	}
+}
+
+// A loop whose only ticks are extended opcodes (EOP_WHILE_ID, EOP_EXIT_ID)
+// ends on the tick budget, long before the seconds deadline.
+func TestExtendedOpcodeLoopEndsOnTicks(t *testing.T) {
+	for _, code := range []string{
+		"while loop (1) endwhile",
+		"while loop (1) continue loop; endwhile",
+	} {
+		t.Run(code, func(t *testing.T) {
+			machine, prog := newTickTestVM(t, code)
+			machine.TickLimit = 100
+			machine.Task = task.NewState(1, 0, machine.TickLimit, 1)
+			machine.Task.SetExecutionDeadline(time.Now().Add(2 * time.Second))
+			requireExceptionReason(t, machine.Run(prog), types.ExceptionReasonTickBudget)
+			if machine.Ticks != machine.TickLimit {
+				t.Fatalf("ticks at abort = %d; want the limit %d", machine.Ticks, machine.TickLimit)
+			}
+		})
 	}
 }
 

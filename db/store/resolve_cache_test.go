@@ -33,7 +33,7 @@ func testChainStore(t *testing.T) *Store {
 
 func addVerbT(t *testing.T, s *Store, objID types.ObjID, names []string, perms VerbPerms) {
 	t.Helper()
-	v := NewVerb(names[0], names, 0, perms, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})
+	v := NewVerb(names, 0, perms, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})
 	if _, ec := s.AddVerb(objID, v); ec != types.E_NONE {
 		t.Fatalf("AddVerb #%d %v: %v", objID, names, ec)
 	}
@@ -43,7 +43,7 @@ type readSetSnapshot struct {
 	propertyReads      map[propertyReadKey]uint64
 	propertyScans      map[types.ObjID]uint64
 	propertyShapeScans map[types.ObjID]uint64
-	verbReads          map[verbReadKey]uint64
+	verbReads          map[verbKey]uint64
 	verbScans          map[types.ObjID]uint64
 }
 
@@ -86,11 +86,16 @@ func referenceVerbReadSet(t *testing.T, s *Store, objID types.ObjID, name string
 	return snapshotReadSet(tx)
 }
 
+// referencePropertyReadSet is the read set an uncached resolution produces. It
+// leaves the store-level memo empty, so the caller's next transaction walks and
+// exercises the per-transaction memo, not the store-level one.
 func referencePropertyReadSet(t *testing.T, s *Store, objID types.ObjID, name string) readSetSnapshot {
 	t.Helper()
+	s.resetPropResolveMemoForTest()
 	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	tx.findProperty(objID, name)
+	s.resetPropResolveMemoForTest()
 	return snapshotReadSet(tx)
 }
 
@@ -293,6 +298,35 @@ func TestPropertyResolveReadsOwnStagedWrite(t *testing.T) {
 	}
 }
 
+// A memo step keeps only the version it read; with conflict diagnostics on,
+// a hit must still record the value read, as the walk does.
+func TestPropertyResolveCacheHitRecordsReadValueForDiagnostics(t *testing.T) {
+	s := testChainStore(t)
+	s.SetConflictCensusTracking(true)
+	if ec := s.DirectTxn().DefineProperty(0, "desc", NewProperty(types.NewStr("root"), 0, PropRead, false, true)); ec != types.E_NONE {
+		t.Fatalf("DefineProperty: %v", ec)
+	}
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	if tx.diag == nil {
+		t.Fatal("census tracking did not give the snapshot diagnostics")
+	}
+	if _, _, ec := tx.findProperty(2, "desc"); ec != types.E_NONE {
+		t.Fatalf("walk: %v", ec)
+	}
+	walked := maps.Clone(tx.diag.readValues)
+	// Forget what the walk recorded, keeping the memo, so the hit records it.
+	tx.propertyReads, tx.readClocks, tx.diag.readValues = nil, nil, nil
+	if _, _, ec := tx.findProperty(2, "desc"); ec != types.E_NONE {
+		t.Fatalf("hit: %v", ec)
+	}
+	if len(walked) == 0 || !maps.EqualFunc(walked, tx.diag.readValues, func(a, b conflictReadValue) bool {
+		return a.clear == b.clear && a.value.Equal(b.value)
+	}) {
+		t.Fatalf("hit recorded read values %v, want the walk's %v", tx.diag.readValues, walked)
+	}
+}
+
 func TestPropertyResolveCacheHitPreservesReadSetThroughClearChain(t *testing.T) {
 	s := testChainStore(t)
 	// Defined on #0, so #1 and #2 hold inherited CLEAR slots: the walk must pass
@@ -321,6 +355,33 @@ func TestPropertyResolveCacheHitPreservesReadSetThroughClearChain(t *testing.T) 
 		t.Fatalf("cached property value = %q, want root", p2.value.Str())
 	}
 	requireSameReadSet(t, "property cache hit", want, snapshotReadSet(tx))
+}
+
+// Filing a walk in the memo appends to the transaction's step buffer; once the
+// buffer and the map have grown, overwriting an entry allocates nothing, and
+// each entry keeps its own steps.
+func TestPropertyResolveFilingDoesNotAllocatePerWalk(t *testing.T) {
+	s := testChainStore(t)
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	steps := []propWalkStep{{id: 2, valid: true}, {id: 1, valid: true}, {id: 0, valid: true, found: true, version: 1}}
+	first := propResolveKey{objID: 2, name: "desc"}
+	second := propResolveKey{objID: 1, name: "desc"}
+	tx.storePropResolve(first, "desc", steps, Property{}, "desc", types.E_NONE)
+	tx.storePropResolve(second, "desc", steps[1:], Property{}, "desc", types.E_NONE)
+	if got := tx.propResolve[first].steps; len(got) != 3 || cap(got) != 3 || got[0].id != 2 {
+		t.Fatalf("first entry steps = %+v (cap %d), want its own three steps", got, cap(got))
+	}
+	if got := tx.propResolve[second].steps; len(got) != 2 || got[0].id != 1 {
+		t.Fatalf("second entry steps = %+v, want its own two steps", got)
+	}
+	tx.propSteps = make([]propWalkStep, 0, 4096)
+	allocs := testing.AllocsPerRun(100, func() {
+		tx.storePropResolve(first, "desc", steps, Property{}, "desc", types.E_NONE)
+	})
+	if allocs != 0 {
+		t.Fatalf("filing a walk allocated %.1f times, want 0", allocs)
+	}
 }
 
 func TestPropertyResolveCacheNegativeEntryPreservesReadSet(t *testing.T) {
@@ -572,5 +633,25 @@ func TestFindParentVerbScratchWalk(t *testing.T) {
 	}
 	if _, _, err := tx.FindParentVerb(0, "look"); err == nil {
 		t.Fatal("FindParentVerb from the root resolved, want not found")
+	}
+}
+
+// pass() matches the parent verb the way verb calls do (Toast's
+// db_find_callable_verb with verbcasecmp): wildcards and case-insensitively.
+func TestFindParentVerbMatchesWildcardAndCase(t *testing.T) {
+	for _, parentName := range []string{"gr*eet", "GREET"} {
+		s := testChainStore(t)
+		addVerbT(t, s, 0, []string{parentName}, VerbRead|VerbExecute)
+		addVerbT(t, s, 1, []string{"greet"}, VerbRead|VerbExecute)
+
+		tx := s.BeginSnapshot(0)
+		v, d, err := tx.FindParentVerb(1, "greet")
+		tx.Release()
+		if err != nil {
+			t.Fatalf("FindParentVerb(greet) with parent %q: %v", parentName, err)
+		}
+		if d != 0 || v.Names[0] != parentName {
+			t.Fatalf("FindParentVerb(greet) = %q on #%d, want %q on #0", v.Names[0], d, parentName)
+		}
 	}
 }

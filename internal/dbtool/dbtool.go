@@ -5,15 +5,19 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
 	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 // parseObjID parses "#N" or "N" to types.ObjID
@@ -88,6 +92,36 @@ func DumpListVerbs(out, errOut io.Writer, store *dbstore.Store, spec string) err
 		}
 		fmt.Fprintf(out, "%3d. %-30s owner=#%-6d perms=%-4s lines=%d\n",
 			i, strings.Join(view.Names, " "), view.Owner, view.Perms.String(), len(view.Code))
+	}
+	return nil
+}
+
+// GrepVerbs prints every verb source line in the database that matches the
+// regular expression pattern, as "#obj:verb:line: text", objects in id order
+// and verbs in their order on the object. The verb is named by its first name.
+func GrepVerbs(out, errOut io.Writer, store *dbstore.Store, pattern string) error {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		fmt.Fprintf(errOut, "Error: %v\n", err)
+		return errors.New("inspection failed")
+	}
+	txn := store.DirectTxn()
+	for id := types.ObjID(0); id <= txn.MaxObject(); id++ {
+		obj, ok := store.Get(id)
+		if !ok {
+			continue
+		}
+		for i := 0; i < obj.VerbCount; i++ {
+			view, errCode := txn.VerbByIndex(id, i)
+			if errCode != types.E_NONE || len(view.Names) == 0 {
+				continue
+			}
+			for n, line := range view.Code {
+				if re.MatchString(line) {
+					fmt.Fprintf(out, "#%d:%s:%d: %s\n", id, view.Names[0], n+1, line)
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -197,17 +231,19 @@ func DumpObjInfo(out, errOut io.Writer, store *dbstore.Store, spec string) error
 	return nil
 }
 
-// evalSession evaluates MOO source over a loaded database the way Toast's
+// EvalSession evaluates MOO source over a loaded database the way Toast's
 // emergency mode does: as the database's first wizard, through the same engine
 // runtime and eval path a live ";" command uses. That is what makes
 // protected-builtin redirection (#0:bf_<name>), callers(), task_id(), fork and
 // suspend behave in the tool exactly as they do on the server.
-type evalSession struct {
+type EvalSession struct {
 	runtime *engine.Runtime
 	wizard  types.ObjID
 }
 
-func newEvalSession(store *dbstore.Store, options config.Options) (*evalSession, error) {
+// NewEvalSession starts a runtime over store. Evaluation mutates the store in
+// memory only; Close stops the runtime and releases builtin-session resources.
+func NewEvalSession(store *dbstore.Store, options config.Options) (*EvalSession, error) {
 	wizard, ok := firstWizard(store)
 	if !ok {
 		return nil, errors.New("database has no wizard to evaluate as")
@@ -219,12 +255,32 @@ func newEvalSession(store *dbstore.Store, options config.Options) (*evalSession,
 		return nil, fmt.Errorf("configure WASM builtins: %w", err)
 	}
 	runtime.Session().LoadServerOptionsFromStore(store)
-	return &evalSession{runtime: runtime, wizard: wizard}, nil
+	return &EvalSession{runtime: runtime, wizard: wizard}, nil
 }
 
-func (s *evalSession) close() {
+func (s *EvalSession) Close() error {
 	s.runtime.Stop()
-	_ = s.runtime.Session().Close()
+	return s.runtime.Session().Close()
+}
+
+// LoadStore reads the database at path without changing any file and builds
+// its store as the server does, compiling calls to builtins missing from the
+// registry an EvalSession with these options runs on as call_function calls.
+func LoadStore(path string, options config.Options) (*dbstore.Store, error) {
+	database, err := dbformat.LoadDatabaseReadOnly(path)
+	if err != nil {
+		return nil, fmt.Errorf("load database: %w", err)
+	}
+	registry, err := builtins.NewRegistryFromDescriptors(options.Capabilities(), vm.Descriptors())
+	if err != nil {
+		return nil, fmt.Errorf("construct builtin registry: %w", err)
+	}
+	database.LowerUnknownBuiltinCalls(registry.Compiler())
+	store, err := database.NewStoreFromDatabase()
+	if err != nil {
+		return nil, fmt.Errorf("construct store from database: %w", err)
+	}
+	return store, nil
 }
 
 // firstWizard mirrors Toast's emergency mode (server.cc emergency_mode): the
@@ -240,26 +296,45 @@ func firstWizard(store *dbstore.Store) (types.ObjID, bool) {
 	return types.ObjNothing, false
 }
 
-// eval runs one input. The input is compiled as a statement list first, so
-// "x = 1; return x + 1;" runs every statement; input that is not a statement
-// list is evaluated as an expression, the way Toast's ";expr" wraps it in
-// "return expr;". When neither form compiles the returned error carries the
-// diagnostic for the form the input most resembles.
-func (s *evalSession) eval(input string) (engine.EvalOutcome, error) {
-	outcome := s.runtime.Eval(s.wizard, []string{input})
+// eval runs one input: the lines of one program. The input is compiled as a
+// statement list first, so "x = 1; return x + 1;" runs every statement; input
+// that is not a statement list is evaluated as an expression, the way Toast's
+// ";expr" wraps it in "return expr;". When neither form compiles the returned
+// error carries the diagnostic for the form the input most resembles.
+func (s *EvalSession) eval(source []string) (engine.EvalOutcome, error) {
+	outcome := s.runtime.Eval(s.wizard, source)
 	if len(outcome.Diagnostics) == 0 {
 		return outcome, nil
 	}
 	statementDiag := outcome.Diagnostics[0]
-	outcome = s.runtime.Eval(s.wizard, []string{"return " + input + ";"})
+	outcome = s.runtime.Eval(s.wizard, asExpression(source))
 	if len(outcome.Diagnostics) == 0 {
 		return outcome, nil
 	}
 	diag := outcome.Diagnostics[0]
-	if strings.Contains(input, ";") {
+	if slices.ContainsFunc(source, func(line string) bool { return strings.Contains(line, ";") }) {
 		diag = statementDiag
 	}
 	return outcome, errors.New(diag.Error())
+}
+
+// asExpression wraps source in "return ...;" without moving any of it to
+// another line, so line numbers still point into the input.
+func asExpression(source []string) []string {
+	if len(source) == 0 {
+		return source
+	}
+	wrapped := slices.Clone(source)
+	wrapped[0] = "return " + wrapped[0]
+	wrapped[len(wrapped)-1] += ";"
+	return wrapped
+}
+
+// completed reports whether an evaluation ran to its end, rather than stopping
+// on an uncaught error or an internal panic.
+func completed(outcome engine.EvalOutcome) bool {
+	flow := outcome.Result.Flow
+	return outcome.Panic == nil && (flow == types.FlowReturn || flow == types.FlowNormal)
 }
 
 // resultLine renders an evaluation the way the tool prints it: "=> VALUE" for
@@ -270,7 +345,7 @@ func resultLine(outcome engine.EvalOutcome) string {
 		return fmt.Sprintf("Error: internal error: %v", outcome.Panic)
 	}
 	result := outcome.Result
-	if result.Flow == types.FlowReturn || result.Flow == types.FlowNormal {
+	if completed(outcome) {
 		if result.Val.IsNone() {
 			return "=> 0"
 		}
@@ -279,21 +354,37 @@ func resultLine(outcome engine.EvalOutcome) string {
 	return "Error: " + result.Error.String()
 }
 
+// Print evaluates one input and writes its result line to out. Input that does
+// not compile has no result line; its "Compile error: ..." goes to diagOut
+// instead. Print reports whether the input compiled and, if it did, whether
+// the program completed.
+func (s *EvalSession) Print(out, diagOut io.Writer, source []string) (compiled, ran bool) {
+	outcome, err := s.eval(source)
+	if err != nil {
+		fmt.Fprintf(diagOut, "Compile error: %v\n", err)
+		return false, false
+	}
+	fmt.Fprintln(out, resultLine(outcome))
+	return true, completed(outcome)
+}
+
 // EvalExpression evaluates one MOO input (a statement list, or an expression)
 // as the database's first wizard and prints its result line.
-func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, options config.Options) error {
-	session, err := newEvalSession(store, options)
+func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, options config.Options) (err error) {
+	session, err := NewEvalSession(store, options)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error: %v\n", err)
 		return errors.New("inspection failed")
 	}
-	defer session.close()
-	outcome, err := session.eval(expr)
-	if err != nil {
-		fmt.Fprintf(errOut, "Compile error: %v\n", err)
+	defer func() {
+		if closeErr := session.Close(); closeErr != nil {
+			fmt.Fprintf(errOut, "Error: %v\n", closeErr)
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	if compiled, _ := session.Print(out, errOut, []string{expr}); !compiled {
 		return errors.New("inspection failed")
 	}
-	fmt.Fprintln(out, resultLine(outcome))
 	return nil
 }
 
@@ -303,33 +394,38 @@ func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, op
 // "-- skipped" so line counts stay aligned with the input for differential
 // drivers. One session serves the whole file, so load_server_options() on an
 // early line governs later lines, as in a Toast emergency-mode session.
-func EvalFile(out, errOut io.Writer, store *dbstore.Store, path string, options config.Options) error {
+func EvalFile(out, errOut io.Writer, store *dbstore.Store, path string, options config.Options) (err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error: %v\n", err)
 		return errors.New("inspection failed")
 	}
-	session, err := newEvalSession(store, options)
+	session, err := NewEvalSession(store, options)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error: %v\n", err)
 		return errors.New("inspection failed")
 	}
-	defer session.close()
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	for _, line := range lines {
+	defer func() {
+		if closeErr := session.Close(); closeErr != nil {
+			fmt.Fprintf(errOut, "Error: %v\n", closeErr)
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	for _, line := range SourceLines(data) {
 		input := strings.TrimSpace(line)
 		if input == "" || strings.HasPrefix(input, "##") {
 			fmt.Fprintln(out, "-- skipped")
 			continue
 		}
-		outcome, err := session.eval(input)
-		if err != nil {
-			fmt.Fprintf(out, "Compile error: %v\n", err)
-			continue
-		}
-		fmt.Fprintln(out, resultLine(outcome))
+		session.Print(out, out, []string{input})
 	}
 	return nil
+}
+
+// SourceLines splits the contents of a MOO source file into its lines,
+// whichever line ending it was saved with.
+func SourceLines(data []byte) []string {
+	return strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 }
 
 // DumpObjRawCommand dumps raw database fields for debugging
@@ -392,7 +488,7 @@ func DumpObjRawCommand(out, errOut io.Writer, store *dbstore.Store, spec string)
 			continue
 		}
 		fmt.Fprintf(out, "  [%d] %q (names=%d, owner=#%d, code=%d lines)\n",
-			i, view.Name, len(view.Names), view.Owner, len(view.Code))
+			i, strings.Join(view.Names, " "), len(view.Names), view.Owner, len(view.Code))
 	}
 
 	verbNames, _ := store.DirectTxn().VerbNames(objID)
@@ -511,7 +607,6 @@ func VerbLookupCommand(out, errOut io.Writer, store *dbstore.Store, spec string)
 	}
 
 	fmt.Fprintf(out, "\nVerb details:\n")
-	fmt.Fprintf(out, "  Name:    %s\n", verb.Name)
 	fmt.Fprintf(out, "  Names:   %s\n", strings.Join(verb.Names, " "))
 	fmt.Fprintf(out, "  Owner:   #%d\n", verb.Owner)
 	fmt.Fprintf(out, "  Perms:   %s\n", verb.Perms.String())
@@ -626,52 +721,5 @@ func dumpDatabase(source, target string, load databaseLoader) error {
 	if err != nil {
 		return fmt.Errorf("construct reloaded store: %w", err)
 	}
-	return compareRoundTripStores(store, reloadedStore)
-}
-
-func compareRoundTripStores(original, reloaded *dbstore.Store) error {
-	originalMax := original.DirectTxn().MaxObject()
-	reloadedMax := reloaded.DirectTxn().MaxObject()
-	mismatches := make([]string, 0)
-	if originalMax != reloadedMax {
-		mismatches = append(mismatches, fmt.Sprintf("max object #%d != #%d", originalMax, reloadedMax))
-	}
-	if originalPlayers, reloadedPlayers := len(original.Players()), len(reloaded.Players()); originalPlayers != reloadedPlayers {
-		mismatches = append(mismatches, fmt.Sprintf("players %d != %d", originalPlayers, reloadedPlayers))
-	}
-	if originalObjects, reloadedObjects := len(original.All()), len(reloaded.All()); originalObjects != reloadedObjects {
-		mismatches = append(mismatches, fmt.Sprintf("objects %d != %d", originalObjects, reloadedObjects))
-	}
-
-	for id := types.ObjID(0); id <= originalMax; id++ {
-		originalObject, originalOK := original.GetUnsafe(id)
-		reloadedObject, reloadedOK := reloaded.GetUnsafe(id)
-		if originalOK != reloadedOK {
-			mismatches = append(mismatches, fmt.Sprintf("object #%d existence differs", id))
-			continue
-		}
-		if !originalOK {
-			continue
-		}
-		if originalObject.Name != reloadedObject.Name {
-			mismatches = append(mismatches, fmt.Sprintf("object #%d name %q != %q", id, originalObject.Name, reloadedObject.Name))
-		}
-		if originalObject.Flags != reloadedObject.Flags {
-			mismatches = append(mismatches, fmt.Sprintf("object #%d flags %v != %v", id, originalObject.Flags, reloadedObject.Flags))
-		}
-		if originalObject.Owner != reloadedObject.Owner {
-			mismatches = append(mismatches, fmt.Sprintf("object #%d owner #%d != #%d", id, originalObject.Owner, reloadedObject.Owner))
-		}
-		if originalObject.VerbCount != reloadedObject.VerbCount {
-			mismatches = append(mismatches, fmt.Sprintf("object #%d verbs %d != %d", id, originalObject.VerbCount, reloadedObject.VerbCount))
-		}
-		if originalObject.PropertyCount != reloadedObject.PropertyCount {
-			mismatches = append(mismatches, fmt.Sprintf("object #%d properties %d != %d", id, originalObject.PropertyCount, reloadedObject.PropertyCount))
-		}
-	}
-
-	if len(mismatches) != 0 {
-		return fmt.Errorf("round-trip verification failed: %s", strings.Join(mismatches, "; "))
-	}
-	return nil
+	return dbformat.CompareRoundTripStores(store, reloadedStore)
 }

@@ -8,10 +8,6 @@ import (
 
 // Arithmetic operations
 
-// Toast defines MININT as one more than INT64_MIN to avoid overflow issues
-// when negating or dividing MININT by -1. We match this for compatibility.
-const MININT int64 = -9223372036854775807
-
 // promoting reports whether PROMOTE_NUMBERS is enabled for the current task.
 func (vm *VM) promoting() bool {
 	return vm.Context != nil && vm.Context.RuntimeOptions.PromoteNumbers
@@ -77,24 +73,26 @@ func (vm *VM) executeAdd() error {
 			return nil
 		}
 		if b.Type() == types.TYPE_INT {
-			return newMooError(types.E_TYPE, "Type mismatch (expected string; got integer)")
+			return newMooError(types.E_TYPE, "Type mismatch (expected string; got integer)").withMessage()
 		}
 	}
 
 	// Handle list concatenation (list + list) and append (list + any)
 	if a.Type() == types.TYPE_LIST {
+		var result types.Value
 		if b.Type() == types.TYPE_LIST {
 			// list + list → concatenation (new list)
-			aElems := a.Elements()
-			bElems := b.Elements()
-			newElems := make([]types.Value, len(aElems)+len(bElems))
-			copy(newElems, aElems)
-			copy(newElems[len(aElems):], bElems)
-			vm.Push(types.NewList(newElems))
-			return nil
+			result = a.Concat(b)
+		} else {
+			// list + any → append (new list)
+			result = a.Append(b)
 		}
-		// list + any → append (new list)
-		vm.Push(a.Append(b))
+		// Toast's OP_ADD (execute.cc, 6505a7f) rejects a result whose
+		// value_bytes exceeds max_list_value_bytes; equal is allowed.
+		if limit := vm.Builtins.ListValueLimitForTask(vm.Context); limit > 0 && types.ValueBytes(result) > limit {
+			return newMooError(types.E_QUOTA, "list too large")
+		}
+		vm.Push(result)
 		return nil
 	}
 
@@ -205,17 +203,14 @@ func (vm *VM) executeDiv() error {
 	aIsFloat := a.Type() == types.TYPE_FLOAT
 	bIsFloat := b.Type() == types.TYPE_FLOAT
 
-	// Pure int/int branch (unchanged): b==0 -> E_DIV, MININT/-1 special case.
+	// Pure int/int branch: b==0 -> E_DIV. Toast negates with wrap for a
+	// divisor of -1, so INT64_MIN / -1 is INT64_MIN; Go's / already wraps
+	// that way and does not trap.
 	if aIsInt && bIsInt {
 		if b.Int() == 0 {
 			return newMooError(types.E_DIV, "division by zero")
 		}
-		// Toast special case: MININT / -1 returns MININT to prevent overflow
-		if a.Int() == MININT && b.Int() == -1 {
-			vm.Push(types.NewInt(MININT))
-		} else {
-			vm.Push(types.NewInt(a.Int() / b.Int()))
-		}
+		vm.Push(types.NewInt(a.Int() / b.Int()))
 		return nil
 	}
 
@@ -355,13 +350,12 @@ func (vm *VM) executePow() error {
 			vm.Push(types.NewFloat(math.Pow(af, bf)))
 			return nil
 		}
-		// Toast semantics: 0 ^ negative is division by zero.
-		if a.Int() == 0 && b.Int() < 0 {
-			return newMooError(types.E_DIV, "division by zero")
-		}
-		// Negative exponents with integer operands truncate toward zero.
 		if b.Int() < 0 {
-			vm.Push(types.NewInt(int64(math.Pow(af, bf))))
+			// Toast semantics: 0 ^ negative is division by zero.
+			if a.Int() == 0 {
+				return newMooError(types.E_DIV, "division by zero")
+			}
+			vm.Push(types.NewInt(intPowNegative(a.Int(), b.Int())))
 			return nil
 		}
 
@@ -387,9 +381,33 @@ func (vm *VM) executePow() error {
 	if math.IsNaN(result) || math.IsInf(result, 0) {
 		return newMooError(types.E_FLOAT, "result is NaN or Inf")
 	}
+	// Toast checks errno after pow(), and libm reports ERANGE when a finite
+	// nonzero base underflows to zero (2.0 ^ -2000), so that is E_FLOAT too.
+	// A zero base (0.0 ^ 2.0) is an exact zero, not an underflow.
+	if result == 0 && af != 0 && !math.IsInf(af, 0) && !math.IsInf(bf, 0) {
+		return newMooError(types.E_FLOAT, "result underflows to zero")
+	}
 
 	vm.Push(types.NewFloat(result))
 	return nil
+}
+
+// intPowNegative is Toast's do_power for an integer base other than 0 and a
+// negative integer exponent: 1 stays 1, -1 takes the sign of the exponent's
+// exact parity, and every other base truncates to 0. Deciding by parity rather
+// than math.Pow keeps exponents beyond 2^53 exact.
+func intPowNegative(base, exp int64) int64 {
+	switch base {
+	case 1:
+		return 1
+	case -1:
+		if exp&1 != 0 {
+			return -1
+		}
+		return 1
+	default:
+		return 0
+	}
 }
 
 func (vm *VM) executeNeg() error {

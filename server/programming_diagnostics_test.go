@@ -20,7 +20,7 @@ func TestInteractiveProgrammingKeepsOrderedDiagnosticsAndOldBody(t *testing.T) {
 	t.Cleanup(connection.cancel)
 	connection.programming = &programmingMode{Target: object, Verb: "probe"}
 	for _, line := range []string{"break;", "continue;", "."} {
-		if !processor.processProgrammingInput(connection, line) {
+		if !processor.processProgrammingInput(connection, line, nil) {
 			t.Fatal("programming input was not consumed")
 		}
 	}
@@ -33,7 +33,7 @@ func TestInteractiveProgrammingKeepsOrderedDiagnosticsAndOldBody(t *testing.T) {
 		t.Fatalf("failed programming changed body or retained mode: %+v, %v", view, err)
 	}
 	connection.programming = &programmingMode{Target: object, Verb: "probe", Lines: []string{"return 7;"}}
-	processor.processProgrammingInput(connection, ".")
+	processor.processProgrammingInput(connection, ".", nil)
 	view, _, err = store.DirectTxn().FindVerb(object, "probe")
 	if err != nil || !reflect.DeepEqual(view.Code, []string{"return 7;"}) {
 		t.Fatalf("valid retry was not stored: %+v, %v", view, err)

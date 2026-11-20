@@ -262,11 +262,19 @@ func NewList(elements []Value) Value {
 	return listValue(newSliceList(elements))
 }
 
-// NewEmptyList creates an empty list value.
-func NewEmptyList() Value {
+// emptyList is the one empty list header every empty list value shares. Its
+// size and finalizable state are set here and never change, and appending to
+// it copies (it has no watermark), so sharing it is indistinguishable from
+// allocating a fresh one.
+var emptyList = func() *sliceList {
 	sl := newSliceListSized([]Value{}, listVarOverhead)
 	sl.finalizableInitial = finalizableNone
-	return listValue(sl)
+	return sl
+}()
+
+// NewEmptyList returns an empty list value.
+func NewEmptyList() Value {
+	return listValue(emptyList)
 }
 
 // ---- Value-level list API (list-typed methods keep their natural names) --
@@ -290,10 +298,18 @@ func (v Value) Elements() []Value { return v.sliceList().elements }
 // ByteSize returns the cached ValueBytes of the list (O(1) after first use).
 func (v Value) ByteSize() int { return v.sliceList().byteSizeOf() }
 
-// Concat returns a new list with all elements of other appended (COW).
+// Concat returns a new list with all elements of other appended (COW). When
+// either side is empty the result equals the other side, and lists are
+// immutable, so that side is returned as is.
 func (v Value) Concat(other Value) Value {
 	a := v.sliceList().elements
 	b := other.sliceList().elements
+	if len(a) == 0 {
+		return other
+	}
+	if len(b) == 0 {
+		return v
+	}
 	newElems := make([]Value, len(a)+len(b))
 	copy(newElems, a)
 	copy(newElems[len(a):], b)

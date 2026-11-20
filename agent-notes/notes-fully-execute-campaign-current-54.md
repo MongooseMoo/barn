@@ -1,0 +1,10 @@
+# Current campaign checkpoint 54
+
+- PR 48 branch merge commit `2189ea8` incorporates normally merged prerequisite PR 50 while preserving PR 48's baseline-free final ledger semantics.
+- Toast workflow conversion is now edited but uncommitted: each profile checks out canonical `MongooseMoo/moo-conformance-tests` as `trusted-controller` at immutable `${{ github.event.pull_request.base.sha || github.workflow_sha }}`; candidate remains a credentialless sibling data checkout.
+- Profile environment install, profile generation, admission pytest, conformance pytest, paired inventory, and final execution ledger all run with `--project trusted-controller`. Candidate paths are passed explicitly via `--candidate-root`, `--moo-suite-root`, `--server-db`, and `--server-db-dir`.
+- Final ledger consumes `toast-candidate-inventory.json` and never invokes candidate Python. It conditionally supplies the trusted base's empty legacy baseline only when that trusted file exists, bridging PR validation against main `56fd72b`; after merge the deleted baseline and baseline-free CLI run without the argument.
+- Trusted controller checkout now includes explicit canonical repository and immutable SHA for both profile and ledger jobs. Profile generation has no implicit working directory.
+- Workflow contract red proof after initial YAML edit: 4 expected failures from old candidate-runtime assertions. After contract updates, focused workflow tests passed 19/19; a later Ruff invocation failed only because YAML was mistakenly passed to Ruff as Python and is not a product failure.
+- Explorer confirmed the paired-candidate workflow uses the same trusted-controller/data-only architecture and identified the old base/new candidate baseline compatibility pitfall addressed by the conditional bridge.
+- Current edits are uncommitted. Next: rerun YAML parse/workflow tests, Ruff only on Python, full unit suite, mypy, collection count and diff audit; commit/push exact head; managed Toast run; artifact set comparison; fresh analyst and adversary review before ready/merge.

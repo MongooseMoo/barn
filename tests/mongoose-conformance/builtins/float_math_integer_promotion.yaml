@@ -1,0 +1,47 @@
+name: float_math_integer_promotion
+description: >-
+  With PROMOTE_NUMBERS the float math builtins accept integer arguments,
+  converting them to floats; without it they reject integers with E_TYPE.
+  frandom() and floatstr() keep float-only arguments in both modes.
+tests:
+  - name: one_argument_functions_accept_integers
+    skip_if: "not option.PROMOTE_NUMBERS"
+    code: "{sqrt(4), cbrt(8), sin(0), cos(0), tan(0), asin(0), acos(1), sinh(0), cosh(0), tanh(0), asinh(0), acosh(1), atanh(0), exp(0), log(1), log10(100), ceil(3), floor(3), trunc(-5), round(5)}"
+    expect:
+      value: [2.0, 2.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 2.0, 3.0, 3.0, -5.0, 5.0]
+
+  - name: integer_results_equal_float_results
+    skip_if: "not option.PROMOTE_NUMBERS"
+    code: "{sin(2) == sin(2.0), exp(3) == exp(3.0), log(7) == log(7.0), atan(1) == atan(1.0), atan(1, 2) == atan(1.0, 2.0), atan(1, 2.0) == atan(1.0, 2.0), atan2(3, 4) == atan2(3.0, 4.0), atan2(3.0, 4) == atan2(3.0, 4.0)}"
+    expect:
+      value: [1, 1, 1, 1, 1, 1, 1, 1]
+
+  - name: integer_domain_errors_match_float_domain_errors
+    skip_if: "not option.PROMOTE_NUMBERS"
+    code: "toliteral({`sqrt(-1) ! ANY', `log(-1) ! ANY', `acos(2) ! ANY'})"
+    expect:
+      value: "{E_INVARG, E_INVARG, E_INVARG}"
+
+  - name: non_numbers_and_float_only_builtins_still_reject
+    skip_if: "not option.PROMOTE_NUMBERS"
+    code: "toliteral({`sqrt(\"4\") ! ANY', `atan(1, \"x\") ! ANY', `frandom(1) ! ANY', `floatstr(1, 2) ! ANY'})"
+    expect:
+      value: "{E_TYPE, E_TYPE, E_TYPE, E_TYPE}"
+
+  - name: function_info_reports_numeric_arguments
+    skip_if: "not option.PROMOTE_NUMBERS"
+    code: "{function_info(\"sqrt\"), function_info(\"atan\"), function_info(\"atan2\"), function_info(\"trunc\"), function_info(\"round\"), function_info(\"frandom\")}"
+    expect:
+      value: [["sqrt", 1, 1, [-2]], ["atan", 1, 2, [-2, -2]], ["atan2", 2, 2, [-2, -2]], ["trunc", 1, 1, [-2]], ["round", 1, 1, [-2]], ["frandom", 1, 2, [9, 9]]]
+
+  - name: integers_rejected_without_promotion
+    skip_if: "option.PROMOTE_NUMBERS"
+    code: "toliteral({`sqrt(4) ! ANY', `floor(3) ! ANY', `trunc(5) ! ANY', `round(5) ! ANY', `atan(1.0, 1) ! ANY', `atan2(1, 1.0) ! ANY'})"
+    expect:
+      value: "{E_TYPE, E_TYPE, E_TYPE, E_TYPE, E_TYPE, E_TYPE}"
+
+  - name: function_info_reports_float_arguments_without_promotion
+    skip_if: "option.PROMOTE_NUMBERS"
+    code: "{function_info(\"sqrt\"), function_info(\"atan\"), function_info(\"trunc\"), function_info(\"round\")}"
+    expect:
+      value: [["sqrt", 1, 1, [9]], ["atan", 1, 2, [9, 9]], ["trunc", 1, 1, [9]], ["round", 1, 1, [9]]]

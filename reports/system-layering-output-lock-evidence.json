@@ -1,0 +1,357 @@
+{
+  "format": "Lossless UTF-8 text captures; decode each text field to recover original raw file",
+  "captures": [
+    {
+      "path": "reports\\system-layering-output-lock-v2-candidate.txt",
+      "sha256": "DD732A632CB630BD795CF6CD41168632B4A6AAA0B85E02DBBBA36E02B8226D2F",
+      "text": "goos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t142280173\t         2.529 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t16389262\t        21.85 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11751033\t        30.52 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9712718\t        37.07 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1589102\t       225.7 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t142072530\t         2.535 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t16508157\t        21.78 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11847560\t        30.42 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9719300\t        36.98 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1588104\t       225.7 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t141200834\t         2.552 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t16350332\t        21.92 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11705984\t        30.75 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9681400\t        37.13 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1564372\t       228.1 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t142073371\t         2.533 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t16469113\t        21.80 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11816024\t        30.48 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9744504\t        36.96 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1218675\t       297.6 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t141843802\t         2.537 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t16504978\t        21.83 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11791177\t        30.53 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9692870\t        37.09 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1260854\t       290.4 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t142332657\t         2.528 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t16537048\t        21.79 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11803201\t        30.46 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9753453\t        36.95 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1597143\t       224.5 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t142283941\t         2.529 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t16496583\t        21.83 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11832180\t        30.42 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9748646\t        36.93 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1596140\t       224.7 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t141833967\t         2.540 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t16348476\t        21.93 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11831829\t        30.61 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9668062\t        37.33 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1539158\t       232.2 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t141883159\t         2.537 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t16474689\t        21.86 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11801420\t        30.47 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9755991\t        36.99 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1447047\t       277.8 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t142007576\t         2.534 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t16399416\t        21.87 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11836887\t        30.47 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9746377\t        37.29 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1166464\t       307.5 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\n"
+    },
+    {
+      "path": "reports\\system-layering-output-lock-v2-benchstat.txt",
+      "sha256": "924FC57657F68D7BD327DA7F33ECF6D9F467389F91CA05173E7D1A2F0D33D40A",
+      "text": "goos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \n                                  │ reports/system-layering-output-lock-v2-base.txt │ reports/system-layering-output-lock-v2-candidate.txt │\n                                  │                     sec/op                      │            sec/op             vs base                │\nConnectionOutputLock/Send                                              2.818n ±  4%                   2.534n ±  0%  -10.06% (p=0.000 n=10)\nConnectionOutputLock/Notification                                      23.70n ±  4%                   21.84n ±  0%   -7.83% (p=0.000 n=10)\nConnectionOutputLock/BufferFlush                                       30.60n ±  1%                   30.47n ±  0%   -0.39% (p=0.027 n=10)\nConnectionOutputLock/NoFlushFlush                                      36.15n ±  1%                   37.03n ±  1%   +2.45% (p=0.000 n=10)\nConnectionOutputLock/NewClose                                          226.2n ± 23%                   230.2n ± 29%        ~ (p=0.314 n=10)\ngeomean                                                                27.83n                         27.01n         -2.96%\n\n                                  │ reports/system-layering-output-lock-v2-base.txt │ reports/system-layering-output-lock-v2-candidate.txt │\n                                  │                      B/op                       │            B/op              vs base                 │\nConnectionOutputLock/Send                                              0.000 ± 0%                      0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/Notification                                      0.000 ± 0%                      0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/BufferFlush                                       0.000 ± 0%                      0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/NoFlushFlush                                      0.000 ± 0%                      0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/NewClose                                          448.0 ± 0%                      448.0 ± 0%       ~ (p=1.000 n=10) ¹\ngeomean                                                                           ²                                +0.00%                ²\n¹ all samples are equal\n² summaries must be >0 to compute geomean\n\n                                  │ reports/system-layering-output-lock-v2-base.txt │ reports/system-layering-output-lock-v2-candidate.txt │\n                                  │                    allocs/op                    │          allocs/op           vs base                 │\nConnectionOutputLock/Send                                              0.000 ± 0%                      0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/Notification                                      0.000 ± 0%                      0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/BufferFlush                                       0.000 ± 0%                      0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/NoFlushFlush                                      0.000 ± 0%                      0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/NewClose                                          3.000 ± 0%                      3.000 ± 0%       ~ (p=1.000 n=10) ¹\ngeomean                                                                           ²                                +0.00%                ²\n¹ all samples are equal\n² summaries must be >0 to compute geomean\n\n                              │ reports/system-layering-output-lock-v2-base.txt │ reports/system-layering-output-lock-v2-candidate.txt │\n                              │                  struct-bytes                   │           struct-bytes            vs base            │\nConnectionOutputLock/NewClose                                        328.0 ± 0%                         328.0 ± 0%  ~ (p=1.000 n=10) ¹\n¹ all samples are equal\n"
+    },
+    {
+      "path": "reports\\system-layering-output-lock-v2-base.txt",
+      "sha256": "D92985DE1F865E3F5A7299CC4D3ED2A111108CE994B41EFC407C7DD0415AB4BF",
+      "text": "goos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128563071\t         2.800 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15219541\t        23.63 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11815326\t        30.53 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9957789\t        36.13 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1613352\t       232.5 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t127658804\t         2.940 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15081944\t        24.54 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11572510\t        35.67 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9943514\t        36.74 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1603354\t       223.5 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t127450365\t         2.823 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15169008\t        23.69 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11763897\t        30.70 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9956990\t        36.14 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1596819\t       252.9 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128142426\t         2.822 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15041048\t        23.90 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11564592\t        30.80 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9937531\t        36.36 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1562624\t       226.7 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128078190\t         2.815 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15128973\t        23.69 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11785735\t        30.58 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9977522\t        36.08 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1579062\t       225.4 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t129037946\t         2.788 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15259668\t        23.58 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11809744\t        30.57 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9970227\t        36.13 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1613326\t       222.4 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t120635062\t         2.991 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14197654\t        27.89 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11680688\t        30.34 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9982114\t        36.15 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1578996\t       225.7 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t127692447\t         2.821 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15073609\t        23.70 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11756982\t        30.61 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9972050\t        36.15 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1189860\t       301.9 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128076960\t         2.811 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15179048\t        23.74 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11772976\t        30.80 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9971828\t        36.17 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1347826\t       277.6 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t129297339\t         2.791 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15259668\t        23.61 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11797862\t        30.57 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9985797\t        36.06 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1604289\t       223.6 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\n"
+    },
+    {
+      "path": "reports\\system-layering-output-lock-interleaved-candidate.txt",
+      "sha256": "E1EE1C767AFB4342A2A0F843ABE65D033978543B130391DAED9E08020171AF13",
+      "text": "goos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t127942498\t         2.814 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14852158\t        24.16 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12044846\t        29.98 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9862068\t        36.42 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1192638\t       301.9 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128367232\t         2.804 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14888706\t        24.09 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12031964\t        29.90 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9950330\t        36.22 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1221381\t       295.9 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128099336\t         2.807 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14958675\t        24.12 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12082887\t        29.81 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9957706\t        36.33 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1229265\t       297.0 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t127899362\t         2.814 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14943774\t        24.05 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12186906\t        29.58 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9944394\t        36.07 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1568725\t       233.5 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128513458\t         2.800 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15005502\t        24.07 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12084348\t        29.70 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9962914\t        36.24 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1563722\t       259.6 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t127709751\t         2.817 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15103521\t        24.09 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12104664\t        29.68 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9971276\t        36.13 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1173886\t       304.8 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128458201\t         2.800 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14905473\t        24.07 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12118029\t        29.61 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9972657\t        36.09 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1605786\t       224.1 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t123897952\t         2.903 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14733567\t        24.43 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11914177\t        30.20 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9893126\t        36.28 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1360278\t       278.1 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128382660\t         2.812 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14887720\t        24.18 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12110894\t        29.78 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9964045\t        36.12 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1597369\t       233.0 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128325456\t         2.803 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14922526\t        24.10 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12045531\t        29.73 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9972961\t        36.17 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1592564\t       225.0 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\n"
+    },
+    {
+      "path": "reports\\system-layering-output-lock-interleaved-benchstat.txt",
+      "sha256": "C5BDA9113083D789F0A0C92E0D1BB8BCFEB727A8C59AF217C26066B769BB1729",
+      "text": "goos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \n                                  │ reports/system-layering-output-lock-interleaved-base.txt │ reports/system-layering-output-lock-interleaved-candidate.txt │\n                                  │                          sec/op                          │                 sec/op                  vs base               │\nConnectionOutputLock/Send                                                       2.812n ±  2%                             2.809n ±  0%       ~ (p=0.698 n=10)\nConnectionOutputLock/Notification                                               23.70n ±  1%                             24.10n ±  0%  +1.67% (p=0.000 n=10)\nConnectionOutputLock/BufferFlush                                                30.68n ±  1%                             29.76n ±  1%  -3.01% (p=0.000 n=10)\nConnectionOutputLock/NoFlushFlush                                               36.32n ±  1%                             36.20n ±  0%       ~ (p=0.127 n=10)\nConnectionOutputLock/NewClose                                                   271.4n ± 15%                             268.9n ± 16%       ~ (p=0.481 n=10)\ngeomean                                                                         28.90n                                   28.74n        -0.55%\n\n                                  │ reports/system-layering-output-lock-interleaved-base.txt │ reports/system-layering-output-lock-interleaved-candidate.txt │\n                                  │                           B/op                           │                 B/op                  vs base                 │\nConnectionOutputLock/Send                                                       0.000 ± 0%                               0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/Notification                                               0.000 ± 0%                               0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/BufferFlush                                                0.000 ± 0%                               0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/NoFlushFlush                                               0.000 ± 0%                               0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/NewClose                                                   448.0 ± 0%                               448.0 ± 0%       ~ (p=1.000 n=10) ¹\ngeomean                                                                                    ²                                         +0.00%                ²\n¹ all samples are equal\n² summaries must be >0 to compute geomean\n\n                                  │ reports/system-layering-output-lock-interleaved-base.txt │ reports/system-layering-output-lock-interleaved-candidate.txt │\n                                  │                        allocs/op                         │              allocs/op                vs base                 │\nConnectionOutputLock/Send                                                       0.000 ± 0%                               0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/Notification                                               0.000 ± 0%                               0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/BufferFlush                                                0.000 ± 0%                               0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/NoFlushFlush                                               0.000 ± 0%                               0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/NewClose                                                   3.000 ± 0%                               3.000 ± 0%       ~ (p=1.000 n=10) ¹\ngeomean                                                                                    ²                                         +0.00%                ²\n¹ all samples are equal\n² summaries must be >0 to compute geomean\n\n                              │ reports/system-layering-output-lock-interleaved-base.txt │ reports/system-layering-output-lock-interleaved-candidate.txt │\n                              │                       struct-bytes                       │               struct-bytes                 vs base            │\nConnectionOutputLock/NewClose                                                 328.0 ± 0%                                  328.0 ± 0%  ~ (p=1.000 n=10) ¹\n¹ all samples are equal\n"
+    },
+    {
+      "path": "reports\\system-layering-output-lock-interleaved-base.txt",
+      "sha256": "32169BCBB630D75D3B4E3F0611FFC68F928DF88B0C0C39B4D36BE18B894EE1C9",
+      "text": "goos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128125779\t         2.814 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15151260\t        23.73 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11617774\t        30.71 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9950798\t        36.42 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1459581\t       277.9 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t125656905\t         2.861 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15295131\t        23.96 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11674021\t        30.84 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9870558\t        36.69 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1186423\t       311.8 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t125060836\t         2.870 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15107768\t        23.76 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11698452\t        30.73 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9944641\t        36.48 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1514131\t       264.8 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128090174\t         2.813 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15167601\t        23.71 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11811720\t        30.58 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9935446\t        36.21 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1588419\t       225.4 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128156931\t         2.809 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15173866\t        23.65 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11767590\t        31.02 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9819376\t        36.23 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1190796\t       304.9 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128489194\t         2.803 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15228103\t        23.60 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11772322\t        30.56 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9981810\t        36.13 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1592820\t       259.3 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t127602379\t         2.824 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15050796\t        23.93 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11554162\t        30.98 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9854805\t        36.45 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1244826\t       292.7 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128574825\t         2.800 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15178408\t        23.60 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11832646\t        30.49 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t10001778\t        36.03 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1606429\t       249.0 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128040517\t         2.811 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15147817\t        23.69 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11744516\t        30.65 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9593552\t        36.30 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1587207\t       248.3 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t128482087\t         2.802 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15203728\t        23.59 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11795349\t        30.53 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9988041\t        36.33 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1118445\t       316.8 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\n"
+    },
+    {
+      "path": "reports\\system-layering-connection-output-lock-benchstat.txt",
+      "sha256": "C668E20C2E7E87C7E73A03F1AB8398E95AC3F347184EE585A75B1451506040EE",
+      "text": "goos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \n                                  │ reports/system-layering-connection-output-lock-before.txt │ reports/system-layering-connection-output-lock-after.txt │\n                                  │                          sec/op                           │              sec/op                vs base               │\nConnectionOutputLock/Send                                                        2.576n ±  1%                        2.817n ±  0%  +9.38% (p=0.000 n=10)\nConnectionOutputLock/Notification                                                23.58n ±  1%                        24.02n ±  0%  +1.84% (p=0.000 n=10)\nConnectionOutputLock/BufferFlush                                                 30.87n ±  1%                        29.99n ±  0%  -2.83% (p=0.000 n=10)\nConnectionOutputLock/NoFlushFlush                                                36.62n ±  0%                        36.37n ±  1%  -0.68% (p=0.012 n=10)\nConnectionOutputLock/NewClose                                                    315.0n ± 10%                        308.1n ± 23%  -2.16% (p=0.007 n=10)\ngeomean                                                                          29.31n                              29.60n        +1.01%\n\n                                  │ reports/system-layering-connection-output-lock-before.txt │ reports/system-layering-connection-output-lock-after.txt │\n                                  │                           B/op                            │              B/op                vs base                 │\nConnectionOutputLock/Send                                                        0.000 ± 0%                          0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/Notification                                                0.000 ± 0%                          0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/BufferFlush                                                 0.000 ± 0%                          0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/NoFlushFlush                                                0.000 ± 0%                          0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/NewClose                                                    448.0 ± 0%                          448.0 ± 0%       ~ (p=1.000 n=10) ¹\ngeomean                                                                                     ²                                    +0.00%                ²\n¹ all samples are equal\n² summaries must be >0 to compute geomean\n\n                                  │ reports/system-layering-connection-output-lock-before.txt │ reports/system-layering-connection-output-lock-after.txt │\n                                  │                         allocs/op                         │            allocs/op             vs base                 │\nConnectionOutputLock/Send                                                        0.000 ± 0%                          0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/Notification                                                0.000 ± 0%                          0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/BufferFlush                                                 0.000 ± 0%                          0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/NoFlushFlush                                                0.000 ± 0%                          0.000 ± 0%       ~ (p=1.000 n=10) ¹\nConnectionOutputLock/NewClose                                                    3.000 ± 0%                          3.000 ± 0%       ~ (p=1.000 n=10) ¹\ngeomean                                                                                     ²                                    +0.00%                ²\n¹ all samples are equal\n² summaries must be >0 to compute geomean\n\n                              │ reports/system-layering-connection-output-lock-after.txt │\n                              │                       struct-bytes                       │\nConnectionOutputLock/NewClose                                                 328.0 ± 0%\n"
+    },
+    {
+      "path": "reports\\system-layering-connection-output-lock-before.txt",
+      "sha256": "60A447721D81571B530A24E66D6A29F62F247A468A8BCE9FFC5822E595D6F90C",
+      "text": "goos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t139247266\t         2.583 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t138773511\t         2.590 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t139460558\t         2.584 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t138876832\t         2.590 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t139724161\t         2.576 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t139892313\t         2.575 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t140321116\t         2.563 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t140822205\t         2.557 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t140891702\t         2.553 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t141102100\t         2.550 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15154512\t        23.72 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15133743\t        23.81 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15121094\t        23.82 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15212724\t        23.58 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15229263\t        23.59 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15256046\t        23.57 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15250359\t        23.56 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15262256\t        23.58 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15220120\t        23.58 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15261350\t        23.57 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11772438\t        30.46 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11807884\t        30.71 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11702407\t        30.74 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11786892\t        30.76 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t10873143\t        31.09 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11671297\t        30.88 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11670918\t        30.86 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11724626\t        30.96 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11580886\t        31.15 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11665245\t        31.48 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9448942\t        38.37 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9706329\t        36.07 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9792853\t        36.59 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9857962\t        36.55 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9802346\t        36.58 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9846692\t        36.50 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9857476\t        36.65 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9845130\t        36.65 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9797463\t        36.68 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9794425\t        36.70 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1510502\t       239.2 ns/op\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1311865\t       284.5 ns/op\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       324.2 ns/op\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       314.8 ns/op\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       317.8 ns/op\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       314.5 ns/op\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       317.5 ns/op\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       317.0 ns/op\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       315.1 ns/op\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       312.8 ns/op\t     448 B/op\t       3 allocs/op\nPASS\nok  \tgithub.com/MongooseMoo/barn/server\t19.162s\n"
+    },
+    {
+      "path": "reports\\system-layering-connection-output-lock-after.txt",
+      "sha256": "E1E0B8381C881594A721575A151DE9DEC80D33ECA1443ED24EB1CB371725E7D2",
+      "text": "=== RUN   TestSwitchPlayerInterruptsBlockedNotification\n2026/11/07 06:35:01 INFO switched connection conn_id=2 old_player=-2 new_player=8\n2026/11/07 06:35:01 INFO switched connection conn_id=3 old_player=-3 new_player=8\n--- PASS: TestSwitchPlayerInterruptsBlockedNotification (0.00s)\n=== RUN   TestConnectionMetadataProgressesDuringBlockedNotification\n--- PASS: TestConnectionMetadataProgressesDuringBlockedNotification (0.00s)\n=== RUN   TestConnectionOutputLockSize\n    connection_output_lock_test.go:95: Connection struct bytes: 328\n--- PASS: TestConnectionOutputLockSize (0.00s)\nPASS\nok  \tgithub.com/MongooseMoo/barn/server\t1.026s\ngoos: windows\ngoarch: amd64\npkg: github.com/MongooseMoo/barn/server\ncpu: AMD Ryzen 9 5950X 16-Core Processor            \nBenchmarkConnectionOutputLock/Send         \t127149128\t         2.825 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t127577643\t         2.822 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t127508643\t         2.823 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t127631151\t         2.820 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t128002411\t         2.811 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t128594299\t         2.801 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t128176507\t         2.806 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t127553008\t         2.822 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t127717816\t         2.814 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Send         \t128338264\t         2.803 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14939866\t        24.08 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14947371\t        24.11 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14966698\t        23.99 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14989507\t        24.01 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14946690\t        24.03 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14996125\t        24.04 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14965640\t        24.02 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t14995626\t        23.99 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15022846\t        23.98 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/Notification \t15014638\t        24.00 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12174954\t        29.99 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11982186\t        30.12 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11983102\t        30.12 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12049442\t        29.96 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12103402\t        30.06 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12017304\t        30.18 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12014216\t        29.99 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12107432\t        29.88 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t11824795\t        30.00 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/BufferFlush  \t12076281\t        29.74 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9851515\t        36.38 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9838807\t        36.61 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9905020\t        36.31 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9927856\t        36.43 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9848361\t        36.36 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9895791\t        36.59 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9814959\t        36.48 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9872994\t        36.35 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9909710\t        36.28 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NoFlushFlush \t 9944146\t        36.20 ns/op\t       0 B/op\t       0 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1510166\t       237.8 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1521738\t       237.5 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1515802\t       238.2 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1514902\t       244.8 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       314.2 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       306.0 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       312.1 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       310.3 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       311.5 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nBenchmarkConnectionOutputLock/NewClose     \t 1000000\t       313.2 ns/op\t       328.0 struct-bytes\t     448 B/op\t       3 allocs/op\nPASS\nok  \tgithub.com/MongooseMoo/barn/server\t18.801s\n"
+    }
+  ],
+  "manifest": {
+    "state": "completed; notification regression remains; stopped for parent decision",
+    "baseWorktree": "C:/Users/Q/code/barn-output-lock-base",
+    "candidateWorktree": "C:/Users/Q/code/barn-connection-output-lock",
+    "baseCommit": "8f32a38fff17cdba54781f3a9d7bd6ee0dfaea1e",
+    "candidateParentCommit": "8f32a38fff17cdba54781f3a9d7bd6ee0dfaea1e",
+    "baseConnectionSourceSHA256": "ED3F6E376F94600AB1974DD6291EE7A973CE68DFEEFE306D01A8A71F57602205",
+    "candidateConnectionSourceSHA256": "C1D19FC687DF7F8C791F6693D526D348606470C3A1A52BDE3ADCC211C938265F",
+    "identicalBenchmarkSourceSHA256": "32D032C1CAAD9E740145A0045DFC46471026AA184AD16A57969AB6F1626956B5",
+    "plannedBuild": [
+      "go test -c -o C:/Users/Q/code/barn-connection-output-lock/.tmp/output-lock-base.test.exe ./server",
+      "go test -c -o C:/Users/Q/code/barn-connection-output-lock/.tmp/output-lock-candidate.test.exe ./server"
+    ],
+    "plannedArgs": [
+      "-test.run=^$",
+      "-test.bench=^BenchmarkConnectionOutputLock$",
+      "-test.benchmem",
+      "-test.benchtime=300ms",
+      "-test.count=1",
+      "-test.cpu=1"
+    ],
+    "plannedOrder": [
+      "AB",
+      "BA",
+      "AB",
+      "BA",
+      "AB",
+      "BA",
+      "AB",
+      "BA",
+      "AB",
+      "BA"
+    ],
+    "affinity": "START /B /WAIT /AFFINITY 10; Windows logical processor 4; parent mask 0xffffffff",
+    "goVersion": "go1.27.1 windows/amd64",
+    "binarySHA256": {
+      "A": "6AA8534142B07F5C0CB6DB4F919CD158F9582DA3517575F7F3DD7D81352B8462",
+      "B": "0D53F08A132C0AC6737038DCFC701DCAA888587D01E920BFBB529189C0316DCB"
+    },
+    "actualOrder": [
+      {
+        "index": 1,
+        "pair": 1,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 2,
+        "pair": 1,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 3,
+        "pair": 2,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 4,
+        "pair": 2,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 5,
+        "pair": 3,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 6,
+        "pair": 3,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 7,
+        "pair": 4,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 8,
+        "pair": 4,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 9,
+        "pair": 5,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 10,
+        "pair": 5,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 11,
+        "pair": 6,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 12,
+        "pair": 6,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 13,
+        "pair": 7,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 14,
+        "pair": 7,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 15,
+        "pair": 8,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 16,
+        "pair": 8,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 17,
+        "pair": 9,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 18,
+        "pair": 9,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 19,
+        "pair": 10,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 20,
+        "pair": 10,
+        "variant": "A",
+        "exit_code": 0
+      }
+    ],
+    "notes": "No compilation or timing before exclusive parent grant. Actual exit status and raw output preserved per run through apply_patch."
+  },
+  "finalGuardManifest": {
+    "state": "completed; NoFlushFlush cost and control movement unresolved; stopped",
+    "baselineManifest": "output-lock-benchmark-manifest.json",
+    "baseCommit": "8f32a38fff17cdba54781f3a9d7bd6ee0dfaea1e",
+    "candidateConnectionSourceSHA256": "CF2E4FA44A439E830E70C25B5E37598055D7F07A74CB1207C62A290F60153062",
+    "benchmarkSourceSHA256": "32D032C1CAAD9E740145A0045DFC46471026AA184AD16A57969AB6F1626956B5",
+    "binarySHA256": {
+      "A": "6AA8534142B07F5C0CB6DB4F919CD158F9582DA3517575F7F3DD7D81352B8462",
+      "B": "1AB694F1BE56607E50D3D2843D04E1B011E8CD53D1B9A622303E87AF953BCAD4"
+    },
+    "candidateBuild": "go test -c -o C:/Users/Q/code/barn-connection-output-lock/.tmp/output-lock-candidate-v2.test.exe ./server",
+    "args": [
+      "-test.run=^$",
+      "-test.bench=^BenchmarkConnectionOutputLock$",
+      "-test.benchmem",
+      "-test.benchtime=300ms",
+      "-test.count=1",
+      "-test.cpu=1"
+    ],
+    "affinity": "START /B /WAIT /AFFINITY 10 (logical CPU4)",
+    "plannedOrder": "ABBAABBAABBAABBAABBA",
+    "actualOrder": [
+      {
+        "index": 1,
+        "pair": 1,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 2,
+        "pair": 1,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 3,
+        "pair": 2,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 4,
+        "pair": 2,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 5,
+        "pair": 3,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 6,
+        "pair": 3,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 7,
+        "pair": 4,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 8,
+        "pair": 4,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 9,
+        "pair": 5,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 10,
+        "pair": 5,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 11,
+        "pair": 6,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 12,
+        "pair": 6,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 13,
+        "pair": 7,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 14,
+        "pair": 7,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 15,
+        "pair": 8,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 16,
+        "pair": 8,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 17,
+        "pair": 9,
+        "variant": "A",
+        "exit_code": 0
+      },
+      {
+        "index": 18,
+        "pair": 9,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 19,
+        "pair": 10,
+        "variant": "B",
+        "exit_code": 0
+      },
+      {
+        "index": 20,
+        "pair": 10,
+        "variant": "A",
+        "exit_code": 0
+      }
+    ]
+  }
+}

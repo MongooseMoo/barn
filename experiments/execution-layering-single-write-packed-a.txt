@@ -1,0 +1,10 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkThreadedContinuations/players=1/writes=true-4         	    4080	    279227 ns/op	      3581 commands/s	         0 escalations/command	         0 retries/command	   72614 B/op	     561 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4         	    4040	    291699 ns/op	      3428 commands/s	         0 escalations/command	         0 retries/command	   72599 B/op	     562 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4         	    4966	    239015 ns/op	      4184 commands/s	         0 escalations/command	         0 retries/command	   72509 B/op	     551 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4         	    5338	    244713 ns/op	      4086 commands/s	         0 escalations/command	         0 retries/command	   72514 B/op	     552 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4         	    5053	    275900 ns/op	      3625 commands/s	         0 escalations/command	         0 retries/command	   72553 B/op	     557 allocs/op
+PASS

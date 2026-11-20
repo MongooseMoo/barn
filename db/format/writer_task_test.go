@@ -92,8 +92,9 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 		"0 9 124 5\n",
 		// Toast execute.cc::write_activ_as_pi starts with typed INT -111.
 		"0 9 124 5\n0\n-111\n",
-		// Toast preserves the historical activation-header sentinels.
-		"4 -7 -8 2 -9 3 6 -10 0\n",
+		// Toast preserves the historical activation-header sentinels and
+		// ends the line with the definer's type code (1, an object).
+		"4 -7 -8 2 -9 3 6 -10 1\n",
 		// Toast persists the invoked verb and stored verb name separately.
 		"No\nMore\nParse\nInfos\ntick\nt*ick\n",
 		"1 variables\nx\n0\n1\n",
@@ -101,6 +102,26 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("queued task output missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// Toast's write_activ_as_pi passes the 16-byte Var a.vloc to one integer
+// conversion, so a suspended activation's line also ends in the definer's
+// type code and never in the activation's debug flag.
+func TestWriteSuspendedActivationLineEndsInDefinerTypeCode(t *testing.T) {
+	for _, debug := range []bool{true, false} {
+		var buf bytes.Buffer
+		writer := NewWriter(&buf, store.NewStore().Snapshot())
+		frame := task.VMFrameSnapshot{This: 7, ThisValue: types.NewObj(7), Player: 2, Verb: "inner", VerbLoc: 6, VerbDebug: debug}
+		if err := writer.writeVMActivationAsPI(frame, types.ActivationFrame{Programmer: 3}); err != nil {
+			t.Fatalf("writeVMActivationAsPI: %v", err)
+		}
+		if err := writer.Flush(); err != nil {
+			t.Fatalf("flush: %v", err)
+		}
+		if want := "\n7 -7 -8 2 -9 3 6 -10 1\n"; !strings.Contains(buf.String(), want) {
+			t.Fatalf("VerbDebug %v: suspended activation missing %q in:\n%s", debug, want, buf.String())
 		}
 	}
 }
@@ -158,14 +179,14 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 			MaxStackDepth: 77,
 			Frames: []task.VMFrameSnapshot{{
 				Program: bytecode.Program{
-					Code:      []byte{byte(bytecode.OP_RETURN_NONE)},
+					Code:      []byte{byte(bytecode.OP_RETURN_NONE), byte(bytecode.OP_END_FINALLY_WIDE), 0, 0, 0, 1},
 					Constants: []types.Value{types.NewInt(91)},
 					VarNames:  []string{"zeta", "alpha"},
 					LineInfo:  []bytecode.LineEntry{{StartIP: 0, Line: 4}},
 					NumLocals: 2,
 					Source:    []string{"return;"},
 				},
-				IP:         0,
+				IP:         1,
 				Locals:     []types.Value{types.NewInt(1), types.Unbound},
 				Stack:      []types.Value{types.NewStr("operand")},
 				This:       7,
@@ -183,15 +204,14 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 					VarIndex:   1,
 					StackDepth: 1,
 				}},
-				PendingReturn:    types.NewInt(73),
-				HasPendingReturn: true,
-				VerbDebug:        true,
-				IsVerbCall:       true,
-				SavedThisObj:     9,
-				SavedThisValue:   types.NewObj(9),
-				SavedVerb:        "outer",
-				SavedProgrammer:  4,
-				SavedIsWizard:    true,
+				PendingReasons:  []task.PendingReasonSnapshot{{Kind: task.PendingReturn, FinallyIP: 1, Value: types.NewInt(73)}},
+				VerbDebug:       true,
+				IsVerbCall:      true,
+				SavedThisObj:    9,
+				SavedThisValue:  types.NewObj(9),
+				SavedVerb:       "outer",
+				SavedProgrammer: 4,
+				SavedIsWizard:   true,
 				MoveContinuation: &task.MoveContinuationSnapshot{
 					Stage:         2,
 					What:          types.NewObj(12),
@@ -239,7 +259,9 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 		t.Fatalf("wake value = %v", got.WakeValue)
 	}
 	frame := got.VM.Frames[0]
-	if frame.Program.VarNames[0] != "zeta" || !frame.Locals[1].IsUnbound() {
+	// Only bound named locals travel; restore places them in the rebuilt
+	// program's slots.
+	if !slices.Equal(frame.Program.VarNames, []string{"zeta"}) || len(frame.Locals) != 1 || !frame.Locals[0].Equal(types.NewInt(1)) {
 		t.Fatalf("locals = %#v, names = %#v", frame.Locals, frame.Program.VarNames)
 	}
 	if frame.Stack[0].Str() != "operand" || len(frame.ExceptStack) != 1 {
@@ -254,8 +276,8 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 		!frame.MoveContinuation.Decentralized {
 		t.Fatalf("move continuation = %#v", frame.MoveContinuation)
 	}
-	if !frame.HasPendingReturn || !frame.PendingReturn.Equal(types.NewInt(73)) {
-		t.Fatalf("pending return = (%t, %v)", frame.HasPendingReturn, frame.PendingReturn)
+	if len(frame.PendingReasons) != 1 || !frame.PendingReasons[0].Value.Equal(types.NewInt(73)) {
+		t.Fatalf("pending return = %#v", frame.PendingReasons)
 	}
 	if frame.RecycleContinuation == nil || !frame.RecycleContinuation.Object.Equal(types.NewObj(20)) ||
 		!slices.Equal(frame.RecycleContinuation.OldParents, []types.ObjID{1, 2}) ||
@@ -440,7 +462,7 @@ func TestHTTPReadingTaskUsesInterruptedSection(t *testing.T) {
 }
 
 func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
-	queued := task.NewTask(31, 2, 100, 1)
+	queued := task.NewState(31, 2, 100, 1)
 	queued.StartTime = time.Unix(123, 0)
 	queued.Programmer = 3
 	queued.This = 4
@@ -470,7 +492,7 @@ func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
 	for i := 0; i < 64; i++ {
 		var buf bytes.Buffer
 		writer := NewWriter(&buf, store.NewStore().Snapshot())
-		writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshot()}, nil)
+		writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshotLocked()}, nil)
 		if err := writer.writeQueuedTasks(); err != nil {
 			t.Fatalf("writeQueuedTasks iteration %d: %v", i, err)
 		}
@@ -484,7 +506,7 @@ func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
 }
 
 func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
-	queued := task.NewTask(37, 2, 100, 1)
+	queued := task.NewState(37, 2, 100, 1)
 	queued.StartTime = time.Unix(123, 0)
 	queued.Programmer = 3
 	queued.This = 4
@@ -509,7 +531,7 @@ func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
 
 	var buf bytes.Buffer
 	writer := NewWriter(&buf, store.NewStore().Snapshot())
-	writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshot()}, nil)
+	writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshotLocked()}, nil)
 	if err := writer.writeQueuedTasks(); err != nil {
 		t.Fatalf("writeQueuedTasks: %v", err)
 	}
@@ -523,7 +545,7 @@ func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
 }
 
 func TestWriteQueuedTaskUsesForkProgramFirstLine(t *testing.T) {
-	queued := task.NewTask(43, 2, 100, 1)
+	queued := task.NewState(43, 2, 100, 1)
 	queued.StartTime = time.Unix(123, 0)
 	queued.Programmer = 3
 	queued.This = 4
@@ -548,7 +570,7 @@ func TestWriteQueuedTaskUsesForkProgramFirstLine(t *testing.T) {
 
 	var buf bytes.Buffer
 	writer := NewWriter(&buf, store.NewStore().Snapshot())
-	writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshot()}, nil)
+	writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshotLocked()}, nil)
 	if err := writer.writeQueuedTasks(); err != nil {
 		t.Fatalf("writeQueuedTasks: %v", err)
 	}

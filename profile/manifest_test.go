@@ -1,13 +1,80 @@
 package profile
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/vm"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestChecksumFile(t *testing.T) {
+	data := bytes.Repeat([]byte("manifest checksum\x00\xff"), 8192)
+	sum := sha256.Sum256(data)
+	for _, test := range []struct {
+		name string
+		data []byte
+		want string
+	}{
+		{"empty", nil, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+		{"abc", []byte("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
+		{"multiple chunks", data, hex.EncodeToString(sum[:])},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "input.db")
+			if err := os.WriteFile(path, test.data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := checksumFile(path)
+			if err != nil || got != test.want {
+				t.Fatalf("checksumFile = %q, %v, want %q", got, err, test.want)
+			}
+		})
+	}
+	if got, err := checksumFile(filepath.Join(t.TempDir(), "missing.db")); got != "" || !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing checksum = %q, %v, want native not-exist error", got, err)
+	}
+	if got, err := checksumFile(t.TempDir()); got != "" || err == nil {
+		t.Fatalf("directory checksum = %q, %v, want native read error", got, err)
+	} else {
+		var pathErr *os.PathError
+		if !errors.As(err, &pathErr) {
+			t.Fatalf("directory error lost native path error: %v", err)
+		}
+	}
+}
+
+func BenchmarkChecksumFile(b *testing.B) {
+	for _, test := range []struct {
+		name string
+		data []byte
+	}{
+		{"config", []byte("OUTBOUND_NETWORK = 1\n")},
+		{"database", bytes.Repeat([]byte{0xa5}, 32<<20)},
+	} {
+		b.Run(test.name, func(b *testing.B) {
+			path := filepath.Join(b.TempDir(), "input")
+			if err := os.WriteFile(path, test.data, 0o600); err != nil {
+				b.Fatal(err)
+			}
+			sum := sha256.Sum256(test.data)
+			want := hex.EncodeToString(sum[:])
+			b.SetBytes(int64(len(test.data)))
+			b.ReportAllocs()
+			for b.Loop() {
+				got, err := checksumFile(path)
+				if err != nil || got != want {
+					b.Fatalf("checksumFile = %q, %v, want %q", got, err, want)
+				}
+			}
+		})
+	}
+}
 
 func TestBuildManifestIncludesChecksumsAndFeatures(t *testing.T) {
 	dir := t.TempDir()
@@ -47,8 +114,19 @@ func TestBuildManifestIncludesChecksumsAndFeatures(t *testing.T) {
 	if manifest.Features[config.FeaturePromoteNumbers] != false {
 		t.Fatalf("PROMOTE_NUMBERS feature = %#v", manifest.Features[config.FeaturePromoteNumbers])
 	}
+	if manifest.Features[config.FeatureValidIncarnation] != false {
+		t.Fatalf("VALID_INCARNATION feature = %#v", manifest.Features[config.FeatureValidIncarnation])
+	}
 	if manifest.Features["runtime.arch_bits"] == nil {
 		t.Fatalf("missing runtime.arch_bits feature")
+	}
+	if manifest.Features["feature.ast"] != true {
+		t.Fatalf("feature.ast = %#v, want true with the AST builtins installed", manifest.Features["feature.ast"])
+	}
+	for _, name := range []string{"bracketed_first_index_before_property", "unfolded_double_negation", "no_waif_colon_property"} {
+		if manifest.Features["feature."+name] != true {
+			t.Fatalf("feature.%s = %#v, want true", name, manifest.Features["feature."+name])
+		}
 	}
 }
 
@@ -104,8 +182,8 @@ func TestCommittedToastOracleManifests(t *testing.T) {
 			profileID:      "toast-stock-wsl-testdb",
 			fixture:        "testdb",
 			databaseSHA256: "1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e",
-			implementation: "aecc51e9449c6e7c95272f0f044b5ba38948459e",
-			configSHA256:   "a88a8c6c37b66ca65a08a318988361827f131421edeff25e5b4af83fb3fa8036",
+			implementation: "03af4fa2b53b418999f03566b646ee42bc7ea647",
+			configSHA256:   "e41bf84974987f9cf3ed38b669b0dbe26dccb24896cf61cba38b8a6bf99ebd60",
 			promoteNumbers: false,
 		},
 		{
@@ -115,6 +193,15 @@ func TestCommittedToastOracleManifests(t *testing.T) {
 			databaseSHA256: "33201970097d3d2d2bfc0d5f875f087d587601bf8255ef31ef19b416d65ac925",
 			implementation: "72e3c7f96ce7a41fdeba793aef8818dc4408072e",
 			configSHA256:   "6c855f6b1f2dd584ba949d42891018ca68eccd34bd75b7e2300428b9246724a9",
+			promoteNumbers: true,
+		},
+		{
+			file:           "mongoose-0ff6fd7-wsl-testdb.json",
+			profileID:      "toast-mongoose-0ff6fd7-wsl-testdb",
+			fixture:        "testdb",
+			databaseSHA256: "1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e",
+			implementation: "0ff6fd77659bd0ad001176dffdd007f854afa96b",
+			configSHA256:   "d9739c2df81aaae6d1749d2515e2cb0feb972439af25e473b2da391282052d6c",
 			promoteNumbers: true,
 		},
 	}

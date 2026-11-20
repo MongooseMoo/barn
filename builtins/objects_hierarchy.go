@@ -120,7 +120,7 @@ func authorizeParentChange(ctx *Execution, objID types.ObjID, parentIDs []types.
 // builtinChparent implements chparent(object, new_parent)
 // Changes object's parent (single inheritance)
 func builtinChparent(ctx *Execution, args []types.Value) types.Result {
-	if res, ok := beforeCoarse(ctx); !ok {
+	if res, ok := beforeCoarse(ctx, "chparent"); !ok {
 		return res
 	}
 	store := ctx.Store
@@ -214,31 +214,43 @@ func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 	if errCode := authorizeParentChange(ctx, objVal.ID(), newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	tx := readTxn(ctx)
-	oldParents, errCode := tx.Parents(objVal.ID())
-	if errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	markLiveStoreMutated(ctx)
-	adoptIDs := append([]types.ObjID{objVal.ID()}, oldParents...)
-	adoptIDs = append(adoptIDs, newParents...)
-	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	if errCode := tx.ReseedInheritedProperties(objVal.ID()); errCode != types.E_NONE {
+	if errCode := changeParentsLive(ctx, objVal.ID(), newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
 }
 
+// changeParentsLive reparents objID in the live store and brings the task's
+// transaction up to the facets that change moved: the relationships of objID
+// and of its old and new parents, objID's verb-scan version (a verb walk
+// through objID depends on its parents, so the store moves it), and the
+// inherited property slots of objID's subtree.
+func changeParentsLive(ctx *Execution, objID types.ObjID, newParents []types.ObjID) types.ErrorCode {
+	tx := readTxn(ctx)
+	oldParents, errCode := tx.Parents(objID)
+	if errCode != types.E_NONE {
+		return errCode
+	}
+	if errCode := ctx.Store.ChangeParents(objID, newParents); errCode != types.E_NONE {
+		return errCode
+	}
+	markLiveStoreMutated(ctx)
+	adoptIDs := append([]types.ObjID{objID}, oldParents...)
+	adoptIDs = append(adoptIDs, newParents...)
+	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+		return errCode
+	}
+	if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
+		return errCode
+	}
+	return tx.ReseedInheritedProperties(objID, oldParents)
+}
+
 // builtinChparents implements chparents(object, parents_list)
 // Changes object's parents (multiple inheritance)
 func builtinChparents(ctx *Execution, args []types.Value) types.Result {
-	if res, ok := beforeCoarse(ctx); !ok {
+	if res, ok := beforeCoarse(ctx, "chparents"); !ok {
 		return res
 	}
 	store := ctx.Store
@@ -267,7 +279,8 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 	seenParents := make(map[types.ObjID]bool)
 
 	for i, elem := range elements {
-		if !isObjectRef(elem) {
+		// Parents are OBJ values only (Toast is_obj_or_list_of_objs).
+		if elem.Type() != types.TYPE_OBJ {
 			return types.Err(types.E_TYPE)
 		}
 
@@ -344,20 +357,7 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 	// Note: ToastStunt does NOT invalidate anonymous descendants when the parent
 	// hierarchy changes; they remain valid.
 
-	oldParents, errCode := tx.Parents(objVal.ID())
-	if errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	markLiveStoreMutated(ctx)
-	adoptIDs := append([]types.ObjID{objVal.ID()}, oldParents...)
-	adoptIDs = append(adoptIDs, newParents...)
-	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	if errCode := tx.ReseedInheritedProperties(objVal.ID()); errCode != types.E_NONE {
+	if errCode := changeParentsLive(ctx, objVal.ID(), newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -479,10 +479,10 @@ func builtinLocateByName(ctx *Execution, args []types.Value) types.Result {
 
 	caseSensitive := false
 	if len(args) == 2 {
-		if args[1].Type() != types.TYPE_INT {
+		var ok bool
+		if caseSensitive, ok = flagArg(args[1]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		caseSensitive = args[1].Int() != 0
 	}
 
 	matchingIDs := store.ObjectIDsByNameSubstring(needleStr, caseSensitive)
@@ -515,10 +515,10 @@ func builtinLocations(ctx *Execution, args []types.Value) types.Result {
 		hasBase = true
 	}
 	if len(args) == 3 {
-		if args[2].Type() != types.TYPE_INT {
+		var ok bool
+		if checkParent, ok = flagArg(args[2]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		checkParent = args[2].Int() != 0
 	}
 
 	out := make([]types.Value, 0)
@@ -563,7 +563,7 @@ func builtinOwnedObjects(ctx *Execution, args []types.Value) types.Result {
 	}
 	// Scans committed live state; flush staged decentralized creates so an object this task
 	// just created is attributed to its owner. Rare introspection builtin, not a hot path.
-	if res, ok := beforeCoarse(ctx); !ok {
+	if res, ok := beforeCoarse(ctx, "owned_objects"); !ok {
 		return res
 	}
 	ownedIDs := store.ObjectsOwnedBy(owner.ID())
@@ -586,7 +586,7 @@ func builtinRecycledObjects(ctx *Execution, args []types.Value) types.Result {
 	// This scans committed live state; flush any staged decentralized recycle/create so a
 	// recycle this task just performed is reflected. Rare introspection builtin — the flush
 	// (which makes the task coarse) is not on any hot path.
-	if res, ok := beforeCoarse(ctx); !ok {
+	if res, ok := beforeCoarse(ctx, "recycled_objects"); !ok {
 		return res
 	}
 	out := make([]types.Value, 0)
@@ -616,17 +616,21 @@ func builtinNextRecycledObject(ctx *Execution, args []types.Value) types.Result 
 		default:
 			return types.Err(types.E_TYPE)
 		}
-		if start == types.ObjNothing {
-			return types.Err(types.E_INVARG)
-		}
-		if start > store.DirectTxn().MaxObject() {
+		// Toast rejects every negative start (objects.cc:1285), so the scan
+		// below never walks up from a large negative id.
+		if start < 0 {
 			return types.Err(types.E_INVARG)
 		}
 	}
 
 	// Scans committed live state; flush any staged decentralized recycle first. Rare.
-	if res, ok := beforeCoarse(ctx); !ok {
+	if res, ok := beforeCoarse(ctx, "next_recycled_object"); !ok {
 		return res
+	}
+	// The bound is live too: an earlier create/recycle in this transaction may
+	// have allocated the requested slot without publishing it yet.
+	if len(args) == 1 && start > store.DirectTxn().MaxObject() {
+		return types.Err(types.E_INVARG)
 	}
 	upper := store.NextID()
 	scanStart := start + 1
@@ -642,7 +646,7 @@ func builtinNextRecycledObject(ctx *Execution, args []types.Value) types.Result 
 }
 
 func builtinRecreate(ctx *Execution, args []types.Value) types.Result {
-	if res, ok := beforeCoarse(ctx); !ok {
+	if res, ok := beforeCoarse(ctx, "recreate"); !ok {
 		return res
 	}
 	store := ctx.Store
@@ -689,7 +693,7 @@ func builtinRecreate(ctx *Execution, args []types.Value) types.Result {
 	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	if errCode := tx.ReseedInheritedProperties(obj.ID()); errCode != types.E_NONE {
+	if errCode := tx.ReseedInheritedProperties(obj.ID(), nil); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -698,6 +702,9 @@ func builtinRecreate(ctx *Execution, args []types.Value) types.Result {
 		return result
 	}
 
+	if ctx.PushInitialize != nil {
+		return ctx.PushInitialize(result.Val, nil, "recreate")
+	}
 	initResult := session.CallVerb(obj.ID(), "initialize", []types.Value{}, ctx)
 	if initResult.Flow == types.FlowException && initResult.Error != types.E_VERBNF {
 		return initResult
@@ -728,6 +735,17 @@ func builtinWaifStats(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(result)
 }
 
+// builtinWaifOwnerCount implements the Mongoose fork's waif_owner_count(OBJ):
+// the number of WAIFs owned by that object number. Anyone may ask about
+// themselves; asking about another object number needs a wizard.
+func builtinWaifOwnerCount(ctx *Execution, args []types.Value) types.Result {
+	owner := args[0].ID()
+	if owner != ctx.Programmer && !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+	return types.Ok(types.NewInt(int64(ctx.Store.WaifCountByOwner(owner))))
+}
+
 func objectsHierarchyDescriptors() []Descriptor {
 	return []Descriptor{
 		function("parent", builtinParent, 1, 1, -1),
@@ -735,15 +753,16 @@ func objectsHierarchyDescriptors() []Descriptor {
 		function("children", builtinChildren, 1, 1, -1),
 		function("ancestors", builtinAncestors, 1, 2, -1, -1),
 		function("descendants", builtinDescendants, 1, 2, -1, -1),
-		function("isa", builtinIsa, 2, 3, -1, -1, 0),
+		function("isa", builtinIsa, 2, 3, -1, -1, argFlag),
 		function("chparent", builtinChparent, 2, 2, -1, 1),
 		function("chparents", builtinChparents, 2, 2, -1, 4),
-		function("locate_by_name", builtinLocateByName, 1, 2, 2, 0),
-		function("locations", builtinLocations, 1, 3, 1, 1, 0),
+		function("locate_by_name", builtinLocateByName, 1, 2, 2, argFlag),
+		function("locations", builtinLocations, 1, 3, 1, 1, argFlag),
 		function("owned_objects", builtinOwnedObjects, 1, 1, 1),
 		{Name: "next_recycled_object", Implementation: builtinNextRecycledObject, Signature: &Signature{MinArgs: 0, MaxArgs: 1, ArgTypes: []int64{1}, Alternatives: map[int][]int64{0: {0}}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
 		function("recycled_objects", builtinRecycledObjects, 0, 0),
 		function("recreate", builtinRecreate, 2, 3, 1, 1, 1),
 		function("waif_stats", builtinWaifStats, 0, 0),
+		function("waif_owner_count", builtinWaifOwnerCount, 1, 1, 1).withCapability(config.BarnExtensions),
 	}
 }

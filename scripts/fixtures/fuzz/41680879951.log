@@ -1,0 +1,316 @@
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	﻿2026-11-03T17:16:43.7031383Z Current runner version: '2.338.2'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:43.7038850Z Runner name: 'Q-barn-wsl-x64'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:43.7039956Z Runner group name: 'Default'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:43.7041313Z Machine name: 'Empiricist'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:43.7044922Z ##[group]GITHUB_TOKEN Permissions
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:43.7047873Z Contents: read
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:43.7049011Z Metadata: read
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:43.7049858Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:43.7052439Z Secret source: Actions
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:43.7053506Z Cache mode: write
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:43.7054501Z Prepare workflow directory
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:43.7594988Z Prepare all required actions
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:43.7647286Z Getting action download info
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:44.1475561Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:44.7018466Z Download action repository 'actions/setup-go@v5' (SHA:40f1582b2485089dde7abd97c1529aa768e1baff)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:45.3676929Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.2234718Z Complete job name: FuzzRestoreVMSnapshotDoesNotPanic
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3111129Z ##[group]Run if [ ! -c /dev/null ]; then
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3112756Z ^[[36;1mif [ ! -c /dev/null ]; then^[[0m
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3115929Z ^[[36;1m  echo "::error::/dev/null on this runner is not a character device: $(stat -c '%F %U:%G %a' /dev/null). Restore it as root with: rm /dev/null && mknod -m 666 /dev/null c 1 3"^[[0m
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3119097Z ^[[36;1m  exit 1^[[0m
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3120022Z ^[[36;1mfi^[[0m
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3181080Z shell: /usr/bin/bash -e {0}
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3182569Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3696235Z ##[group]Run actions/checkout@v4
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3697471Z with:
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3698475Z   repository: MongooseMoo/barn
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3711333Z   token: ***
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3712608Z   ssh-strict: true
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3713650Z   ssh-user: git
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3714668Z   persist-credentials: true
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3715814Z   clean: true
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3716812Z   sparse-checkout-cone-mode: true
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3718007Z   fetch-depth: 1
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3719150Z   fetch-tags: false
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3720143Z   show-progress: true
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3721131Z   lfs: false
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3722036Z   submodules: false
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3723037Z   set-safe-directory: true
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3724199Z   allow-unsafe-pr-checkout: false
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.3725609Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.4990338Z Syncing repository: MongooseMoo/barn
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.4995667Z ##[group]Getting Git version info
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.4997975Z Working directory is '/home/github-runner/actions-runner-barn/_work/barn/barn'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7309214Z [command]/usr/bin/git version
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7351566Z git version 2.39.5
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7371146Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7409568Z Temporarily overriding HOME='/home/github-runner/actions-runner-barn/_work/_temp/eca2dcec-3d0f-4ddc-aba9-e09da2c3bf8b' before making global git config changes
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7413652Z Adding repository directory to the temporary git global config as a safe directory
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7417084Z [command]/usr/bin/git config --global --add safe.directory /home/github-runner/actions-runner-barn/_work/barn/barn
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7455264Z [command]/usr/bin/git config --local --get remote.origin.url
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7477242Z https://github.com/MongooseMoo/barn
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7494656Z ##[group]Removing previously created refs, to avoid conflicts
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7498017Z [command]/usr/bin/git rev-parse --symbolic-full-name --verify --quiet HEAD
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7523653Z refs/heads/master
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7533757Z [command]/usr/bin/git checkout --detach
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7659624Z HEAD is now at a9cfd2e Merge pull request #584 from MongooseMoo/perf/early-detect-census
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7709985Z [command]/usr/bin/git branch --delete --force master
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7748820Z Deleted branch master (was a9cfd2e).
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7848132Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.7849772Z [command]/usr/bin/git submodule status
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8105516Z ##[group]Cleaning the repository
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8109447Z [command]/usr/bin/git clean -ffdx
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8211871Z Removing builtins/files/
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8213032Z Removing scripts/__pycache__/
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8221181Z [command]/usr/bin/git reset --hard HEAD
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8400327Z HEAD is now at a9cfd2e Merge pull request #584 from MongooseMoo/perf/early-detect-census
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8405942Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8407723Z ##[group]Disabling automatic garbage collection
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8412845Z [command]/usr/bin/git config --local gc.auto 0
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8444180Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8445705Z ##[group]Setting up auth
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8450695Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8520371Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8767854Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.8804772Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.9055325Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.9189175Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.9350018Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.9391160Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.9392827Z ##[group]Fetching the repository
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:46.9400418Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +a9cfd2ea870fc1b5442403ad993f535b558ac119:refs/remotes/origin/master
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.6162820Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.6163382Z ##[group]Determining the checkout info
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.6164022Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.6169289Z [command]/usr/bin/git sparse-checkout disable
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.6260095Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.6315410Z ##[group]Checking out the ref
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.6319383Z [command]/usr/bin/git checkout --progress --force -B master refs/remotes/origin/master
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.6476946Z Switched to a new branch 'master'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.6478489Z branch 'master' set up to track 'origin/master'.
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.6486699Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.6560347Z [command]/usr/bin/git log -1 --format=%H
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.6614257Z a9cfd2ea870fc1b5442403ad993f535b558ac119
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.7037189Z ##[group]Run actions/setup-go@v5
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.7037588Z with:
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.7037850Z   go-version-file: go.mod
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.7038148Z   cache: false
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.7038361Z   check-latest: false
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.7046009Z   token: ***
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.7046428Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.8694077Z Setup go version spec 1.27.1
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.8704520Z Found in cache @ /home/github-runner/actions-runner-barn/_work/_tool/go/1.27.1/x64
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.8707138Z (node:1069767) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.8708022Z (Use `node --trace-deprecation ...` to show where the warning was created)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.8710223Z Added go to the path
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:48.8713884Z Successfully set up Go version 1.27.1
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.7592435Z go version go1.27.1 linux/amd64
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.7592715Z 
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.7593131Z ##[group]go env
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9841277Z AR='ar'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9841667Z CC='gcc'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9841967Z CGO_CFLAGS='-O2 -g'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9842261Z CGO_CPPFLAGS=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9842516Z CGO_CXXFLAGS='-O2 -g'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9842776Z CGO_ENABLED='1'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9843015Z CGO_FFLAGS='-O2 -g'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9843360Z CGO_LDFLAGS='-O2 -g'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9843632Z CXX='g++'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9843868Z GCCGO='gccgo'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9844097Z GO111MODULE=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9844339Z GOAMD64='v1'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9844591Z GOARCH='amd64'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9844823Z GOAUTH='netrc'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9845100Z GOBIN='/home/github-runner/go/bin'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9845523Z GOCACHE='/home/github-runner/.cache/go-build'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9845873Z GOCACHEPROG=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9846113Z GODEBUG=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9846375Z GOENV='/home/github-runner/.config/go/env'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9846704Z GOEXE=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9846970Z GOEXPERIMENT=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9847220Z GOFIPS140='off'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9847514Z GOFLAGS=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9848361Z GOGCCFLAGS='-fPIC -m64 -pthread -Wl,--no-gc-sections -fmessage-length=0 -ffile-prefix-map=/tmp/go-build2444896163=/tmp/go-build -gno-record-gcc-switches'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9849213Z GOHOSTARCH='amd64'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9849468Z GOHOSTOS='linux'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9849715Z GOINSECURE=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9850102Z GOMOD='/home/github-runner/actions-runner-barn/_work/barn/barn/go.mod'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9850602Z GOMODCACHE='/home/github-runner/go/pkg/mod'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9851010Z GONOPROXY=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9851266Z GONOSUMDB=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9851519Z GOOS='linux'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9851764Z GOPACKAGESDRIVER=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9852079Z GOPATH='/home/github-runner/go'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9852522Z GOPRIVATE=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9852851Z GOPROXY='https://proxy.golang.org,direct'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9853386Z GOROOT='/home/github-runner/actions-runner-barn/_work/_tool/go/1.27.1/x64'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9853910Z GOSUMDB='sum.golang.org'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9854221Z GOTELEMETRY='local'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9854572Z GOTELEMETRYDIR='/home/github-runner/.config/go/telemetry'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9854990Z GOTMPDIR=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9855277Z GOTOOLCHAIN='auto'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9855828Z GOTOOLDIR='/home/github-runner/actions-runner-barn/_work/_tool/go/1.27.1/x64/pkg/tool/linux_amd64'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9856428Z GOVCS=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9856683Z GOVERSION='go1.27.1'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9856930Z GOWORK=''
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9857167Z PKG_CONFIG='pkg-config'
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9857344Z 
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9857879Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:49.9999142Z ##[group]Run go test ./vm -run '^$' -fuzz '^FuzzRestoreVMSnapshotDoesNotPanic$' -fuzztime=10m -parallel=2 -timeout=20m
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:50.0000200Z ^[[36;1mgo test ./vm -run '^$' -fuzz '^FuzzRestoreVMSnapshotDoesNotPanic$' -fuzztime=10m -parallel=2 -timeout=20m^[[0m
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:50.0052288Z shell: /usr/bin/bash -e {0}
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:16:50.0052614Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:04.6020223Z fuzz: elapsed: 0s, gathering baseline coverage: 0/231 completed
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:06.3996800Z fuzz: elapsed: 2s, gathering baseline coverage: 231/231 completed, now fuzzing with 2 workers
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:07.6022786Z fuzz: elapsed: 3s, execs: 4589 (1530/sec), new interesting: 0 (total: 231)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:10.6028835Z fuzz: elapsed: 6s, execs: 12665 (2691/sec), new interesting: 2 (total: 233)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:13.6024673Z fuzz: elapsed: 9s, execs: 35744 (7694/sec), new interesting: 3 (total: 234)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:16.6032987Z fuzz: elapsed: 12s, execs: 38030 (762/sec), new interesting: 3 (total: 234)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:19.6021800Z fuzz: elapsed: 15s, execs: 63709 (8559/sec), new interesting: 3 (total: 234)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:22.6010525Z fuzz: elapsed: 18s, execs: 102767 (13024/sec), new interesting: 3 (total: 234)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:25.6018285Z fuzz: elapsed: 21s, execs: 122961 (6730/sec), new interesting: 4 (total: 235)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:28.6013564Z fuzz: elapsed: 24s, execs: 144357 (7133/sec), new interesting: 6 (total: 237)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:31.6018675Z fuzz: elapsed: 27s, execs: 154509 (3384/sec), new interesting: 7 (total: 238)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:34.6011222Z fuzz: elapsed: 30s, execs: 171410 (5635/sec), new interesting: 8 (total: 239)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:37.6009828Z fuzz: elapsed: 33s, execs: 185672 (4754/sec), new interesting: 8 (total: 239)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:40.6009413Z fuzz: elapsed: 36s, execs: 207284 (7204/sec), new interesting: 8 (total: 239)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:43.6017689Z fuzz: elapsed: 39s, execs: 234525 (9078/sec), new interesting: 8 (total: 239)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:46.6013487Z fuzz: elapsed: 42s, execs: 245802 (3760/sec), new interesting: 10 (total: 241)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:49.6000628Z fuzz: elapsed: 45s, execs: 261988 (5395/sec), new interesting: 10 (total: 241)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:52.5998269Z fuzz: elapsed: 48s, execs: 279794 (5936/sec), new interesting: 11 (total: 242)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:55.5999591Z fuzz: elapsed: 51s, execs: 309242 (9815/sec), new interesting: 14 (total: 245)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:17:58.6010665Z fuzz: elapsed: 54s, execs: 310817 (525/sec), new interesting: 15 (total: 246)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:01.5996407Z fuzz: elapsed: 57s, execs: 335996 (8397/sec), new interesting: 15 (total: 246)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:04.5995391Z fuzz: elapsed: 1m0s, execs: 374943 (12983/sec), new interesting: 15 (total: 246)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:07.5996444Z fuzz: elapsed: 1m3s, execs: 393274 (6110/sec), new interesting: 16 (total: 247)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:10.5997264Z fuzz: elapsed: 1m6s, execs: 417096 (7941/sec), new interesting: 16 (total: 247)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:13.5994753Z fuzz: elapsed: 1m9s, execs: 431387 (4764/sec), new interesting: 16 (total: 247)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:16.5995603Z fuzz: elapsed: 1m12s, execs: 438714 (2442/sec), new interesting: 16 (total: 247)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:19.5981579Z fuzz: elapsed: 1m15s, execs: 450564 (3950/sec), new interesting: 16 (total: 247)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:22.5990101Z fuzz: elapsed: 1m18s, execs: 453003 (813/sec), new interesting: 16 (total: 247)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:25.5983394Z fuzz: elapsed: 1m21s, execs: 495982 (14330/sec), new interesting: 18 (total: 249)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:28.5989371Z fuzz: elapsed: 1m24s, execs: 503567 (2528/sec), new interesting: 18 (total: 249)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:31.5984403Z fuzz: elapsed: 1m27s, execs: 526187 (7541/sec), new interesting: 18 (total: 249)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:34.5992906Z fuzz: elapsed: 1m30s, execs: 528701 (838/sec), new interesting: 18 (total: 249)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:37.5987080Z fuzz: elapsed: 1m33s, execs: 554104 (8469/sec), new interesting: 18 (total: 249)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:40.5984323Z fuzz: elapsed: 1m36s, execs: 593041 (12980/sec), new interesting: 18 (total: 249)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:43.5979875Z fuzz: elapsed: 1m39s, execs: 612391 (6451/sec), new interesting: 18 (total: 249)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:46.5989701Z fuzz: elapsed: 1m42s, execs: 634319 (7307/sec), new interesting: 19 (total: 250)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:49.5973023Z fuzz: elapsed: 1m45s, execs: 645518 (3734/sec), new interesting: 20 (total: 251)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:52.5972110Z fuzz: elapsed: 1m48s, execs: 650553 (1678/sec), new interesting: 21 (total: 252)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:55.5993893Z fuzz: elapsed: 1m51s, execs: 650553 (0/sec), new interesting: 21 (total: 252)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:18:58.5969210Z fuzz: elapsed: 1m54s, execs: 674401 (7956/sec), new interesting: 21 (total: 252)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:01.5974549Z fuzz: elapsed: 1m57s, execs: 679358 (1652/sec), new interesting: 21 (total: 252)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:04.5969031Z fuzz: elapsed: 2m0s, execs: 694282 (4976/sec), new interesting: 22 (total: 253)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:07.5970516Z fuzz: elapsed: 2m3s, execs: 701718 (2479/sec), new interesting: 25 (total: 256)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:10.5974898Z fuzz: elapsed: 2m6s, execs: 784310 (27526/sec), new interesting: 27 (total: 258)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:13.5980118Z fuzz: elapsed: 2m9s, execs: 787809 (1166/sec), new interesting: 27 (total: 258)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:16.5973180Z fuzz: elapsed: 2m12s, execs: 812309 (8169/sec), new interesting: 27 (total: 258)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:19.5948748Z fuzz: elapsed: 2m15s, execs: 838333 (8676/sec), new interesting: 27 (total: 258)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:22.5946621Z fuzz: elapsed: 2m18s, execs: 875309 (12326/sec), new interesting: 27 (total: 258)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:25.5956081Z fuzz: elapsed: 2m21s, execs: 893758 (6148/sec), new interesting: 27 (total: 258)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:28.5954364Z fuzz: elapsed: 2m24s, execs: 896439 (894/sec), new interesting: 27 (total: 258)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:31.5952630Z fuzz: elapsed: 2m27s, execs: 930218 (11260/sec), new interesting: 28 (total: 259)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:34.5955604Z fuzz: elapsed: 2m30s, execs: 942741 (4174/sec), new interesting: 29 (total: 260)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:37.5948849Z fuzz: elapsed: 2m33s, execs: 948795 (2018/sec), new interesting: 29 (total: 260)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:40.5954068Z fuzz: elapsed: 2m36s, execs: 986416 (12539/sec), new interesting: 29 (total: 260)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:43.5949164Z fuzz: elapsed: 2m39s, execs: 993587 (2391/sec), new interesting: 30 (total: 261)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:46.5970515Z fuzz: elapsed: 2m42s, execs: 993587 (0/sec), new interesting: 30 (total: 261)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:49.5940770Z fuzz: elapsed: 2m45s, execs: 1017320 (7917/sec), new interesting: 30 (total: 261)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:52.5942509Z fuzz: elapsed: 2m48s, execs: 1022087 (1589/sec), new interesting: 30 (total: 261)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:55.5938350Z fuzz: elapsed: 2m51s, execs: 1022087 (0/sec), new interesting: 30 (total: 261)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:19:58.5956826Z fuzz: elapsed: 2m54s, execs: 1033957 (3954/sec), new interesting: 30 (total: 261)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:01.5939887Z fuzz: elapsed: 2m57s, execs: 1045533 (3861/sec), new interesting: 30 (total: 261)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:04.5939230Z fuzz: elapsed: 3m0s, execs: 1124217 (26229/sec), new interesting: 32 (total: 263)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:07.5943215Z fuzz: elapsed: 3m3s, execs: 1149860 (8547/sec), new interesting: 32 (total: 263)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:10.5946108Z fuzz: elapsed: 3m6s, execs: 1185630 (11922/sec), new interesting: 32 (total: 263)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:13.5945876Z fuzz: elapsed: 3m9s, execs: 1204078 (6149/sec), new interesting: 33 (total: 264)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:16.5956955Z fuzz: elapsed: 3m12s, execs: 1205381 (434/sec), new interesting: 33 (total: 264)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:19.5926469Z fuzz: elapsed: 3m15s, execs: 1223292 (5974/sec), new interesting: 34 (total: 265)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:22.5925660Z fuzz: elapsed: 3m18s, execs: 1248289 (8332/sec), new interesting: 34 (total: 265)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:25.5924069Z fuzz: elapsed: 3m21s, execs: 1258411 (3374/sec), new interesting: 34 (total: 265)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:28.5929231Z fuzz: elapsed: 3m24s, execs: 1263443 (1677/sec), new interesting: 34 (total: 265)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:31.5932429Z fuzz: elapsed: 3m27s, execs: 1304302 (13618/sec), new interesting: 35 (total: 266)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:34.5930935Z fuzz: elapsed: 3m30s, execs: 1318011 (4570/sec), new interesting: 37 (total: 268)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:37.5932046Z fuzz: elapsed: 3m33s, execs: 1325450 (2480/sec), new interesting: 37 (total: 268)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:40.5933649Z fuzz: elapsed: 3m36s, execs: 1349445 (7998/sec), new interesting: 38 (total: 269)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:43.5943799Z fuzz: elapsed: 3m39s, execs: 1350006 (187/sec), new interesting: 38 (total: 269)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:46.5945079Z fuzz: elapsed: 3m42s, execs: 1375153 (8382/sec), new interesting: 38 (total: 269)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:49.5907071Z fuzz: elapsed: 3m45s, execs: 1415969 (13612/sec), new interesting: 38 (total: 269)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:52.5910032Z fuzz: elapsed: 3m48s, execs: 1435807 (6612/sec), new interesting: 40 (total: 271)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:55.5907569Z fuzz: elapsed: 3m51s, execs: 1459533 (7909/sec), new interesting: 42 (total: 273)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:20:58.5909207Z fuzz: elapsed: 3m54s, execs: 1473324 (4597/sec), new interesting: 43 (total: 274)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:01.5902535Z fuzz: elapsed: 3m57s, execs: 1479973 (2217/sec), new interesting: 44 (total: 275)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:04.5908159Z fuzz: elapsed: 4m0s, execs: 1503198 (7740/sec), new interesting: 44 (total: 275)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:07.5906874Z fuzz: elapsed: 4m3s, execs: 1529737 (8847/sec), new interesting: 48 (total: 279)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:10.5904832Z fuzz: elapsed: 4m6s, execs: 1539984 (3416/sec), new interesting: 50 (total: 281)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:13.5926217Z fuzz: elapsed: 4m9s, execs: 1539984 (0/sec), new interesting: 50 (total: 281)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:16.5906521Z fuzz: elapsed: 4m12s, execs: 1563168 (7733/sec), new interesting: 50 (total: 281)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:19.5904905Z fuzz: elapsed: 4m15s, execs: 1569815 (2215/sec), new interesting: 50 (total: 281)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:22.5926336Z fuzz: elapsed: 4m18s, execs: 1569815 (0/sec), new interesting: 50 (total: 281)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:25.5916868Z fuzz: elapsed: 4m21s, execs: 1569815 (0/sec), new interesting: 50 (total: 281)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:28.5906141Z fuzz: elapsed: 4m24s, execs: 1598566 (9587/sec), new interesting: 50 (total: 281)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:31.5917552Z fuzz: elapsed: 4m27s, execs: 1598566 (0/sec), new interesting: 50 (total: 281)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:34.5901219Z fuzz: elapsed: 4m30s, execs: 1623679 (8376/sec), new interesting: 50 (total: 281)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:37.5900441Z fuzz: elapsed: 4m33s, execs: 1634481 (3601/sec), new interesting: 50 (total: 281)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:40.5922002Z fuzz: elapsed: 4m36s, execs: 1635577 (365/sec), new interesting: 50 (total: 281)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:43.5897300Z fuzz: elapsed: 4m39s, execs: 1652671 (5703/sec), new interesting: 50 (total: 281)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:46.5910124Z fuzz: elapsed: 4m42s, execs: 1654577 (635/sec), new interesting: 51 (total: 282)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:49.5890185Z fuzz: elapsed: 4m45s, execs: 1671713 (5713/sec), new interesting: 51 (total: 282)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:52.5885500Z fuzz: elapsed: 4m48s, execs: 1679200 (2496/sec), new interesting: 51 (total: 282)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:55.5887711Z fuzz: elapsed: 4m51s, execs: 1686404 (2401/sec), new interesting: 51 (total: 282)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:21:58.5879552Z fuzz: elapsed: 4m54s, execs: 1692867 (2155/sec), new interesting: 52 (total: 283)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:01.5901399Z fuzz: elapsed: 4m57s, execs: 1692867 (0/sec), new interesting: 52 (total: 283)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:04.5881929Z fuzz: elapsed: 5m0s, execs: 1714428 (7191/sec), new interesting: 52 (total: 283)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:07.5885418Z fuzz: elapsed: 5m3s, execs: 1721790 (2454/sec), new interesting: 53 (total: 284)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1127492Z fuzz: elapsed: 5m6s, execs: 1721816 (10/sec), new interesting: 53 (total: 284)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1131754Z --- FAIL: FuzzRestoreVMSnapshotDoesNotPanic (305.61s)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1137225Z     fuzzing process hung or terminated unexpectedly: exit status 2
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1138105Z     Failing input written to testdata/fuzz/FuzzRestoreVMSnapshotDoesNotPanic/9b691aff745e0426
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1138704Z     To re-run:
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1139165Z     go test -run=FuzzRestoreVMSnapshotDoesNotPanic/9b691aff745e0426
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1139600Z FAIL
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1220236Z exit status 1
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1220638Z FAIL	github.com/MongooseMoo/barn/vm	305.620s
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1534321Z ##[error]Process completed with exit code 1.
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1663287Z ##[group]Run actions/upload-artifact@v4
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1663706Z with:
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1664038Z   name: fuzz-failure-FuzzRestoreVMSnapshotDoesNotPanic
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1664546Z   path: ./vm/testdata/fuzz/FuzzRestoreVMSnapshotDoesNotPanic/
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1664990Z   if-no-files-found: ignore
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1665271Z   retention-days: 30
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1665530Z   compression-level: 6
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1665789Z   overwrite: false
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1666056Z   include-hidden-files: false
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.1666651Z ##[endgroup]
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.3687951Z (node:1070874) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.3688854Z (Use `node --trace-deprecation ...` to show where the warning was created)
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.3755394Z With the provided path, there will be 2 files uploaded
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.3760714Z Artifact name is valid!
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.3761584Z Root directory input is valid!
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.7194070Z Beginning upload of artifact content to blob storage
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.7415675Z (node:1070874) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:10.9807025Z Uploaded bytes 398
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:11.0451699Z Finished uploading artifact content to blob storage!
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:11.0452475Z SHA256 digest of uploaded artifact zip is 5e85f079c0768d116c0a86c8d6e843fba8ef03642316a9b418230ef5a17f3e9a
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:11.0453569Z Finalizing artifact upload
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:11.5785536Z Artifact fuzz-failure-FuzzRestoreVMSnapshotDoesNotPanic.zip successfully finalized. Artifact ID 13254975480
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:11.5786744Z Artifact fuzz-failure-FuzzRestoreVMSnapshotDoesNotPanic has been successfully uploaded! Final size is 398 bytes. Artifact ID is 13254975480
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:11.5793886Z Artifact download URL: https://github.com/MongooseMoo/barn/actions/runs/41680879951/artifacts/13254975480
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:11.6043356Z Post job cleanup.
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.0767883Z [command]/usr/bin/git version
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.0836481Z git version 2.39.5
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.0960466Z Temporarily overriding HOME='/home/github-runner/actions-runner-barn/_work/_temp/51ed8dad-2ff0-4cc5-a470-f6b011542909' before making global git config changes
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.0963159Z Adding repository directory to the temporary git global config as a safe directory
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.0964295Z [command]/usr/bin/git config --global --add safe.directory /home/github-runner/actions-runner-barn/_work/barn/barn
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.1043078Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.1120919Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.1589190Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.1675102Z http.https://github.com/.extraheader
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.1695437Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.1766716Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.2235921Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.2301919Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.2908203Z Cleaning up orphan processes
+FuzzRestoreVMSnapshotDoesNotPanic	UNKNOWN STEP	2026-11-03T17:22:12.3330218Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-go@v5, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

@@ -29,8 +29,8 @@ type sessionRuntime struct {
 	protected         atomic.Pointer[protectedSet]
 	serverOptions     serverOptionsState
 	connectionOptions struct {
-		mu       sync.RWMutex
-		byPlayer map[types.ObjID]map[string]types.Value
+		mu           sync.RWMutex
+		byConnection map[int64]map[string]types.Value
 	}
 	heldCommands struct {
 		mu       sync.Mutex
@@ -39,6 +39,10 @@ type sessionRuntime struct {
 	heldHTTPInput struct {
 		mu       sync.Mutex
 		byPlayer map[types.ObjID]*httpHeldInput
+	}
+	finishedTasks struct {
+		mu      sync.Mutex
+		entries []FinishedTask
 	}
 	// Keep cold extension state separate from native caches and their locks.
 	wasm *wasmSessionState
@@ -55,6 +59,7 @@ type serverOptionsState struct {
 	maxStringConcat    int
 	maxListValueBytes  int
 	maxMapValueBytes   int
+	maxQueuedOutput    int64
 	fgTicks            int64
 	bgTicks            int64
 	fgSeconds          float64
@@ -70,7 +75,7 @@ func newSessionRuntime() *sessionRuntime {
 	s.files.nextID, s.files.handles = 1, make(map[int64]*mooFileHandle)
 	s.sqlite.nextID, s.sqlite.handles = 1, make(map[int64]*sqliteHandle)
 	s.recycle.ids = make(map[types.ObjID]int)
-	s.connectionOptions.byPlayer = make(map[types.ObjID]map[string]types.Value)
+	s.connectionOptions.byConnection = make(map[int64]map[string]types.Value)
 	s.heldCommands.byPlayer = make(map[types.ObjID][]string)
 	s.heldHTTPInput.byPlayer = make(map[types.ObjID]*httpHeldInput)
 	s.protected.Store(&protectedSet{byName: map[string]bool{}})
@@ -78,6 +83,7 @@ func newSessionRuntime() *sessionRuntime {
 	s.serverOptions.maxStringConcat = defaults.MaxStringConcat
 	s.serverOptions.maxListValueBytes = defaults.MaxListValueBytes
 	s.serverOptions.maxMapValueBytes = defaults.MaxMapValueBytes
+	s.serverOptions.maxQueuedOutput = defaults.MaxQueuedOutput
 	s.serverOptions.fgTicks = defaults.FgTicks
 	s.serverOptions.bgTicks = defaults.BgTicks
 	s.serverOptions.fgSeconds = defaults.FgSeconds
@@ -146,7 +152,7 @@ func (s *Session) Close() error {
 	r.runtime.recycle.mu.Unlock()
 
 	r.runtime.connectionOptions.mu.Lock()
-	r.runtime.connectionOptions.byPlayer = make(map[types.ObjID]map[string]types.Value)
+	r.runtime.connectionOptions.byConnection = make(map[int64]map[string]types.Value)
 	r.runtime.connectionOptions.mu.Unlock()
 
 	r.runtime.heldCommands.mu.Lock()

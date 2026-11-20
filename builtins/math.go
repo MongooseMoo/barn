@@ -146,7 +146,7 @@ func builtinRandom(ctx *Execution, args []types.Value) types.Result {
 // builtinSqrt returns square root
 // sqrt(value) -> float
 func builtinSqrt(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 	if f < 0 {
 		return types.Err(types.E_INVARG)
 	}
@@ -157,7 +157,7 @@ func builtinSqrt(ctx *Execution, args []types.Value) types.Result {
 // builtinSin returns sine of angle (radians)
 // sin(angle) -> float
 func builtinSin(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 
 	return types.Ok(types.NewFloat(math.Sin(f)))
 }
@@ -165,7 +165,7 @@ func builtinSin(ctx *Execution, args []types.Value) types.Result {
 // builtinCos returns cosine of angle (radians)
 // cos(angle) -> float
 func builtinCos(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 
 	return types.Ok(types.NewFloat(math.Cos(f)))
 }
@@ -173,7 +173,7 @@ func builtinCos(ctx *Execution, args []types.Value) types.Result {
 // builtinTan returns tangent of angle (radians)
 // tan(angle) -> float
 func builtinTan(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 
 	result := math.Tan(f)
 	if math.IsInf(result, 0) {
@@ -186,7 +186,7 @@ func builtinTan(ctx *Execution, args []types.Value) types.Result {
 // builtinAsin returns arc sine
 // asin(value) -> float
 func builtinAsin(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 	if f < -1 || f > 1 {
 		return types.Err(types.E_INVARG)
 	}
@@ -197,7 +197,7 @@ func builtinAsin(ctx *Execution, args []types.Value) types.Result {
 // builtinAcos returns arc cosine
 // acos(value) -> float
 func builtinAcos(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 	if f < -1 || f > 1 {
 		return types.Err(types.E_INVARG)
 	}
@@ -210,27 +210,15 @@ func builtinAcos(ctx *Execution, args []types.Value) types.Result {
 // atan(y, x) -> float (two-argument form)
 func builtinAtan(ctx *Execution, args []types.Value) types.Result {
 	if len(args) == 1 {
-		if args[0].Type() != types.TYPE_FLOAT {
-			return types.Err(types.E_TYPE)
-		}
-		return types.Ok(types.NewFloat(math.Atan(args[0].Float())))
+		return types.Ok(types.NewFloat(math.Atan(numberFloat(args[0]))))
 	}
-
-	// Two-argument form
-	if args[0].Type() != types.TYPE_FLOAT {
-		return types.Err(types.E_TYPE)
-	}
-	if args[1].Type() != types.TYPE_FLOAT {
-		return types.Err(types.E_TYPE)
-	}
-
-	return types.Ok(types.NewFloat(math.Atan2(args[0].Float(), args[1].Float())))
+	return types.Ok(types.NewFloat(math.Atan2(numberFloat(args[0]), numberFloat(args[1]))))
 }
 
 // builtinSinh returns hyperbolic sine
 // sinh(value) -> float
 func builtinSinh(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 
 	return types.Ok(types.NewFloat(math.Sinh(f)))
 }
@@ -238,7 +226,7 @@ func builtinSinh(ctx *Execution, args []types.Value) types.Result {
 // builtinCosh returns hyperbolic cosine
 // cosh(value) -> float
 func builtinCosh(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 
 	return types.Ok(types.NewFloat(math.Cosh(f)))
 }
@@ -246,7 +234,7 @@ func builtinCosh(ctx *Execution, args []types.Value) types.Result {
 // builtinTanh returns hyperbolic tangent
 // tanh(value) -> float
 func builtinTanh(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 
 	return types.Ok(types.NewFloat(math.Tanh(f)))
 }
@@ -254,7 +242,7 @@ func builtinTanh(ctx *Execution, args []types.Value) types.Result {
 // builtinExp returns e raised to power
 // exp(value) -> float
 func builtinExp(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 
 	// Toast delegates to the platform libm exp(), whose last-bit result differs
 	// from Go's architecture-specific Exp implementation for some inputs (for
@@ -270,7 +258,7 @@ func builtinExp(ctx *Execution, args []types.Value) types.Result {
 // builtinLog returns natural logarithm
 // log(value) -> float
 func builtinLog(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 	if f <= 0 {
 		if f == 0 {
 			return types.Err(types.E_FLOAT)
@@ -284,7 +272,7 @@ func builtinLog(ctx *Execution, args []types.Value) types.Result {
 // builtinLog10 returns base-10 logarithm
 // log10(value) -> float
 func builtinLog10(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 	if f <= 0 {
 		if f == 0 {
 			return types.Err(types.E_FLOAT)
@@ -298,7 +286,7 @@ func builtinLog10(ctx *Execution, args []types.Value) types.Result {
 // builtinCeil rounds up to nearest integer
 // ceil(float) -> float
 func builtinCeil(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 
 	return types.Ok(types.NewFloat(math.Ceil(f)))
 }
@@ -306,7 +294,7 @@ func builtinCeil(ctx *Execution, args []types.Value) types.Result {
 // builtinFloor rounds down to nearest integer
 // floor(float) -> float
 func builtinFloor(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 
 	return types.Ok(types.NewFloat(math.Floor(f)))
 }
@@ -314,7 +302,7 @@ func builtinFloor(ctx *Execution, args []types.Value) types.Result {
 // builtinTrunc truncates towards zero
 // trunc(float) -> float
 func builtinTrunc(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 
 	return types.Ok(types.NewFloat(math.Trunc(f)))
 }
@@ -354,7 +342,7 @@ func builtinFloatstr(ctx *Execution, args []types.Value) types.Result {
 // toNumericFloat converts a value to float64 for math operations
 // Returns NaN if not numeric
 func builtinAcosh(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 	if f < 1 {
 		return types.Err(types.E_INVARG)
 	}
@@ -362,12 +350,12 @@ func builtinAcosh(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinAsinh(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 	return types.Ok(types.NewFloat(math.Asinh(f)))
 }
 
 func builtinAtanh(ctx *Execution, args []types.Value) types.Result {
-	f := args[0].Float()
+	f := numberFloat(args[0])
 	if f == -1 || f == 1 {
 		return types.Err(types.E_FLOAT)
 	}
@@ -378,15 +366,25 @@ func builtinAtanh(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinAtan2(ctx *Execution, args []types.Value) types.Result {
-	return types.Ok(types.NewFloat(math.Atan2(args[0].Float(), args[1].Float())))
+	return types.Ok(types.NewFloat(math.Atan2(numberFloat(args[0]), numberFloat(args[1]))))
 }
 
 func builtinCbrt(ctx *Execution, args []types.Value) types.Result {
-	return types.Ok(types.NewFloat(math.Cbrt(args[0].Float())))
+	return types.Ok(types.NewFloat(math.Cbrt(numberFloat(args[0]))))
 }
 
 func builtinRound(ctx *Execution, args []types.Value) types.Result {
-	return types.Ok(types.NewFloat(math.Round(args[0].Float())))
+	return types.Ok(types.NewFloat(math.Round(numberFloat(args[0]))))
+}
+
+// numberFloat reads a math builtin argument. An INT arrives only when its
+// PromotedFloat signature admitted it under PROMOTE_NUMBERS; the Mongoose fork
+// converts it with (double) and runs the float code on it.
+func numberFloat(v types.Value) float64 {
+	if v.Type() == types.TYPE_INT {
+		return float64(v.Int())
+	}
+	return v.Float()
 }
 
 func builtinFrandom(ctx *Execution, args []types.Value) types.Result {
@@ -621,28 +619,28 @@ func mathDescriptors() []Descriptor {
 		function("random", builtinRandom, 0, 2, 0, 0),
 		function("frandom", builtinFrandom, 1, 2, 9, 9),
 		function("reseed_random", builtinReseedRandom, 0, 0).withEffect(Irreversible),
-		function("sqrt", builtinSqrt, 1, 1, 9),
-		function("sin", builtinSin, 1, 1, 9),
-		function("cos", builtinCos, 1, 1, 9),
-		function("tan", builtinTan, 1, 1, 9),
-		function("asin", builtinAsin, 1, 1, 9),
-		function("acos", builtinAcos, 1, 1, 9),
-		function("acosh", builtinAcosh, 1, 1, 9),
-		function("atan", builtinAtan, 1, 2, 9, 9),
-		function("atan2", builtinAtan2, 2, 2, 9, 9),
-		function("asinh", builtinAsinh, 1, 1, 9),
-		function("atanh", builtinAtanh, 1, 1, 9),
-		function("sinh", builtinSinh, 1, 1, 9),
-		function("cosh", builtinCosh, 1, 1, 9),
-		function("tanh", builtinTanh, 1, 1, 9),
-		function("exp", builtinExp, 1, 1, 9),
-		function("log", builtinLog, 1, 1, 9),
-		function("log10", builtinLog10, 1, 1, 9),
-		function("cbrt", builtinCbrt, 1, 1, 9),
-		function("round", builtinRound, 1, 1, 9),
-		function("ceil", builtinCeil, 1, 1, 9),
-		function("floor", builtinFloor, 1, 1, 9),
-		function("trunc", builtinTrunc, 1, 1, 9),
+		function("sqrt", builtinSqrt, 1, 1, 9).promotedFloat(),
+		function("sin", builtinSin, 1, 1, 9).promotedFloat(),
+		function("cos", builtinCos, 1, 1, 9).promotedFloat(),
+		function("tan", builtinTan, 1, 1, 9).promotedFloat(),
+		function("asin", builtinAsin, 1, 1, 9).promotedFloat(),
+		function("acos", builtinAcos, 1, 1, 9).promotedFloat(),
+		function("acosh", builtinAcosh, 1, 1, 9).promotedFloat(),
+		function("atan", builtinAtan, 1, 2, 9, 9).promotedFloat(),
+		function("atan2", builtinAtan2, 2, 2, 9, 9).promotedFloat(),
+		function("asinh", builtinAsinh, 1, 1, 9).promotedFloat(),
+		function("atanh", builtinAtanh, 1, 1, 9).promotedFloat(),
+		function("sinh", builtinSinh, 1, 1, 9).promotedFloat(),
+		function("cosh", builtinCosh, 1, 1, 9).promotedFloat(),
+		function("tanh", builtinTanh, 1, 1, 9).promotedFloat(),
+		function("exp", builtinExp, 1, 1, 9).promotedFloat(),
+		function("log", builtinLog, 1, 1, 9).promotedFloat(),
+		function("log10", builtinLog10, 1, 1, 9).promotedFloat(),
+		function("cbrt", builtinCbrt, 1, 1, 9).promotedFloat(),
+		function("round", builtinRound, 1, 1, 9).promotedFloat(),
+		function("ceil", builtinCeil, 1, 1, 9).promotedFloat(),
+		function("floor", builtinFloor, 1, 1, 9).promotedFloat(),
+		function("trunc", builtinTrunc, 1, 1, 9).promotedFloat(),
 		function("floatstr", builtinFloatstr, 2, 3, 9, 0, -1),
 		function("distance", builtinDistance, 2, 2, 4, 4),
 		function("relative_heading", builtinRelativeHeading, 2, 2, 4, 4),

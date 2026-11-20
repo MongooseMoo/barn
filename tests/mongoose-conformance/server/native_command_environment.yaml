@@ -1,0 +1,55 @@
+name: native_command_environment
+description: Unreferenced command variables survive suspension and reach a later callee after restart.
+requires:
+  builtins: [create, recycle, add_property, delete_property, add_verb, set_verb_code, suspend, dump_database]
+  config: [managed_server]
+tests:
+  - name: native_command_environment_after_resume
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_native_command_environment", o, {player, ""});
+          for name in ({"before", "after", "done"}) add_property(o, name, 0, {player, ""}); endfor
+          add_verb(o, {player, "rxd", "environment"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "environment", {"return {argstr, dobj, dobjstr, prepstr, iobj, iobjstr};"});
+          if (errors) raise(E_INVARG, "environment compile failed", errors); endif
+          add_verb(o, {player, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {"this.before = this:environment();", "suspend(20);", "this.after = this:environment();", "this.done = this.done + 1;"});
+          if (errors) raise(E_INVARG, "start compile failed", errors); endif
+          argstr = "native command";
+          dobj = #1;
+          dobjstr = "direct";
+          prepstr = "with";
+          iobj = #1;
+          iobjstr = "indirect";
+          fork (0) o:start(); endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_native_command_environment;
+          return {o.before == {"native command", #1, "direct", "with", #1, "indirect"}, o.done};
+        expect:
+          value: [1, 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_native_command_environment;
+          return {o.before == o.after, o.done};
+        expect:
+          value: [1, 1]
+    cleanup:
+      - run: |
+          o = #1.conformance_native_command_environment;
+          delete_property(#1, "conformance_native_command_environment");
+          recycle(o);
+          return 0;

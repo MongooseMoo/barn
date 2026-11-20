@@ -61,8 +61,8 @@ func (outcome EvalOutcome) CommandOutput() string {
 // StartEval runs the first slice on the input caller and hands every suspension
 // to the normal task scheduler. Completion is delivered once, after VM ownership
 // and admission have been released.
-func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(EvalOutcome)) *task.Task {
-	var running *task.Task
+func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(EvalOutcome), onStart func(int64)) *Task {
+	var running *Task
 	var once sync.Once
 	finish := func(out EvalOutcome) {
 		once.Do(func() {
@@ -94,8 +94,8 @@ func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(E
 		return nil
 	}
 	ticks, seconds := foregroundTaskLimits(s.session)
-	running = task.NewTaskFull(s.newTaskID(), player, prog, ticks, seconds)
-	s.populateTaskContextDependencies(running.Context)
+	running = NewTaskFull(s.newTaskID(), player, prog, ticks, seconds)
+	s.populateContextDependencies(running.Context)
 	running.Context.IsWizard = s.isWizard(player)
 	running.IntrinsicEval = true
 	running.This = types.ObjNothing
@@ -108,6 +108,9 @@ func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(E
 	})
 	running.SetState(task.TaskQueued)
 	s.taskManager.RegisterTask(running)
+	if onStart != nil {
+		onStart(running.ID)
+	}
 	if err := s.runTaskAdmitted(running, scope, true); err != nil {
 		finish(EvalOutcome{Panic: fmt.Errorf("%s", strings.TrimPrefix(err.Error(), "internal panic: "))})
 	}
@@ -118,7 +121,7 @@ func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(E
 // while a synchronous API caller waits for the terminal result.
 func (s *Runtime) Eval(player types.ObjID, source []string) EvalOutcome {
 	done := make(chan EvalOutcome, 1)
-	running := s.StartEval(player, source, func(out EvalOutcome) { done <- out })
+	running := s.StartEval(player, source, func(out EvalOutcome) { done <- out }, nil)
 	var indefiniteSince time.Time
 	for {
 		select {
@@ -161,7 +164,7 @@ func (s *Runtime) Eval(player types.ObjID, source []string) EvalOutcome {
 	}
 }
 
-func prepareIntrinsicEval(machine *vm.VM, t *task.Task) {
+func prepareIntrinsicEval(machine *vm.VM, t *Task) {
 	prog, player := t.Program, t.Owner
 	frame := machine.PrepareVerbFrame(prog, types.ObjNothing, player, player, "", types.ObjNothing, []types.Value{})
 	vm.SetLocalByName(frame, prog, "this", types.NewObj(types.ObjNothing))

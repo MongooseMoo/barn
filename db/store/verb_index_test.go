@@ -46,7 +46,7 @@ func randomVerbList(r *rand.Rand, n int) []*Verb {
 		if r.Intn(3) != 0 {
 			perms |= VerbExecute
 		}
-		v := NewVerb(strings.Join(names, " "), names, 0, perms, VerbArgs{}, nil)
+		v := NewVerb(names, 0, perms, VerbArgs{}, nil)
 		list = append(list, &v)
 	}
 	return list
@@ -97,7 +97,7 @@ func TestVerbIndexExactAliasKeepsEarliestMatchByExecutionMode(t *testing.T) {
 }
 
 func verbForIndexTest(name string, aliases []string, perms VerbPerms) *Verb {
-	verb := NewVerb(name, aliases, 0, perms, VerbArgs{}, nil)
+	verb := NewVerb(aliases, 0, perms, VerbArgs{}, nil)
 	return &verb
 }
 
@@ -139,13 +139,13 @@ func TestVerbIndexTracksLiveMutations(t *testing.T) {
 	obj := ids[0]
 	requireIndexCurrent(t, s, obj)
 
-	if _, ec := s.AddVerb(obj, NewVerb("look l*ook", []string{"look", "l*ook"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
+	if _, ec := s.AddVerb(obj, NewVerb([]string{"look", "l*ook"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
 		t.Fatalf("AddVerb: %v", ec)
 	}
-	if _, ec := s.AddVerb(obj, NewVerb("look", []string{"look"}, 0, VerbRead, VerbArgs{}, nil)); ec != types.E_NONE {
+	if _, ec := s.AddVerb(obj, NewVerb([]string{"look"}, 0, VerbRead, VerbArgs{}, nil)); ec != types.E_NONE {
 		t.Fatalf("AddVerb dup: %v", ec)
 	}
-	if _, ec := s.AddVerb(obj, NewVerb("g*et", []string{"g*et"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
+	if _, ec := s.AddVerb(obj, NewVerb([]string{"g*et"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
 		t.Fatalf("AddVerb wildcard: %v", ec)
 	}
 	requireIndexCurrent(t, s, obj)

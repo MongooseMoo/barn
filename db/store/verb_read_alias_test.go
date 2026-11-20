@@ -10,7 +10,7 @@ import (
 // multi-alias string ("look l*ook glance") and stages any write must commit
 // cleanly. Regression for the retry storm found on mongoose.db: the loader
 // stores Verb.name as the full space-separated alias string, but Object.verbs
-// is keyed by names[0]; markVerbRead used verb.name as the read-set key, so
+// was keyed by names[0]; markVerbRead used verb.name as the read-set key, so
 // validateVerbReadsLocked could never find the verb again and every commit
 // failed E_INVARG — each affected task then re-ran to the 64-attempt retry cap
 // (~300ms and ~100MB of allocations per command on the real database).
@@ -18,8 +18,7 @@ func TestAliasedVerbReadCommits(t *testing.T) {
 	s, ids := immutFixture(t, 1)
 	obj := ids[0]
 
-	full := "look l*ook glance"
-	v := NewVerb(full, []string{"look", "l*ook", "glance"}, 0,
+	v := NewVerb([]string{"look", "l*ook", "glance"}, 0,
 		VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "none"},
 		[]string{"return 1;"})
 	if _, ec := s.AddVerb(obj, v); ec != types.E_NONE {

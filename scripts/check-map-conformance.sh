@@ -16,7 +16,7 @@ case "$engine" in
     extra+=("--target-profile-manifest=$oracle")
     ;;
   barn)
-    command="$binary --db {db} --listen tcp://127.0.0.1:{port} --config=$repo/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}"
+    command="$binary serve --db {db} --listen tcp://127.0.0.1:{port} --config=$repo/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}"
     ;;
   *) echo "unknown engine: $engine" >&2; exit 2 ;;
 esac

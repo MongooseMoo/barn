@@ -1,0 +1,17 @@
+    mongoose_real_bench_test.go:931: gc settings in effect: percent=400 memlimit_bytes=9223372036854775807 (GOGC="" GOMEMLIMIT="")
+    mongoose_real_bench_test.go:467: loaded /mnt/c/Users/Q/code/barn/mongoose.db.new in 14.659993934s
+    mongoose_real_bench_test.go:579: memory MiB after load: heap_alloc=541 heap_inuse=701 heap_sys=1131 sys=1172 retained=742 next_gc=2707 live_after_gc=541 resident=0
+    mongoose_real_bench_test.go:826: cohort submitted=227 completed=227 failed=0 unsettled_at_return=0 elapsed=8.006465187s drain=6.465187ms
+    mongoose_real_bench_test.go:830: players=1 goodput=28/s failed=0 uncaught=0 abort=0.70% elided=3245 p50=34.84ms p99=66.22ms p999=90.89ms max=90.89ms allocs/op=100486 bytes/op=11825496 GCs=1
+    mongoose_real_bench_test.go:837:   gc: cycles=1 pause_total=532.011µs gc_cpu=0.53s busy_cpu=14.77s gc_share=3.6% alloc_rate=320MiB/s
+    mongoose_real_bench_test.go:846:   memory MiB after the window and a forced GC: heap_alloc=589 heap_inuse=815 heap_sys=2839 sys=2922 retained=2916 next_gc=2920 live_after_gc=584 resident=1
+    mongoose_real_bench_test.go:826: cohort submitted=562 completed=562 failed=0 unsettled_at_return=0 elapsed=8.050589926s drain=50.589926ms
+    mongoose_real_bench_test.go:830: players=4 goodput=70/s failed=0 uncaught=0 abort=2.87% elided=13862 p50=36.64ms p99=706.12ms p999=1217.82ms max=1217.82ms allocs/op=77426 bytes/op=9012119 GCs=1
+    mongoose_real_bench_test.go:837:   gc: cycles=1 pause_total=475.487µs gc_cpu=0.64s busy_cpu=17.27s gc_share=3.7% alloc_rate=600MiB/s
+    mongoose_real_bench_test.go:846:   memory MiB after the window and a forced GC: heap_alloc=719 heap_inuse=1172 heap_sys=3379 sys=3480 retained=3477 next_gc=3377 live_after_gc=675 resident=1
+    mongoose_real_bench_test.go:826: cohort submitted=1586 completed=1586 failed=0 unsettled_at_return=0 elapsed=11.742062807s drain=3.742062807s
+    mongoose_real_bench_test.go:830: players=8 goodput=135/s failed=0 uncaught=1 abort=4.83% elided=22249 p50=10.61ms p99=711.13ms p999=4529.56ms max=4987.83ms allocs/op=32414 bytes/op=4188056 GCs=2
+    mongoose_real_bench_test.go:837:   gc: cycles=2 pause_total=723.082µs gc_cpu=1.38s busy_cpu=32.44s gc_share=4.2% alloc_rate=539MiB/s
+    mongoose_real_bench_test.go:846:   memory MiB after the window and a forced GC: heap_alloc=772 heap_inuse=1503 heap_sys=3599 sys=3707 retained=3699 next_gc=3751 live_after_gc=750 resident=1
+--- PASS: TestMongooseRealWorkload (67.90s)
+PASS

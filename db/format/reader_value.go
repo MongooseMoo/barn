@@ -4,14 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 	"strconv"
 	"strings"
 )
 
-// maxTrustedListCount is the largest list a reader allocates up front on the
-// file's word for its length.
-const maxTrustedListCount = 4096
+// maxTrustedCount bounds initial allocations based only on an on-disk count.
+// Successfully decoded items may grow collections and record sections past it.
+const maxTrustedCount = 4096
 
 // Every empty list and every empty map read from a database is one shared
 // value. List and map values are never modified, so sharing is not observable.
@@ -58,7 +59,10 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		if err != nil {
 			return types.None, err
 		}
-		return types.NewErr(types.ErrorCode(errCode)), nil
+		// Toast writes the whole 64-bit number of its value union but only
+		// ever assigns and reads the 32-bit error code in it, so the upper
+		// half of the stored number is leftover memory.
+		return types.NewErr(types.ErrorCode(int32(errCode))), nil
 
 	case 4: // LIST
 		count, err := readInt(r)
@@ -75,7 +79,7 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		// bound. Building a longer result incrementally lets truncated or
 		// corrupt input fail while reading an element instead of attempting an
 		// attacker-controlled allocation.
-		elements := make([]types.Value, 0, min(count, maxTrustedListCount))
+		elements := make([]types.Value, 0, min(count, maxTrustedCount))
 		for i := 0; i < count; i++ {
 			element, err := database.readValue(r)
 			if err != nil {
@@ -94,7 +98,7 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		return types.None, nil // Clear property marker
 
 	case 6: // NONE
-		return types.NewInt(0), nil // None becomes 0
+		return types.Unbound, nil // Native uninitialized runtime variable; distinct from INT zero and CLEAR.
 
 	case 7: // CATCH (stack marker)
 		val, err := readInt(r)
@@ -137,7 +141,7 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		}
 		// As with lists, trust the file's count only up to a small bound and
 		// grow past it as successfully decoded pairs arrive.
-		pairs := make([][2]types.Value, 0, min(count, maxTrustedListCount))
+		pairs := make([][2]types.Value, 0, min(count, maxTrustedCount))
 		for i := 0; i < count; i++ {
 			key, err := database.readValue(r)
 			if err != nil {
@@ -152,12 +156,12 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		return types.NewMap(pairs), nil
 
 	case 12: // ANON (anonymous object)
-		// Just read the object ID
+		// The saved id is the object's serialization id in this file only.
 		objID, err := readInt(r)
 		if err != nil {
 			return types.None, err
 		}
-		return types.NewAnon(types.ObjID(objID)), nil
+		return types.NewAnon(store.LoadedAnonymousIdentity(types.ObjID(objID))), nil
 
 	case 13: // WAIF
 		// WAIFs are saved as references ('r') or creations ('c').

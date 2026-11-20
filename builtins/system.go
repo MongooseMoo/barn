@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/MongooseMoo/barn/config"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -12,11 +11,13 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
-
 	"strings"
 	"time"
 
+	"github.com/MongooseMoo/barn/config"
+
 	"github.com/MongooseMoo/barn/internal/buildinfo"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -211,15 +212,26 @@ func builtinExec(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 
+	// Every check that can fail without starting a process has passed. Only
+	// now does exec cross the irreversible-effect boundary, so a failing exec
+	// takes no commit gate and leaves the attempt re-runnable.
+	if ctx.Context != nil {
+		if !beginIrreversible(ctx, "exec") {
+			return abortedAttempt()
+		}
+		ctx.IrreversibleSideEffect = true
+	}
+
 	// Get the task so we can suspend it
 	t := ctx.Task
 	if t == nil {
 		// No task context (shouldn't happen in normal execution) — fall back to synchronous
-		return execCommand(resolvedPath, cmdArgs, input, environment)
+		return execCommandWithContext(context.Background(), resolvedPath, cmdArgs, input, environment)
 	}
 
-	// Create a cancellable context for the subprocess
-	execCtx, execCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Like Toast, exec has no time limit: the task waits until the child
+	// exits, or until kill_task cancels this context.
+	execCtx, execCancel := context.WithCancel(context.Background())
 
 	// Mark task as exec-suspended and store cancel func
 	t.IsExecSuspended = true
@@ -231,7 +243,7 @@ func builtinExec(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 
 	// Launch subprocess in background goroutine
 	go func() {
@@ -369,16 +381,8 @@ func validateAndResolvePath(program string) (string, error) {
 	return "", os.ErrNotExist
 }
 
-// execCommand runs a command synchronously and returns {exit_code, stdout, stderr}.
-// Used as fallback when no task context is available.
-func execCommand(program string, args []string, input string, environment []string) types.Result {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return execCommandWithContext(ctx, program, args, input, environment)
-}
-
 // execCommandWithContext runs a command with the given context and returns {exit_code, stdout, stderr}.
-// The context controls cancellation (for kill_task) and timeout.
+// The context controls cancellation (for kill_task).
 func execCommandWithContext(ctx context.Context, program string, args []string, input string, environment []string) types.Result {
 	var cmdProgram string
 	var cmdArgs []string
@@ -415,9 +419,6 @@ func execCommandWithContext(ctx context.Context, program string, args []string, 
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
-		} else if ctx.Err() == context.DeadlineExceeded {
-			// Timeout - return E_EXEC
-			return types.Err(types.E_EXEC)
 		} else if ctx.Err() == context.Canceled {
 			// Cancelled (kill_task) - return E_INVARG
 			return types.Err(types.E_INVARG)
@@ -431,8 +432,8 @@ func execCommandWithContext(ctx context.Context, program string, args []string, 
 	// Toast's Linux children never emit \r\n), then binary-encode: Toast
 	// returns exec output through raw_bytes_to_binary, so the MOO strings
 	// contain "~0A" text, not raw newlines (conformance exec_with_sleep_works).
-	stdoutStr := encodeBinaryBytes([]byte(strings.ReplaceAll(stdout.String(), "\r\n", "\n")))
-	stderrStr := encodeBinaryBytes([]byte(strings.ReplaceAll(stderr.String(), "\r\n", "\n")))
+	stdoutStr := EncodeRawToBinary([]byte(strings.ReplaceAll(stdout.String(), "\r\n", "\n")))
+	stderrStr := EncodeRawToBinary([]byte(strings.ReplaceAll(stderr.String(), "\r\n", "\n")))
 
 	// Return {exit_code, stdout, stderr}
 	result := []types.Value{
@@ -511,11 +512,33 @@ func serverVersion(ctx *Execution, args []types.Value, build buildinfo.Info) typ
 		featureValues = append(featureValues, types.NewStr(feature))
 	}
 	features := types.NewList(featureValues)
+	// Toast declares SAVE_FINISHED_TASKS (the default record limit) only in
+	// builds that have finished_tasks(), and #-1 otherwise.
+	saveFinishedTasks := types.NewObj(-1)
+	if ctx.Registry != nil && ctx.Registry.Has("finished_tasks") {
+		saveFinishedTasks = types.NewInt(DefaultFinishedTasksLimit)
+	}
 	optionInfo := types.NewList([]types.Value{
 		versionPair("OUTBOUND_NETWORK", types.NewStr(boolOptionState(options.OutboundNetwork))),
 		versionPair("PROMOTE_NUMBERS", types.NewStr(boolOptionState(options.PromoteNumbers))),
+		versionPair("MAX_QUEUED_OUTPUT", types.NewInt(defaultMaxQueuedOutput)),
 		// Barn integers are always 64-bit; Toast reports an undefined option as #-1.
 		versionPair("ONLY_32_BITS", types.NewObj(-1)),
+		versionPair("SAVE_FINISHED_TASKS", saveFinishedTasks),
+		// Barn's own compiled defaults, declared under ToastStunt's options.h
+		// names and in Toast's order. Toast declares the seconds limits as
+		// integers.
+		versionPair("DEFAULT_MAX_STACK_DEPTH", types.NewInt(defaultMaxStackDepth)),
+		versionPair("DEFAULT_FG_TICKS", types.NewInt(defaultFgTicks)),
+		versionPair("DEFAULT_BG_TICKS", types.NewInt(defaultBgTicks)),
+		versionPair("DEFAULT_FG_SECONDS", types.NewInt(int64(defaultFgSeconds))),
+		versionPair("DEFAULT_BG_SECONDS", types.NewInt(int64(defaultBgSeconds))),
+		versionPair("DEFAULT_MAX_STRING_CONCAT", types.NewInt(defaultMaxStringConcat)),
+		versionPair("MIN_STRING_CONCAT_LIMIT", types.NewInt(minStringConcatLimit)),
+		versionPair("DEFAULT_MAX_LIST_VALUE_BYTES", types.NewInt(defaultMaxListValueBytes)),
+		versionPair("MIN_LIST_VALUE_BYTES_LIMIT", types.NewInt(minListValueBytesLimit)),
+		versionPair("DEFAULT_MAX_MAP_VALUE_BYTES", types.NewInt(defaultMaxMapValueBytes)),
+		versionPair("MIN_MAP_VALUE_BYTES_LIMIT", types.NewInt(minMapValueBytesLimit)),
 		versionPair("RUNTIME", types.NewStr(runtime.Version())),
 		versionPair("ARCHITECTURE", types.NewStr(runtime.GOARCH)),
 	})
@@ -804,22 +827,39 @@ func builtinDbDiskSize(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(size))
 }
 
+// builtinDumpDatabase requests a checkpoint once the calling task's writes have
+// committed. Toast's bf_dump_database only sets checkpoint_requested; its main
+// loop runs #0:checkpoint_started and the dump after the task has returned, so
+// the hooks and the dump always follow the caller's writes. Barn's server loop
+// acts on a request at once, so the request is a commit-deferred effect: a
+// request sent mid-task let the checkpoint_started hook commit before the
+// caller, whose commit then lost validation with an uncatchable E_INVARG.
 func builtinDumpDatabase(ctx *Execution, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	// The "CHECKPOINTING" wording is Toast's and is asserted by the conformance
-	// suite (server/dump_database.yaml): the message text is part of the contract,
-	// so the structured attrs are additive rather than a replacement.
-	slog.Info("CHECKPOINTING: dump_database() requested",
-		slog.Int64("programmer", int64(ctx.Programmer)))
-	if dump := hostOf(ctx).Checkpoint; dump != nil {
-		if err := dump(); err != nil {
-			slog.Error("dump_database() failed", slog.Any("err", err))
-			// MOO spec: dump_database() returns 0 on success
-			// On error, still return 0 (Toast behavior)
+	dump := hostOf(ctx).Checkpoint
+	programmer := ctx.Programmer
+	request := func() {
+		// The "CHECKPOINTING" wording is Toast's and is asserted by the conformance
+		// suite (server/dump_database.yaml): the message text is part of the contract,
+		// so the structured attrs are additive rather than a replacement.
+		slog.Info("CHECKPOINTING: dump_database() requested",
+			slog.Int64("programmer", int64(programmer)))
+		if dump != nil {
+			if err := dump(); err != nil {
+				slog.Error("dump_database() failed", slog.Any("err", err))
+			}
 		}
 	}
+	if txn := readTxn(ctx); txn == nil || txn.IsDirect() {
+		// A direct transaction (the dbtool eval path) has no commit boundary to
+		// defer to.
+		request()
+	} else {
+		enqueuePendingEffect(ctx, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: request})
+	}
+	// Toast returns 0 whether or not the checkpoint succeeds.
 	return types.Ok(types.NewInt(0))
 }
 
@@ -841,7 +881,7 @@ func builtinBackgroundTest(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 	go func() {
 		time.Sleep(time.Duration(delay) * time.Second)
 		t.CompleteExec(result)
@@ -891,7 +931,7 @@ func builtinReadStdin(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	t.WakeErrorAsValue = true
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 	if !stdin.ReadLineAsync(t) {
 		return types.Err(types.E_INVARG)
 	}
@@ -913,7 +953,7 @@ func systemDescriptors() []Descriptor {
 	return []Descriptor{
 		function("background_test", builtinBackgroundTest, 2, 2, 2, 0).plainArityError().withCapability(config.BackgroundTasks),
 		function("db_disk_size", builtinDbDiskSize, 0, 0),
-		function("dump_database", builtinDumpDatabase, 0, 0).withEffect(CommitGateReentrant),
+		function("dump_database", builtinDumpDatabase, 0, 0),
 		function("getenv", builtinGetenv, 1, 1, 2),
 		function("read_stdin", builtinReadStdin, 0, 0).hidden().withEffect(Irreversible).withCapability(config.ProcessStdin),
 		function("spellcheck", builtinSpellcheck, 1, 1, 2),
@@ -927,7 +967,7 @@ func systemDescriptors() []Descriptor {
 		function("malloc_stats", builtinMallocStats, 0, 0).plainArityError().withCapability(config.AllocatorStats),
 		function("memory_usage", builtinMemoryUsage, 0, 0),
 		function("log_cache_stats", builtinLogCacheStats, 0, 0),
-		function("exec", builtinExec, 1, 3, 4, 2, 4).withEffect(Irreversible),
+		function("exec", builtinExec, 1, 3, 4, 2, 4).withEffect(ImplementationOwned),
 		function("server_log", builtinServerLog, 1, 2, 2, -1).withEffect(Irreversible),
 		function("server_version", builtinServerVersion, 0, 1, -1),
 		function("time", builtinTime, 0, 0),

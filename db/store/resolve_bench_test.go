@@ -24,14 +24,14 @@ func benchChainStore(b *testing.B, depth int, verbsPerObject int) *Store {
 		}
 		for v := 0; v < verbsPerObject; v++ {
 			name := "filler" + string(rune('a'+v)) + string(rune('0'+int(id)%10))
-			verb := NewVerb(name, []string{name}, 0, VerbRead|VerbExecute,
+			verb := NewVerb([]string{name}, 0, VerbRead|VerbExecute,
 				VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 0;"})
 			if _, ec := s.AddVerb(id, verb); ec != types.E_NONE {
 				b.Fatalf("AddVerb #%d %q: %v", id, name, ec)
 			}
 		}
 	}
-	target := NewVerb("target", []string{"target"}, 0, VerbRead|VerbExecute,
+	target := NewVerb([]string{"target"}, 0, VerbRead|VerbExecute,
 		VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})
 	if _, ec := s.AddVerb(0, target); ec != types.E_NONE {
 		b.Fatalf("AddVerb target: %v", ec)
@@ -75,6 +75,24 @@ func BenchmarkTxnHasAncestor(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if !tx.HasAncestor(leaf, 0) || tx.HasAncestor(leaf, depth) {
 			b.Fatal("HasAncestor gave the wrong answer")
+		}
+	}
+}
+
+// BenchmarkTxnFindParentVerb is pass() from the leaf's verb: the walk starts at
+// the leaf's parent and has no memo.
+func BenchmarkTxnFindParentVerb(b *testing.B) {
+	const depth = 6
+	s := benchChainStore(b, depth, 8)
+	leaf := types.ObjID(depth - 1)
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, _, err := tx.FindParentVerb(leaf, "target"); err != nil {
+			b.Fatalf("FindParentVerb: %v", err)
 		}
 	}
 }

@@ -60,13 +60,13 @@ func builtinMapdelete(ctx *Execution, args []types.Value) types.Result {
 		keyList := keyOrList
 		result := m
 		for _, key := range keyList.Elements() {
-			if !types.IsValidBuiltinMapKey(key) {
+			if !types.IsValidMapKey(key) {
 				return types.Err(types.E_TYPE)
 			}
 			if _, found := result.MapGet(key); !found {
 				exceptionList := types.NewList([]types.Value{
 					types.NewErr(types.E_RANGE),
-					types.NewStr("Key " + key.String() + " not found in map"),
+					types.NewStr("Key " + publicLiteral(key) + " not found in map"),
 					key,
 				})
 				return types.Result{
@@ -77,14 +77,14 @@ func builtinMapdelete(ctx *Execution, args []types.Value) types.Result {
 			}
 			result = result.MapDelete(key)
 		}
-		if err := ctx.Session.CheckMapLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+		if err := ctx.Session.CheckMapLimitForTask(ctx.Context, result); err != types.E_NONE {
 			return types.Err(err)
 		}
 		return types.Ok(result)
 	}
 
 	key := keyOrList
-	if !types.IsValidBuiltinMapKey(key) {
+	if !types.IsValidMapKey(key) {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -96,7 +96,7 @@ func builtinMapdelete(ctx *Execution, args []types.Value) types.Result {
 	result := m.MapDelete(key)
 
 	// Check the map limit, independently of the list value byte limit.
-	if err := ctx.Session.CheckMapLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckMapLimitForTask(ctx.Context, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -110,17 +110,17 @@ func builtinMaphaskey(ctx *Execution, args []types.Value) types.Result {
 
 	key := args[1]
 
-	// Map keys must be scalar types (not list/map/waif).
-	if !types.IsValidBuiltinMapKey(key) {
+	// Lists and maps are E_TYPE; anonymous objects and waifs are valid keys.
+	if !types.IsValidMapKey(key) {
 		return types.Err(types.E_TYPE)
 	}
 
 	caseSensitive := false
 	if len(args) == 3 {
-		if args[2].Type() != types.TYPE_INT {
+		var ok bool
+		if caseSensitive, ok = flagArg(args[2]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		caseSensitive = args[2].Int() != 0
 	}
 
 	_, found := m.GetWithCase(key, caseSensitive)
@@ -148,7 +148,7 @@ func builtinMapmerge(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Check size limit
-	if err := ctx.Session.CheckMapLimit(result); err != types.E_NONE {
+	if err := ctx.Session.CheckMapLimitForTask(ctx.Context, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -160,7 +160,7 @@ func mapsDescriptors() []Descriptor {
 		function("mapkeys", builtinMapkeys, 1, 1, 10),
 		function("mapvalues", builtinMapvalues, 1, -1, 10),
 		function("mapdelete", builtinMapdelete, 2, 2, 10, -1),
-		function("maphaskey", builtinMaphaskey, 2, 3, 10, -1, 0),
+		function("maphaskey", builtinMaphaskey, 2, 3, 10, -1, argFlag),
 		function("mapmerge", builtinMapmerge, 2, 2, 10, 10).plainArityError().hidden().withCapability(config.BarnExtensions),
 	}
 }

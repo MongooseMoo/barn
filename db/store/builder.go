@@ -31,7 +31,6 @@ func NewObjectBuilder(id types.ObjID) *ObjectBuilder {
 		id:         id,
 		lastMove:   types.NewEmptyMap(),
 		properties: newPropTable(0),
-		verbs:      make(map[string]*Verb),
 	}}
 }
 
@@ -45,6 +44,14 @@ func (b *ObjectBuilder) SetLastMove(value types.Value) {
 	b.obj.lastMove = value
 }
 func (b *ObjectBuilder) SetAnonymous(anonymous bool) { b.obj.anonymous = anonymous }
+
+// SetLoadedAnonymousIdentity marks the object anonymous and moves it from the
+// serialization id it was read under to its identity,
+// LoadedAnonymousIdentity(id).
+func (b *ObjectBuilder) SetLoadedAnonymousIdentity() {
+	b.obj.anonymous = true
+	b.obj.id = LoadedAnonymousIdentity(b.obj.id)
+}
 func (b *ObjectBuilder) SetPropDefsCount(count int)  { b.obj.propDefsCount = count }
 func (b *ObjectBuilder) SetParents(p []types.ObjID)  { b.obj.parents = p }
 func (b *ObjectBuilder) SetChildren(c []types.ObjID) { b.obj.children = c }
@@ -71,16 +78,11 @@ func (b *ObjectBuilder) AppendContent(id types.ObjID) { b.obj.contents = append(
 
 // --- verbs ---
 
-// AppendVerb appends a verb (by value) to the ordered verb list and indexes it
-// under its primary name. Returns the index of the appended verb.
+// AppendVerb appends a verb (by value) to the ordered verb list and gives it a
+// fresh id. Returns the index of the appended verb.
 func (b *ObjectBuilder) AppendVerb(v Verb) int {
-	vp := &v
-	b.obj.verbList = append(b.obj.verbList, vp)
-	if len(v.names) > 0 {
-		if _, exists := b.obj.verbs[v.names[0]]; !exists {
-			b.obj.verbs[v.names[0]] = vp
-		}
-	}
+	v.id = nextVerbID.Add(1)
+	b.obj.verbList = append(b.obj.verbList, &v)
 	b.obj.verbIdx = nil // rebuilt by Build; stale until then
 	return len(b.obj.verbList) - 1
 }
@@ -108,6 +110,14 @@ func (b *ObjectBuilder) SetVerbCodeByIndex(index int, code []string) bool {
 	// be re-emitted on write. See Verb.hasProgram.
 	b.obj.verbList[index].setCodeOwned(code)
 	return true
+}
+
+// VerbCodeByIndex returns the source of a previously appended verb.
+func (b *ObjectBuilder) VerbCodeByIndex(index int) ([]string, bool) {
+	if index < 0 || index >= len(b.obj.verbList) {
+		return nil, false
+	}
+	return b.obj.verbList[index].code, true
 }
 
 // --- properties ---

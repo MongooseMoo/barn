@@ -13,7 +13,7 @@ import (
 func TestExecuteVerbTaskSyncReturnsRecoveredTaskPanic(t *testing.T) {
 	store := dbstore.NewStore()
 	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	store.AddVerb(2, dbstore.NewVerb("panic-command", []string{"panic-command"}, 2,
+	store.AddVerb(2, dbstore.NewVerb([]string{"panic-command"}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "none", Prep: "none", That: "none"},
 		[]string{"panic_for_command_test();"}))

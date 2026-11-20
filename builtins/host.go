@@ -30,32 +30,22 @@ type AnonymousGCStats struct {
 
 // TaskLister supplies the task collections inspected by task builtins.
 type TaskLister interface {
-	GetAllTasks() []*task.Task
-	GetQueuedTasks() []*task.Task
+	GetAllTasks() []*task.State
+	GetQueuedTasks() []*task.State
 }
 
 // TaskFinder locates tasks by ID or by the player whose input they await.
 type TaskFinder interface {
-	GetTask(id int64) *task.Task
-	FindReadingTask(player types.ObjID) *task.Task
-}
-
-// TaskController applies task lifecycle operations requested by builtins.
-type TaskController interface {
-	// CheckKill reports KillTask's result without killing, so a builtin can
-	// cross the irreversible boundary only for a kill that will happen.
-	CheckKill(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode
-	KillTask(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode
-	ResumeTask(taskID int64, value types.Value, resumerID types.ObjID, isWizard bool, readier *task.Task) types.ErrorCode
-	SuspendTask(task *task.Task, seconds float64)
+	FindTaskState(id int64) *task.State
+	FindReadingTaskState(player types.ObjID) *task.State
 }
 
 // TaskManager is the builtin-facing task capability composed from its small
-// consumer interfaces.
+// consumer interfaces. kill_task() and resume() do not use it: they read and
+// write task rows in the store.
 type TaskManager interface {
 	TaskLister
 	TaskFinder
-	TaskController
 }
 
 // Host bundles the server-provided capabilities that builtins depend on but the
@@ -68,7 +58,6 @@ type TaskManager interface {
 type Host struct {
 	ConnManager      ConnectionManager
 	InputForcer      InputForcer
-	TaskYielder      TaskYielder
 	TaskManager      TaskManager
 	ProcessStdin     *ProcessStdin
 	RunGC            GCHook
@@ -92,7 +81,6 @@ func (h Host) Validate() error {
 	}{
 		{"connection manager", h.ConnManager != nil},
 		{"input forcer", h.InputForcer != nil},
-		{"task yielder", h.TaskYielder != nil},
 		{"task manager", h.TaskManager != nil},
 		{"process stdin", h.ProcessStdin != nil},
 		{"GC hook", h.RunGC != nil},

@@ -1,12 +1,13 @@
 package builtins
 
 import (
+	"sync/atomic"
+
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/compiler"
 	"github.com/MongooseMoo/barn/config"
-	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
-	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/internal/mooprof"
+	taskpkg "github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -15,31 +16,36 @@ import (
 // production dispatch; tests of pure builtins can use Session.NewExecution
 // with a nil Task and callbacks.
 type Execution struct {
-	*kernel.TaskContext
-	Task     *task.Task
+	*taskpkg.Context
+	Task     *taskpkg.State
 	Registry *Registry
 	Session  *Session
 	PushEval func(*bytecode.Program) types.Result
-	// PushProtectedVerb runs an executable #0 wrapper on the calling VM. The
-	// verb and its definer are the dispatcher's own resolution of the name,
-	// which is passed as a string value.
-	PushProtectedVerb    func(types.Value, dbstore.VerbView, types.ObjID, []types.Value) types.Result
+	// PushProtectedVerb runs the executable #0 wrapper named by the string
+	// value on the calling VM, resolving it from the call site held in the slot
+	// (one per builtin). found is false, with nothing pushed, when #0 has no
+	// such callable verb.
+	PushProtectedVerb    func(name types.Value, site *atomic.Value, args []types.Value) (result types.Result, found bool)
 	PushMoveLifecycle    func(MoveLifecycleRequest) types.Result
 	PushRecycleLifecycle func(RecycleLifecycleRequest) types.Result
+	PushInitialize       func(types.Value, []types.Value, string) types.Result
 	CollectAnonymousRefs func(map[types.ObjID]struct{})
 	PendingFinalizations func() []types.Value
+	// ReleaseFinalizable records a value whose holder let it go, as a
+	// variable's old value is recorded, so the deferred collector rechecks the
+	// anonymous objects and WAIFs it references. Nil outside a VM.
+	ReleaseFinalizable func(types.Value)
 	// CanSuspend reports that a FlowSuspend returned now is honored: the call
 	// runs on the task's root VM, which the runtime saves and later resumes.
 	CanSuspend bool
-	// CallingVM is the VM running this builtin (a *vm.VM, opaque here). A verb
-	// the builtin runs on a nested VM links to it so MOO profile samples carry
-	// the caller's frames.
-	CallingVM any
+	// ProfileParent supplies the caller's live frames and sampling baselines
+	// when a builtin starts a nested execution.
+	ProfileParent mooprof.Parent
 }
 
 // NewExecution binds task state and an optional concrete task to this session.
-func (s *Session) NewExecution(ctx *kernel.TaskContext, task *task.Task) *Execution {
-	execution := &Execution{TaskContext: ctx, Task: task, Registry: s.registry, Session: s}
+func (s *Session) NewExecution(ctx *taskpkg.Context, task *taskpkg.State) *Execution {
+	execution := &Execution{Context: ctx, Task: task, Registry: s.registry, Session: s}
 	execution.ensureStoreTxn()
 	return execution
 }
@@ -47,14 +53,14 @@ func (s *Session) NewExecution(ctx *kernel.TaskContext, task *task.Task) *Execut
 // Rebind points a reused Execution at the current task state. Callers that
 // issue many builtin calls from one VM keep a single Execution (and its
 // service closures) alive instead of allocating one per call.
-func (ctx *Execution) Rebind(taskCtx *kernel.TaskContext, task *task.Task) {
-	ctx.TaskContext = taskCtx
+func (ctx *Execution) Rebind(taskCtx *taskpkg.Context, task *taskpkg.State) {
+	ctx.Context = taskCtx
 	ctx.Task = task
 	ctx.ensureStoreTxn()
 }
 
 func (ctx *Execution) ensureStoreTxn() {
-	if ctx != nil && ctx.TaskContext != nil && ctx.StoreTxn == nil && ctx.Store != nil {
+	if ctx != nil && ctx.Context != nil && ctx.StoreTxn == nil && ctx.Store != nil {
 		ctx.StoreTxn = ctx.Store.DirectTxn()
 	}
 }
@@ -72,13 +78,19 @@ type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value,
 // (un-wrapped) function plus its argument signature so the dispatch path can
 // validate args inline, without routing through a per-call validation closure.
 type builtinEntry struct {
-	name       string
-	bfName     types.Value // "bf_" + name, the #0 wrapper verb of a protected call
-	id         int         // index in Registry.entries; keys protectedSet.byID
-	fn         BuiltinFunc // builtin plus replay-safety marker; validation stays inline
-	sig        Signature
+	name   string
+	bfName types.Value // "bf_" + name, the #0 wrapper verb of a protected call
+	id     int         // index in Registry.entries; keys protectedSet.byID
+	fn     BuiltinFunc // builtin plus replay-safety marker; validation stays inline
+	sig    Signature
+	// optionSig is sig.optionSignature(), used while sig.optionEnabled; nil
+	// when sig names no runtime option.
+	optionSig  *Signature
 	visibility Visibility
 	lineSync   bool
+	// protectedSite is the VM's call site for the bf_ wrapper, filled on the
+	// first redirected call (see Execution.PushProtectedVerb).
+	protectedSite atomic.Value
 }
 
 // Registry holds all registered builtin functions
@@ -113,13 +125,13 @@ func (r *Registry) install(d Descriptor) {
 	if d.Effect == Irreversible || d.Effect == CommitGateReentrant {
 		guarded := d.Effect == Irreversible
 		invoke = func(ctx *Execution, args []types.Value) types.Result {
-			if ctx != nil && ctx.TaskContext != nil {
+			if ctx != nil && ctx.Context != nil {
 				// The first irreversible effect of an attempt is the runtime's last
 				// chance to re-run the task instead of letting a later commit
 				// conflict surface as an uncatchable error. If it asks to stop,
 				// return without performing the effect; the VM unwinds and runTask
 				// re-runs the task.
-				if guarded && !beginIrreversible(ctx) {
+				if guarded && !beginIrreversible(ctx, name) {
 					return abortedAttempt()
 				}
 				ctx.IrreversibleSideEffect = true
@@ -139,11 +151,12 @@ func (r *Registry) install(d Descriptor) {
 	// Get()/Has()/call_function(), which invoke the returned fn directly. The
 	// hot CallByID/CallByName path uses entry.fn + inline validation instead, so
 	// it never pays for the closure indirection.
-	sig := cloneSignature(d.Signature)
-	entry.sig = sig
+	entry.sig = cloneSignature(d.Signature)
+	entry.optionSig = entry.sig.optionSignature()
 	stored := func(ctx *Execution, args []types.Value) types.Result {
-		if err := validateFunctionArgs(sig, args); err != types.E_NONE {
-			return functionArgError(sig, args, err)
+		sig := entry.signature(ctx)
+		if err := validateFunctionArgs(*sig, args); err != types.E_NONE {
+			return functionArgError(*sig, args, err)
 		}
 		return invoke(ctx, args)
 	}
@@ -229,18 +242,44 @@ func (s *Session) CallByNameWithExecution(name string, ctx *Execution, args []ty
 // the real builtin do we run the same arg-count/type checks the registration
 // closure used to perform (identical E_ARGS/E_TYPE codes).
 func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) types.Result {
-	// Cheap pre-check (nil ctx, #0 caller, unprotected entry) before the
-	// redirect helper so the common case never builds and copies its 88-byte
-	// Result. The helper repeats these checks; they are the same predicate.
-	if ctx != nil && ctx.ThisObj != types.ObjID(0) && s.isProtectedEntryFor(ctx, e) {
+	if s.offersRedirect(e, ctx) {
 		if redirect, ok := s.maybeProtectedRedirect(e, ctx, args); ok {
 			return redirect
 		}
 	}
-	if err := validateFunctionArgs(e.sig, args); err != types.E_NONE {
-		return functionArgError(e.sig, args, err)
+	sig := e.signature(ctx)
+	if err := validateFunctionArgs(*sig, args); err != types.E_NONE {
+		return functionArgError(*sig, args, err)
 	}
 	return e.fn(ctx, args)
+}
+
+// signature is the signature e admits for a call by ctx: the option signature
+// while its runtime option is on, otherwise the registered one.
+func (e *builtinEntry) signature(ctx *Execution) *Signature {
+	if e.optionSig != nil && ctx != nil && e.sig.optionEnabled(ctx.RuntimeOptions) {
+		return e.optionSig
+	}
+	return &e.sig
+}
+
+// offersRedirect reports whether dispatch offers a call of e by ctx to
+// maybeProtectedRedirect. The redirect applies only to a protected builtin
+// called from a verb whose `this` is not #0 (the bf_ wrapper itself, or any #0
+// verb, runs the real builtin).
+func (s *Session) offersRedirect(e *builtinEntry, ctx *Execution) bool {
+	return ctx != nil && ctx.ThisObj != types.ObjID(0) && s.isProtectedEntryFor(ctx, e)
+}
+
+// MayRedirectByID reports whether a call of builtin id made now by ctx may be
+// handed to #0:bf_<name> instead of running the builtin: true whenever dispatch
+// would try the redirect, whether or not the wrapper verb exists.
+func (s *Session) MayRedirectByID(id int, ctx *Execution) bool {
+	r := s.registry
+	if id < 0 || id >= len(r.entries) || r.entries[id] == nil {
+		return false
+	}
+	return s.offersRedirect(r.entries[id], ctx)
 }
 
 // maybeProtectedRedirect implements ToastStunt's protected-builtin dispatch.
@@ -251,33 +290,23 @@ func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) 
 //     (ok=false) and a non-wizard caller gets E_PERM.
 //
 // Returns (result, true) when the call was handled by the redirect path, or
-// (_, false) when the caller should run the real builtin normally.
+// (_, false) when the caller should run the real builtin normally. dispatch,
+// its only caller, has already established that the call is protected and not
+// made from #0.
 func (s *Session) maybeProtectedRedirect(e *builtinEntry, ctx *Execution, args []types.Value) (types.Result, bool) {
-	if ctx == nil || e.name == "" {
+	if ctx.Store == nil {
 		return types.Result{}, false
 	}
-	// caller() == #0 (the bf_ wrapper, or any #0 verb) runs the real builtin.
-	if ctx.ThisObj == types.ObjID(0) {
-		return types.Result{}, false
-	}
-	if !s.isProtectedNameFor(ctx, e.name) {
-		return types.Result{}, false
-	}
-	store := ctx.Store
-	if store == nil {
-		return types.Result{}, false
-	}
-	bfName := e.bfName.Str()
-	verb, definer, err := findCallableVerbForRead(ctx, types.ObjID(0), bfName)
-	if err == nil {
-		// #0:bf_<name> exists: run it and use its outcome (return or raise).
-		verbArgs := append([]types.Value(nil), args...)
-		if ctx.PushProtectedVerb != nil {
-			// The VM activates the verb just resolved rather than looking it
-			// up again; nothing has touched the transaction in between.
-			return ctx.PushProtectedVerb(e.bfName, verb, definer, verbArgs), true
+	if ctx.PushProtectedVerb != nil {
+		// The VM resolves #0:bf_<name> from this builtin's own call site, so a
+		// repeated protected call reuses its lookup record and compiled program
+		// as an OP_CALL_VERB site does.
+		if result, found := ctx.PushProtectedVerb(e.bfName, &e.protectedSite, args); found {
+			return result, true
 		}
-		return s.CallVerb(types.ObjID(0), bfName, verbArgs, ctx), true
+	} else if _, _, err := findCallableVerbForRead(ctx, types.ObjID(0), e.bfName.Str()); err == nil {
+		// #0:bf_<name> exists: run it and use its outcome (return or raise).
+		return s.CallVerb(types.ObjID(0), e.bfName.Str(), append([]types.Value(nil), args...), ctx), true
 	}
 	// No wrapper verb: wizards fall through to the real builtin, others denied.
 	if !ctx.IsWizard {

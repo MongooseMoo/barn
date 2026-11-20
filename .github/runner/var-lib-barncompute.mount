@@ -1,0 +1,12 @@
+[Unit]
+Description=Bounded storage for the Barn compute guest
+Before=barn-compute.service
+
+[Mount]
+What=/var/lib/barncompute.img
+Where=/var/lib/barncompute
+Type=ext4
+Options=loop,nodev,nosuid,noexec
+
+[Install]
+WantedBy=multi-user.target

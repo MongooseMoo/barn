@@ -1,0 +1,84 @@
+package engine
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/MongooseMoo/barn/types"
+)
+
+func TestMongooseResidentSampleUnits(t *testing.T) {
+	for _, tc := range []struct {
+		name, output, goos string
+		pageSize           int
+		bytes              uint64
+	}{
+		// Raw original-checkpoint readings from issue 279's offline evals.
+		{"linux-4k", "{1, 132473.0}", "linux", 4096, 542609408},
+		{"linux-16k", "{1, 132473.0}", "linux", 16384, 2170437632},
+		{"windows", "{1, 557805568.0}", "windows", 4096, 557805568},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseResidentSample(tc.output, tc.goos, tc.pageSize)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.bytes {
+				t.Fatalf("resident bytes = %d, want %d", got, tc.bytes)
+			}
+		})
+	}
+}
+
+func TestRealCommandCompletionRetainsExceptionFramesAfterUnwind(t *testing.T) {
+	tk := NewTask(42, 83, 1000, 1)
+	tk.Done = make(chan struct{})
+	result := types.Result{Flow: types.FlowException, Error: types.E_NACC, CallStack: []types.ActivationFrame{
+		{This: 83, VerbLoc: 36, Verb: "home", Programmer: 83, Player: 83, LineNumber: 15},
+		{This: 83, VerbLoc: 2200, Verb: "moveto", Programmer: 36, Player: 83, LineNumber: 10,
+			SourceLine: `secret = "private-diagnostic-sentinel";`, Args: []types.Value{types.NewStr("private-argument-sentinel")}},
+	}}
+	c := realCommandCompletion{task: tk, result: make(chan types.Result, 1)}
+	c.result <- result
+	close(tk.Done)
+	// reportUncaughtException clears the live stack before the command waits.
+	if len(tk.GetCallStack()) != 0 {
+		t.Fatal("fixture unexpectedly has a live stack")
+	}
+	ok, failure := c.wait(context.Background())
+	if ok || !strings.HasPrefix(failure, "uncaught:E_NACC") {
+		t.Fatalf("unexpected classification: %v %q", ok, failure)
+	}
+	for _, want := range []string{"task=42", `"verbloc":2200`, `"verb":"moveto"`, `"line":10`, `"programmer":36`, `"player":83`} {
+		if !strings.Contains(failure, want) {
+			t.Errorf("exception identity missing %s: %s", want, failure)
+		}
+	}
+	if strings.Contains(failure, "private-") {
+		t.Fatal("diagnostics exposed source or argument payloads")
+	}
+}
+
+func TestRealCommandTimeoutRetainsFrameIdentityWithoutPayloads(t *testing.T) {
+	tk := NewTask(43, 83, 1000, 1)
+	tk.Done = make(chan struct{})
+	tk.CallStack = []types.ActivationFrame{{This: 83, VerbLoc: 2200, Verb: "loc_enter", Programmer: 36,
+		Player: 83, LineNumber: 7, SourceLine: `secret = "private-timeout-sentinel";`}}
+	c := realCommandCompletion{task: tk}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ok, failure := c.wait(ctx)
+	if ok || !strings.HasPrefix(failure, "unsettled:") {
+		t.Fatalf("unexpected classification: %v %q", ok, failure)
+	}
+	if !strings.Contains(failure, `"verbloc":2200`) || !strings.Contains(failure, `"programmer":36`) {
+		t.Errorf("timeout lost frame identity: %s", failure)
+	}
+	if !strings.Contains(failure, `"admission_pending":false`) || !strings.Contains(failure, `"execution_active":false`) {
+		t.Fatalf("timeout omitted readiness gates: %s", failure)
+	}
+	if strings.Contains(failure, "private-") {
+		t.Fatal("timeout exposed source payload")
+	}
+}

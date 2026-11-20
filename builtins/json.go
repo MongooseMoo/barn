@@ -1,9 +1,11 @@
 package builtins
 
 import (
-	"encoding/json"
+	"bytes"
+	"encoding/json/jsontext"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/MongooseMoo/barn/types"
@@ -33,143 +35,165 @@ func builtinGenerateJson(ctx *Execution, args []types.Value) types.Result {
 	}
 	disableBinaryEscapes := len(args) == 3 && args[2].Truthy()
 
-	// Convert MOO value to Go value suitable for JSON marshaling
-	jsonValue, err := mooToJSON(value, embeddedTypes, false, disableBinaryEscapes)
-	if err != types.E_NONE {
-		return types.Err(err)
+	// HTML characters and U+2028/U+2029 are escaped, invalid UTF-8 becomes
+	// U+FFFD, and a map may repeat a member name ([1 -> x, "1" -> y]).
+	var buf bytes.Buffer
+	enc := jsontext.NewEncoder(&buf,
+		jsontext.EscapeForHTML(true),
+		jsontext.EscapeForJS(true),
+		jsontext.AllowInvalidUTF8(true),
+		jsontext.AllowDuplicateNames(true))
+	g := jsonGenerator{enc: enc, embeddedTypes: embeddedTypes, disableBinaryEscapes: disableBinaryEscapes}
+	if code := g.write(value); code != types.E_NONE {
+		return types.Err(code)
 	}
 
-	// Marshal to JSON
-	data, jsonErr := json.Marshal(jsonValue)
-
-	if jsonErr != nil {
-		return types.Err(types.E_INVARG)
-	}
-
+	// The encoder ends each top-level value with a newline.
+	data := bytes.TrimSuffix(buf.Bytes(), []byte{'\n'})
 	// Convert lowercase \uxxxx escapes to uppercase \uXXXX for MOO compatibility
-	// Also convert \t to \u0009 to match MOO behavior
-	result := normalizeJSONEscapes(string(data))
-	return types.Ok(types.NewStr(result))
+	// Also convert \t to a \u escape to match MOO behavior
+	return types.Ok(types.NewStr(normalizeJSONEscapes(string(data))))
 }
 
-// mooToJSON converts a MOO value to a Go value suitable for JSON marshaling
-// embeddedTypes: when true, add type suffixes (|obj, |err, |int, |float)
-// isKey: when true, this value is being used as a map key
-func mooToJSON(v types.Value, embeddedTypes bool, isKey bool, disableBinaryEscapes bool) (interface{}, types.ErrorCode) {
+// jsonGenerator writes MOO values as JSON tokens.
+// embeddedTypes: when true, add type suffixes (|obj, |err, and on map keys |int, |float)
+type jsonGenerator struct {
+	enc                  *jsontext.Encoder
+	embeddedTypes        bool
+	disableBinaryEscapes bool
+}
+
+func (g *jsonGenerator) token(t jsontext.Token) types.ErrorCode {
+	if err := g.enc.WriteToken(t); err != nil {
+		return types.E_INVARG
+	}
+	return types.E_NONE
+}
+
+func (g *jsonGenerator) write(v types.Value) types.ErrorCode {
 	switch v.Type() {
 	case types.TYPE_INT:
-		if embeddedTypes && isKey {
-			return fmt.Sprintf("%d|int", v.Int()), types.E_NONE
-		}
-		return v.Int(), types.E_NONE
+		return g.token(jsontext.Int(v.Int()))
 
 	case types.TYPE_FLOAT:
-		f := v.Float()
-		// Check for NaN and Infinity
-		if math.IsNaN(f) || math.IsInf(f, 0) {
-			return nil, types.E_FLOAT
+		s, code := formatJSONFloat(v.Float())
+		if code != types.E_NONE {
+			return code
 		}
-		if embeddedTypes && isKey {
-			// Format float with decimal point for key
-			s := fmt.Sprintf("%g", f)
-			if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
-				s += ".0"
-			}
-			return s + "|float", types.E_NONE
+		if err := g.enc.WriteValue(jsontext.Value(s)); err != nil {
+			return types.E_INVARG
 		}
-		// Format float with decimal point (MOO semantics)
-		s := fmt.Sprintf("%g", f)
-		// Ensure we have a decimal point for whole numbers
-		if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
-			s += ".0"
-		}
-		// Use json.Number to avoid re-formatting
-		return json.Number(s), types.E_NONE
+		return types.E_NONE
 
 	case types.TYPE_STR:
-		// Convert MOO binary escapes (~XX) to actual bytes
-		// JSON marshaler will then produce proper \n, \r, \t, \uXXXX escapes
-		s := v.Str()
-		result := decodeBinaryEscapes(s, disableBinaryEscapes)
-		return result, types.E_NONE
+		// Convert MOO binary escapes (~XX) to actual bytes; the encoder then
+		// produces proper \n, \r, \t, \uXXXX escapes.
+		return g.token(jsontext.String(decodeBinaryEscapes(v.Str(), g.disableBinaryEscapes)))
 
 	case types.TYPE_BOOL:
-		return v.Bool(), types.E_NONE
+		return g.token(jsontext.Bool(v.Bool()))
 
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		// Anonymous objects cannot be serialized to JSON
-		if v.IsAnonymous() {
-			return nil, types.E_INVARG
+	case types.TYPE_OBJ, types.TYPE_ANON, types.TYPE_ERR:
+		s, code := g.scalarText(v)
+		if code != types.E_NONE {
+			return code
 		}
-		if embeddedTypes {
-			return fmt.Sprintf("#%d|obj", v.ID()), types.E_NONE
-		}
-		return fmt.Sprintf("#%d", v.ID()), types.E_NONE
+		return g.token(jsontext.String(s))
 
-	case types.TYPE_ERR:
-		if embeddedTypes {
+	case types.TYPE_LIST:
+		if code := g.token(jsontext.BeginArray); code != types.E_NONE {
+			return code
+		}
+		for i := 1; i <= v.Len(); i++ {
+			if code := g.write(v.Get(i)); code != types.E_NONE {
+				return code
+			}
+		}
+		return g.token(jsontext.EndArray)
+
+	case types.TYPE_MAP:
+		if code := g.token(jsontext.BeginObject); code != types.E_NONE {
+			return code
+		}
+		// Tree order — Toast's generate_json iterates the rbtree (mapforeach)
+		// with no re-sort, and Pairs() is that traversal.
+		for _, pair := range v.Pairs() {
+			key, code := g.memberName(pair[0])
+			if code != types.E_NONE {
+				return code
+			}
+			if code := g.token(jsontext.String(key)); code != types.E_NONE {
+				return code
+			}
+			if code := g.write(pair[1]); code != types.E_NONE {
+				return code
+			}
+		}
+		return g.token(jsontext.EndObject)
+
+	default:
+		// Unsupported types (WAIF)
+		return types.E_TYPE
+	}
+}
+
+// scalarText is the JSON string text of an object reference or error value.
+func (g *jsonGenerator) scalarText(v types.Value) (string, types.ErrorCode) {
+	if v.Type() == types.TYPE_ERR {
+		if g.embeddedTypes {
 			return v.String() + "|err", types.E_NONE
 		}
 		return v.String(), types.E_NONE
-
-	case types.TYPE_LIST:
-		arr := make([]interface{}, v.Len())
-		for i := 1; i <= v.Len(); i++ {
-			elem := v.Get(i)
-			jsonElem, err := mooToJSON(elem, embeddedTypes, false, disableBinaryEscapes)
-			if err != types.E_NONE {
-				return nil, err
-			}
-			arr[i-1] = jsonElem
-		}
-		return arr, types.E_NONE
-
-	case types.TYPE_MAP:
-		// Tree order — Toast's generate_json iterates the rbtree (mapforeach)
-		// with no re-sort, and Pairs() is that traversal.
-		sortedPairs := v.Pairs()
-
-		om := &orderedMap{entries: make([]orderedMapEntry, len(sortedPairs))}
-		for i, pair := range sortedPairs {
-			key := pair[0]
-			value := pair[1]
-
-			// Anonymous objects as map keys are invalid for JSON encoding.
-			if isObjectRef(key) && key.IsAnonymous() {
-				return nil, types.E_INVARG
-			}
-
-			// Convert key to string
-			var keyStr string
-			if embeddedTypes {
-				// In embedded mode, keys get type annotations
-				keyVal, err := mooToJSON(key, true, true, disableBinaryEscapes)
-				if err != types.E_NONE {
-					return nil, err
-				}
-				keyStr = fmt.Sprintf("%v", keyVal)
-			} else {
-				// Default mode - use raw value for strings, String() for others
-				if key.Type() == types.TYPE_STR {
-					keyStr = decodeBinaryEscapes(key.Str(), disableBinaryEscapes)
-				} else {
-					keyStr = key.String()
-				}
-			}
-
-			// Convert value
-			jsonValue, err := mooToJSON(value, embeddedTypes, false, disableBinaryEscapes)
-			if err != types.E_NONE {
-				return nil, err
-			}
-			om.entries[i] = orderedMapEntry{key: keyStr, value: jsonValue}
-		}
-		return om, types.E_NONE
-
-	default:
-		// Unsupported types (WAIF, ANON)
-		return nil, types.E_TYPE
 	}
+	// Anonymous objects cannot be serialized to JSON
+	if v.IsAnonymous() {
+		return "", types.E_INVARG
+	}
+	if g.embeddedTypes {
+		return fmt.Sprintf("#%d|obj", v.ID()), types.E_NONE
+	}
+	return fmt.Sprintf("#%d", v.ID()), types.E_NONE
+}
+
+// memberName is the JSON object member name for a MOO map key.
+func (g *jsonGenerator) memberName(key types.Value) (string, types.ErrorCode) {
+	// Anonymous objects as map keys are invalid for JSON encoding.
+	if isObjectRef(key) && key.IsAnonymous() {
+		return "", types.E_INVARG
+	}
+	if key.Type() == types.TYPE_STR {
+		return decodeBinaryEscapes(key.Str(), g.disableBinaryEscapes), types.E_NONE
+	}
+	if !g.embeddedTypes {
+		return key.String(), types.E_NONE
+	}
+	// In embedded mode, keys get type annotations
+	switch key.Type() {
+	case types.TYPE_INT:
+		return fmt.Sprintf("%d|int", key.Int()), types.E_NONE
+	case types.TYPE_FLOAT:
+		s, code := formatJSONFloat(key.Float())
+		return s + "|float", code
+	case types.TYPE_BOOL:
+		return strconv.FormatBool(key.Bool()), types.E_NONE
+	case types.TYPE_OBJ, types.TYPE_ANON, types.TYPE_ERR:
+		return g.scalarText(key)
+	default:
+		return "", types.E_TYPE
+	}
+}
+
+// formatJSONFloat formats a float with a decimal point for whole numbers
+// (MOO semantics). NaN and the infinities have no JSON form.
+func formatJSONFloat(f float64) (string, types.ErrorCode) {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return "", types.E_FLOAT
+	}
+	s := fmt.Sprintf("%g", f)
+	if !strings.ContainsAny(s, ".eE") {
+		s += ".0"
+	}
+	return s, types.E_NONE
 }
 
 // builtinParseJson parses JSON string to MOO value
@@ -193,251 +217,117 @@ func builtinParseJson(ctx *Execution, args []types.Value) types.Result {
 		embeddedTypes = strings.Contains(mode, "embedded")
 	}
 
-	jsonStr := strVal.Str()
-	// Go decodes the short control escapes and their equivalent Unicode escapes
-	// identically. Toast does not: \b, \f, \n, and \r become MOO binary escape
-	// text, while \t and all \uXXXX escapes become their actual UTF-8 bytes.
-	// Tag only the four short escapes while the JSON escape boundaries are still
-	// visible. The tag is selected after a preliminary decode so legitimate JSON
-	// text can never collide with it.
-	var preliminary interface{}
-	if err := json.NewDecoder(strings.NewReader(jsonStr)).Decode(&preliminary); err != nil {
+	// Read just one JSON value and ignore what follows it, as Toast does:
+	// parse_json("12abc") returns 12. Invalid UTF-8 becomes U+FFFD. The
+	// decoder rejects an object that repeats a member name.
+	decoder := jsontext.NewDecoder(strings.NewReader(strVal.Str()), jsontext.AllowInvalidUTF8(true))
+	value, ok := decodeJSONToMOO(decoder, embeddedTypes)
+	if !ok {
 		return types.Err(types.E_INVARG)
 	}
-	controlTag := unusedJSONControlTag(preliminary)
-	jsonStr = tagJSONShortControlEscapes(jsonStr, controlTag)
-
-	// Use json.Decoder to parse just one JSON value, ignoring trailing chars
-	// This matches ToastStunt behavior where parse_json("12abc") returns 12
-	decoder := json.NewDecoder(strings.NewReader(jsonStr))
-	decoder.UseNumber()
-	data, err := decodeJSONValue(decoder)
-	if err != nil {
-		return types.Err(types.E_INVARG)
-	}
-
-	return types.Ok(jsonToMOO(data, embeddedTypes))
+	return types.Ok(value)
 }
 
-func decodeJSONValue(decoder *json.Decoder) (interface{}, error) {
-	token, err := decoder.Token()
+// decodeJSONToMOO reads the next JSON value as a MOO value.
+// embeddedTypes: when true, parse type-annotated strings (|int, |float, |str, |obj, |err).
+// It reports false on malformed JSON, on a number too large for a float, and
+// when an object has two member names that become the same MOO key (an exact
+// repeat, names that differ only in case, or equal embedded values); Toast
+// rejects such a document.
+func decodeJSONToMOO(decoder *jsontext.Decoder, embeddedTypes bool) (types.Value, bool) {
+	token, err := decoder.ReadToken()
 	if err != nil {
-		return nil, err
+		return types.None, false
 	}
-	delim, isDelim := token.(json.Delim)
-	if !isDelim {
-		return token, nil
-	}
-	switch delim {
-	case '[':
-		values := make([]interface{}, 0)
-		for decoder.More() {
-			value, err := decodeJSONValue(decoder)
-			if err != nil {
-				return nil, err
-			}
-			values = append(values, value)
-		}
-		_, err = decoder.Token()
-		return values, err
-	case '{':
-		values := make(map[string]interface{})
-		for decoder.More() {
-			keyToken, err := decoder.Token()
-			if err != nil {
-				return nil, err
-			}
-			key, ok := keyToken.(string)
-			if !ok {
-				return nil, fmt.Errorf("JSON object key is not a string")
-			}
-			value, err := decodeJSONValue(decoder)
-			if err != nil {
-				return nil, err
-			}
-			if _, exists := values[key]; !exists {
-				values[key] = value
-			}
-		}
-		_, err = decoder.Token()
-		return values, err
-	default:
-		return nil, fmt.Errorf("unexpected JSON delimiter %q", delim)
-	}
-}
-
-// jsonToMOO converts a Go value from JSON unmarshaling to a MOO value
-// embeddedTypes: when true, parse type-annotated strings (|int, |float, |str, |obj, |err)
-func jsonToMOO(v interface{}, embeddedTypes bool) types.Value {
-	switch val := v.(type) {
-	case nil:
+	switch token.Kind() {
+	case 'n':
 		// MOO has no null; ToastStunt maps JSON null to the error value E_NONE.
-		return types.NewErr(types.E_NONE)
+		return types.NewErr(types.E_NONE), true
 
-	case bool:
-		return types.NewBool(val)
+	case 't', 'f':
+		return types.NewBool(token.Bool()), true
 
-	case json.Number:
-		text := val.String()
-		if !strings.ContainsAny(text, ".eE") {
-			if integer, err := val.Int64(); err == nil {
-				return types.NewInt(integer)
-			}
-		}
-		floating, err := val.Float64()
-		if err != nil {
-			return types.NewInt(0)
-		}
-		return types.NewFloat(floating)
+	case '0':
+		return jsonNumberToMOO(token.String())
 
-	case float64:
-		if val == float64(int64(val)) && val >= float64(math.MinInt64) && val <= float64(math.MaxInt64) {
-			return types.NewInt(int64(val))
-		}
-		return types.NewFloat(val)
+	case '"':
+		return jsonStringToMOO(token.String(), embeddedTypes), true
 
-	case string:
-		val = encodeParsedJSONString(val)
-		if embeddedTypes {
-			// Check for type annotations
-			if parsed, ok := parseEmbeddedType(val); ok {
-				return parsed
-			}
-		}
-		return types.NewStr(val)
-
-	case []interface{}:
+	case '[':
 		// JSON array becomes MOO list
-		elements := make([]types.Value, len(val))
-		for i, item := range val {
-			elements[i] = jsonToMOO(item, embeddedTypes)
-		}
-		return types.NewList(elements)
-
-	case map[string]interface{}:
-		// JSON object becomes MOO map
-		pairs := make([][2]types.Value, 0, len(val))
-		for k, v := range val {
-			k = encodeParsedJSONString(k)
-			// In embedded mode, keys may have type annotations too
-			var keyVal types.Value
-			if embeddedTypes {
-				if parsed, ok := parseEmbeddedType(k); ok {
-					keyVal = parsed
-				} else {
-					keyVal = types.NewStr(k)
-				}
-			} else {
-				keyVal = types.NewStr(k)
+		elements := make([]types.Value, 0)
+		for decoder.PeekKind() != ']' {
+			element, ok := decodeJSONToMOO(decoder, embeddedTypes)
+			if !ok {
+				return types.None, false
 			}
-			pairs = append(pairs, [2]types.Value{
-				keyVal,
-				jsonToMOO(v, embeddedTypes),
-			})
+			elements = append(elements, element)
 		}
-		return types.NewMap(pairs)
+		if _, err := decoder.ReadToken(); err != nil {
+			return types.None, false
+		}
+		return types.NewList(elements), true
+
+	case '{':
+		// JSON object becomes MOO map; names take the same conversion as strings.
+		pairs := make([][2]types.Value, 0)
+		for decoder.PeekKind() != '}' {
+			name, err := decoder.ReadToken()
+			if err != nil {
+				return types.None, false
+			}
+			// Convert the name first: the next decoder call voids the token.
+			key := jsonStringToMOO(name.String(), embeddedTypes)
+			value, ok := decodeJSONToMOO(decoder, embeddedTypes)
+			if !ok {
+				return types.None, false
+			}
+			pairs = append(pairs, [2]types.Value{key, value})
+		}
+		if _, err := decoder.ReadToken(); err != nil {
+			return types.None, false
+		}
+		// NewMap replaces a repeated key, so a short map means two names collided.
+		m := types.NewMap(pairs)
+		if m.Len() != len(pairs) {
+			return types.None, false
+		}
+		return m, true
 
 	default:
-		// Unknown type - return 0
-		return types.NewInt(0)
+		return types.None, false
 	}
 }
 
-const jsonControlTagBase = "\uE000barn-json-control-"
-
-var jsonShortControls = map[byte]string{'b': "~08", 'f': "~0C", 'n': "~0A", 'r': "~0D"}
-
-// unusedJSONControlTag returns a prefix absent from every decoded string and
-// object key. This makes the tagging pass safe even for documents containing
-// private-use characters or text resembling an earlier tag.
-func unusedJSONControlTag(v interface{}) string {
-	for n := 0; ; n++ {
-		tag := fmt.Sprintf("%s%d-", jsonControlTagBase, n)
-		if !jsonValueContains(v, tag) {
-			return tag
+// jsonNumberToMOO converts JSON number text: an integer when it has no
+// fraction or exponent and fits, otherwise a float.
+func jsonNumberToMOO(text string) (types.Value, bool) {
+	if !strings.ContainsAny(text, ".eE") {
+		if integer, err := strconv.ParseInt(text, 10, 64); err == nil {
+			return types.NewInt(integer), true
 		}
 	}
+	floating, err := strconv.ParseFloat(text, 64)
+	if err != nil {
+		return types.None, false
+	}
+	return types.NewFloat(floating), true
 }
 
-func jsonValueContains(v interface{}, needle string) bool {
-	switch value := v.(type) {
-	case string:
-		return strings.Contains(value, needle)
-	case []interface{}:
-		for _, item := range value {
-			if jsonValueContains(item, needle) {
-				return true
-			}
-		}
-	case map[string]interface{}:
-		for key, item := range value {
-			if strings.Contains(key, needle) || jsonValueContains(item, needle) {
-				return true
-			}
+// jsonStringToMOO converts a decoded JSON string or object member name.
+func jsonStringToMOO(s string, embeddedTypes bool) types.Value {
+	s = encodeJSONDecodedBytes(s)
+	if embeddedTypes {
+		if parsed, ok := parseEmbeddedType(s); ok {
+			return parsed
 		}
 	}
-	return false
+	return types.NewStr(s)
 }
 
-func tagJSONShortControlEscapes(s, tag string) string {
-	var result strings.Builder
-	inString := false
-	for i := 0; i < len(s); i++ {
-		if s[i] == '"' {
-			inString = !inString
-			result.WriteByte(s[i])
-			continue
-		}
-		if inString && s[i] == '\\' && i+1 < len(s) {
-			next := s[i+1]
-			if replacement, ok := jsonShortControls[next]; ok {
-				result.WriteString(tag)
-				result.WriteByte(next)
-				result.WriteString(replacement)
-				i++
-				continue
-			}
-			result.WriteByte(s[i])
-			i++
-			result.WriteByte(s[i])
-			continue
-		}
-		result.WriteByte(s[i])
-	}
-	return result.String()
-}
-
-func encodeParsedJSONString(s string) string {
-	var result strings.Builder
-	for len(s) > 0 {
-		start := strings.Index(s, jsonControlTagBase)
-		if start < 0 {
-			result.WriteString(encodeJSONDecodedBytes(s))
-			break
-		}
-		result.WriteString(encodeJSONDecodedBytes(s[:start]))
-		s = s[start:]
-		suffix := s[len(jsonControlTagBase):]
-		dash := strings.IndexByte(suffix, '-')
-		if dash < 1 || dash+1 >= len(suffix) {
-			result.WriteString(jsonControlTagBase)
-			s = suffix
-			continue
-		}
-		control := suffix[dash+1]
-		replacement, ok := jsonShortControls[control]
-		markerLen := len(jsonControlTagBase) + dash + 2 + len(replacement)
-		if !ok || markerLen > len(s) || s[markerLen-len(replacement):markerLen] != replacement {
-			result.WriteString(jsonControlTagBase)
-			s = suffix
-			continue
-		}
-		result.WriteString(replacement)
-		s = s[markerLen:]
-	}
-	return result.String()
-}
-
+// encodeJSONDecodedBytes writes decoded JSON text as a MOO string: a tab
+// stays a tab, a tilde and every other control or non-ASCII byte become a
+// ~XX binary escape.
 func encodeJSONDecodedBytes(s string) string {
 	var result strings.Builder
 	for _, b := range []byte(s) {
@@ -479,16 +369,8 @@ func parseEmbeddedType(s string) (types.Value, bool) {
 	} else if strings.HasSuffix(s, "|str") {
 		return types.NewStr(s[:len(s)-4]), true
 	} else if strings.HasSuffix(s, "|obj") {
-		objStr := s[:len(s)-4]
-		if objStr == "" {
-			return types.NewObj(0), true
-		}
-		if len(objStr) > 0 && objStr[0] == '#' {
-			var id int64
-			if _, err := fmt.Sscanf(objStr[1:], "%d", &id); err == nil {
-				return types.NewObj(types.ObjID(id)), true
-			}
-		}
+		// Toast: strtol() of the text after an optional '#'.
+		return types.NewObj(types.ObjID(cStrtol(strings.TrimPrefix(s[:len(s)-4], "#")))), true
 	} else if strings.HasSuffix(s, "|err") {
 		errStr := s[:len(s)-4]
 		if errStr == "" {
@@ -567,6 +449,36 @@ func decodeBinaryEscapes(s string, disabled bool) string {
 	return result.String()
 }
 
+// cStrtol is C's strtol(s, &end, 10) on a 64-bit long: optional leading
+// whitespace and sign, then the longest run of decimal digits, 0 when there
+// are none, clamped to the int64 range.
+func cStrtol(s string) int64 {
+	s = strings.TrimLeft(s, " \t\n\v\f\r")
+	negative := false
+	if s != "" && (s[0] == '+' || s[0] == '-') {
+		negative = s[0] == '-'
+		s = s[1:]
+	}
+	var magnitude uint64
+	for i := 0; i < len(s) && s[i] >= '0' && s[i] <= '9'; i++ {
+		if magnitude > (math.MaxUint64-9)/10 {
+			magnitude = math.MaxUint64
+			break
+		}
+		magnitude = magnitude*10 + uint64(s[i]-'0')
+	}
+	if negative {
+		if magnitude > uint64(math.MaxInt64)+1 {
+			return math.MinInt64
+		}
+		return -int64(magnitude-1) - 1
+	}
+	if magnitude > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(magnitude)
+}
+
 // hexDigit returns the value of a hex digit and whether it's valid
 func hexDigit(c byte) (int, bool) {
 	switch {
@@ -579,42 +491,6 @@ func hexDigit(c byte) (int, bool) {
 	default:
 		return 0, false
 	}
-}
-
-// orderedMap preserves key order when marshaled to JSON
-type orderedMapEntry struct {
-	key   string
-	value interface{}
-}
-
-type orderedMap struct {
-	entries []orderedMapEntry
-}
-
-// MarshalJSON implements json.Marshaler for orderedMap
-func (om *orderedMap) MarshalJSON() ([]byte, error) {
-	var buf strings.Builder
-	buf.WriteByte('{')
-	for i, entry := range om.entries {
-		if i > 0 {
-			buf.WriteByte(',')
-		}
-		// Marshal key
-		keyJSON, err := json.Marshal(entry.key)
-		if err != nil {
-			return nil, err
-		}
-		buf.Write(keyJSON)
-		buf.WriteByte(':')
-		// Marshal value
-		valJSON, err := json.Marshal(entry.value)
-		if err != nil {
-			return nil, err
-		}
-		buf.Write(valJSON)
-	}
-	buf.WriteByte('}')
-	return []byte(buf.String()), nil
 }
 
 func jsonDescriptors() []Descriptor {

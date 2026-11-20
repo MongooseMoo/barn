@@ -1,5 +1,14 @@
 # Barn Agent Notes
 
+## Isolation changes
+
+Before changing MVCC validation/publication, hot renewal, definition or
+relationship reads, dispatch memoization, or task retries/suspension, read
+[docs/elle-isolation.md](docs/elle-isolation.md). Run its pinned checker workflow
+and preserve raw histories, manifests and anomaly witnesses. Ordinary Go tests
+alone do not run Elle; do not claim isolation coverage without explicit verdicts
+and nonzero path counts. Keep native errors and unknown outcomes visible.
+
 ## Conformance Discipline Rules
 - Before a VM regression manually installs Frames, inspect CurrentFrame and initialize its cached frame through the production frame-installation helper; assert the active frame before calling error handling. A populated Frames slice alone does not establish an executable VM fixture.
 
@@ -29,7 +38,7 @@
 - Do not invoke `pytest` directly as a YAML or collection probe during conformance work; validate collection and behavior through the documented managed conformance command.
 - A focused packaged conformance selector must include the canonical `capability_admission` test in the same managed session, unless validated admission evidence and its exact context are supplied explicitly.
 - When the requested conformance deliverable is a full-suite run or complete failure inventory, test failure markers are results to collect, not a reason to interrupt the run; continue to the terminal summary unless the harness itself fails, hangs, or the user cancels.
-- Do not manually launch Barn or Toast for conformance work unless the user explicitly asks for a manual repro.
+- Do not manually launch Barn or Toast for conformance work unless the user explicitly asks for a manual repro. This covers launching servers only. Reading code, Go tests, `bin/moo`, `barn eval` and a debugger are ordinary investigation and need no approval.
 - Do not manually run against a tracked database file. If a manual repro is explicitly required, use a disposable copy outside tracked fixtures.
 - Do not create ad hoc debug executables with arbitrary names for conformance work. Use the managed server flow, or one clearly temporary disposable binary under `.tmp` only when the user explicitly approves a manual repro.
 - If the managed harness command fails to start or connect, report the exact command, working directory, expected result, and actual failure before improvising.
@@ -43,6 +52,11 @@
 - For Barn Toast-oracle and conformance work, Toast means the WSL oracle documented in `plans/barn-toast-mongoose-convergence-workstreams.md`: `/root/src/toaststunt/build-release/moo` (`~/src/toaststunt/build-release/moo` inside WSL). Do not use Windows Toast binaries for this workflow unless the user explicitly asks for a Windows Toast repro.
 - Do not spend time on Barn-side root-cause analysis until the expected Toast behavior has been confirmed.
 - If Toast verification is blocked, stop and say so plainly before proceeding further.
+
+## Real-workload diagnosis
+
+- Before investigating workload permission errors or proposing a performance fix, read `docs/workload-diagnostics.md`. Inspect saved exception frames and existing MOO/Go profiles, task labels, scheduling diagnostics and conflict census before adding new instrumentation or changing checks. Preserve failed cohorts and state which diagnostic evidence is still missing.
+- Use `barn_logs --runtime` (and `--task ID` for one continuation) to separate retry ticks, SQL handle waits/work, and completion-to-VM delays. Enable `BARN_RUNTIME_DIAGNOSTICS=1` and debug logging for a diagnostic capture; bounded counters remain available through `/debug/vars`. Wall durations overlap and are not CPU measurements. Never attribute process-wide counter deltas sampled around concurrent commands to a particular command or shape.
 
 ## Verification Claim Discipline
 

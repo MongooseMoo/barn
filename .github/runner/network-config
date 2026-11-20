@@ -1,0 +1,13 @@
+version: 2
+ethernets:
+  compute:
+    match:
+      macaddress: "52:54:00:ba:00:01"
+    set-name: eth0
+    dhcp4: true
+    dhcp6: false
+    accept-ra: false
+    dhcp4-overrides:
+      use-dns: false
+    nameservers:
+      addresses: [1.1.1.1, 9.9.9.9]

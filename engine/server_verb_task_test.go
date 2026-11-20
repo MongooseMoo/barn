@@ -25,12 +25,13 @@ func TestRunServerVerbTaskRunsBeforeReturning(t *testing.T) {
 	if errCode := store.DirectTxn().DefineProperty(0, "started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define property: %v", errCode)
 	}
-	store.AddVerb(0, dbstore.NewVerb("server_started", []string{"server_started"}, 2,
+	store.AddVerb(0, dbstore.NewVerb([]string{"server_started"}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{"#0.started = 1;"}))
 
 	rt := NewRuntime(store)
+	t.Cleanup(rt.Stop)
 	if _, err := rt.RunServerVerbTask(0, "server_started", nil, 0); err != nil {
 		t.Fatalf("run server verb task: %v", err)
 	}
@@ -50,12 +51,13 @@ func TestCreateLoginHookTaskUsesServerOriginCaller(t *testing.T) {
 	if errCode := store.DirectTxn().DefineProperty(0, "login_frame", dbstore.NewProperty(types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define login_frame: %v", errCode)
 	}
-	store.AddVerb(0, dbstore.NewVerb("do_login_command", []string{"do_login_command"}, 0,
+	store.AddVerb(0, dbstore.NewVerb([]string{"do_login_command"}, 0,
 		dbstore.VerbRead|dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{"#0.login_frame = {this, player, caller, args, argstr};", "return 0;"}))
 
 	rt := NewRuntime(store)
+	t.Cleanup(rt.Stop)
 	connectionPlayer := types.ObjID(-7)
 	if _, err := rt.CreateLoginHookTask(0, "do_login_command", nil, connectionPlayer, "", nil, nil); err != nil {
 		t.Fatalf("CreateLoginHookTask: %v", err)

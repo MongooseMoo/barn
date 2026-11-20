@@ -9,7 +9,7 @@ import (
 )
 
 func TestTakeOnCompleteReturnsCallbackOnce(t *testing.T) {
-	task := NewTask(1, 2, 100, 5)
+	task := NewState(1, 2, 100, 5)
 	var calls atomic.Int32
 	task.SetOnComplete(func(types.Result) {
 		calls.Add(1)
@@ -33,7 +33,7 @@ func TestTakeOnCompleteReturnsCallbackOnce(t *testing.T) {
 }
 
 func TestIsReadingFromChecksStateAndPlayerTogether(t *testing.T) {
-	task := NewTask(1, 2, 100, 5)
+	task := NewState(1, 2, 100, 5)
 	task.SetReadingPlayer(7)
 	if task.IsReadingFrom(7) {
 		t.Fatal("queued task reported as reading")

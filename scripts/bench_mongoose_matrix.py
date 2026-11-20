@@ -69,11 +69,12 @@ def cpu_seconds(pid):
 
 
 def debug_counters(folder):
-    match = re.search(r'debug endpoint listening" addr=(127\.0\.0\.1:\d+)',
-                      (folder / "server.log").read_text(errors="replace"))
-    if not match:
+    # Barn runs with --log-dir logs and writes its debug endpoint address there.
+    addr_file = folder / "logs" / "debug.addr"
+    if not addr_file.exists():
         return {}
-    with urlopen(f"http://{match[1]}/debug/vars", timeout=5) as response:
+    addr = addr_file.read_text().strip()
+    with urlopen(f"http://{addr}/debug/vars", timeout=5) as response:
         data = json.load(response)
     counters = {key: value for key, value in data.items() if key.startswith("barn.")}
     counters["go_memory"] = {key: data.get("memstats", {}).get(key) for key in
@@ -188,7 +189,7 @@ def run_world(args, lane, index, root):
     else:
         env["GOMAXPROCS"] = lane.rsplit("-g", 1)[1]
         binary = args.barn_candidate if lane.startswith("barn-candidate-") else args.barn
-        command = [str(binary), "--db", "input.db", "--listen", f"tcp://127.0.0.1:{args.port}",
+        command = [str(binary), "serve", "--db", "input.db", "--listen", f"tcp://127.0.0.1:{args.port}",
                    "--promote-numbers", "--checkpoint-interval", "0", "--debug-addr", "127.0.0.1:0",
                    "--log-dir", "logs"]
     record = {"lane": lane, "round": index, "command": command,

@@ -1,0 +1,14 @@
+{
+  "cite_key": "bonwick1994slab",
+  "title": "The Slab Allocator: An Object-Caching Kernel Memory Allocator",
+  "authors": ["Jeff Bonwick"],
+  "year": "1994",
+  "document_type": "article",
+  "arxiv_id": null,
+  "doi": null,
+  "abstract": null,
+  "url": "https://www.usenix.org/conference/usenix-summer-1994-technical-conference/slab-allocator-object-caching-kernel",
+  "pdf_url": "https://www.cs.dartmouth.edu/~sergey/cs258/2010/bonwick-slab-allocator-usenix.pdf",
+  "pages": 12,
+  "sha256": "4d638486fd869a41ee6c8b16515dae8ecf51269e8109a0321601d843bb6c2825"
+}

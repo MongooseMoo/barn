@@ -28,7 +28,8 @@ type Database struct {
 	ActiveConnections    []ActiveConnection
 	startupRepairLogs    []string
 
-	// savedWaifs tracks WAIFs during loading for reference resolution.
+	// savedWaifs tracks definitions for reference resolution and registration
+	// in each Store constructed from this Database.
 	// Index corresponds to the WAIF save index in the database file.
 	savedWaifs []waifLoadData
 	// waifIdentities is loaded from Barn's optional checkpoint sidecar. Its
@@ -44,6 +45,14 @@ type Database struct {
 	// loadedSlots collects the property slots of the object being read. Each
 	// object's builder copies what it keeps, so one serves the whole parse.
 	loadedSlots store.LoadedSlots
+
+	// loadedAnonymous indexes anonymous builders by their saved IDs while
+	// attaching verb programs, without putting them in the numbered object map.
+	loadedAnonymous map[types.ObjID]*store.ObjectBuilder
+
+	// propPool interns the shared property bases of the loaded objects. The
+	// store keeps it so objects created later share the same bases.
+	propPool *store.PropSharePool
 }
 
 // loadedStr returns the string value for s, reusing the value made for an
@@ -86,9 +95,12 @@ func (database *Database) NewStoreFromDatabase() (*store.Store, error) {
 			return nil, fmt.Errorf("add loaded object #%d: %w", b.ID(), err)
 		}
 	}
+	for _, id := range database.RecycledObjs {
+		s.AddRecycledSlot(id)
+	}
 	// Nothing reads the store yet, so the loaded objects' slots can be moved
 	// onto shared bases in place.
-	s.ShareLoadedPropertySlots()
+	s.ShareLoadedPropertySlots(database.propPool)
 	// Ingest anonymous objects out-of-band. They are kept separate from the
 	// regular numbered object space (never in the objects map, never at a regular
 	// numeric id) and are assigned above-max serialization ids only at dump time,
@@ -116,6 +128,13 @@ type QueuedTask struct {
 	Verb       string
 	Variables  map[string]types.Value
 	Code       []string
+	// FirstLine is the header's first line number: the verb line on which
+	// the fork body in Code began.
+	FirstLine int
+	// Debug is the debug flag the loaded fork runs with: whether the last
+	// number on its activation line is nonzero. Toast and Barn write the
+	// definer's type code there, so it is true for a file either wrote.
+	Debug bool
 }
 
 // SuspendedTask represents a suspended task
@@ -199,14 +218,15 @@ func parseDatabaseWithWaifIdentities(r *bufio.Reader, identities []types.WaifIde
 	}
 	header = strings.TrimSpace(header)
 
-	// Parse version from header
-	if strings.Contains(header, "Format Version 4") {
+	// Match the complete header so numeric prefixes cannot select a format.
+	switch header {
+	case "** LambdaMOO Database, Format Version 4 **":
 		database.Version = 4
-	} else if strings.Contains(header, "Format Version 5") {
+	case "** LambdaMOO Database, Format Version 5 **":
 		database.Version = 5
-	} else if strings.Contains(header, "Format Version 17") {
+	case "** LambdaMOO Database, Format Version 17 **":
 		database.Version = 17
-	} else {
+	default:
 		return nil, fmt.Errorf("unsupported database format: %s", header)
 	}
 
@@ -224,6 +244,7 @@ func parseDatabaseWithWaifIdentities(r *bufio.Reader, identities []types.WaifIde
 	}
 	database.loadedStrings = nil
 	database.loadedSlots = store.LoadedSlots{}
+	database.loadedAnonymous = nil
 	database.repairStartupIssues()
 	return database, nil
 }

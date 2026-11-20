@@ -1,20 +1,20 @@
 package parser
 
 import (
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 	"testing"
 )
 
 func TestBitwiseOperators(t *testing.T) {
 	tests := []struct {
 		input    string
-		operator verb.BinaryOperator
+		operator ir.BinaryOperator
 	}{
-		{"5 &. 3", verb.BinaryBitAnd},
-		{"7 |. 1", verb.BinaryBitOr},
-		{"9 ^. 2", verb.BinaryBitXor},
-		{"1 << 4", verb.BinaryShiftLeft},
-		{"16 >> 2", verb.BinaryShiftRight},
+		{"5 &. 3", ir.BinaryBitAnd},
+		{"7 |. 1", ir.BinaryBitOr},
+		{"9 ^. 2", ir.BinaryBitXor},
+		{"1 << 4", ir.BinaryShiftLeft},
+		{"16 >> 2", ir.BinaryShiftRight},
 	}
 
 	for _, tt := range tests {
@@ -25,7 +25,7 @@ func TestBitwiseOperators(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*verb.BinaryExpr)
+			binary, ok := expr.(*ir.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr, got %T", expr)
 			}
@@ -42,11 +42,11 @@ func TestBitwisePrecedence(t *testing.T) {
 	// Toast declares |., &., and ^. at one left-associative level.
 	tests := []struct {
 		input  string
-		rootOp verb.BinaryOperator
+		rootOp ir.BinaryOperator
 		desc   string
 	}{
-		{"a |. b &. c", verb.BinaryBitAnd, "should parse as (a |. b) &. c"},
-		{"a ^. b &. c", verb.BinaryBitAnd, "should parse as (a ^. b) &. c"},
+		{"a |. b &. c", ir.BinaryBitAnd, "should parse as (a |. b) &. c"},
+		{"a ^. b &. c", ir.BinaryBitAnd, "should parse as (a ^. b) &. c"},
 	}
 
 	for _, tt := range tests {
@@ -57,7 +57,7 @@ func TestBitwisePrecedence(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*verb.BinaryExpr)
+			binary, ok := expr.(*ir.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr at root, got %T", expr)
 			}
@@ -76,12 +76,12 @@ func TestBitwiseBindsMoreTightlyThanComparison(t *testing.T) {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	comparison, ok := expr.(*verb.BinaryExpr)
-	if !ok || comparison.Operator != verb.BinaryLess {
+	comparison, ok := expr.(*ir.BinaryExpr)
+	if !ok || comparison.Operator != ir.BinaryLess {
 		t.Fatalf("root = %T (%v), want less-than", expr, expr)
 	}
-	bitwise, ok := comparison.Right.(*verb.BinaryExpr)
-	if !ok || bitwise.Operator != verb.BinaryBitOr {
+	bitwise, ok := comparison.Right.(*ir.BinaryExpr)
+	if !ok || bitwise.Operator != ir.BinaryBitOr {
 		t.Fatalf("right = %T (%v), want bitwise-or", comparison.Right, comparison.Right)
 	}
 }
@@ -95,20 +95,20 @@ func TestShiftPrecedence(t *testing.T) {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	binary, ok := expr.(*verb.BinaryExpr)
+	binary, ok := expr.(*ir.BinaryExpr)
 	if !ok {
 		t.Fatalf("expected BinaryExpr at root, got %T", expr)
 	}
 
-	if binary.Operator != verb.BinaryShiftLeft {
+	if binary.Operator != ir.BinaryShiftLeft {
 		t.Errorf("expected LSHIFT at root, got %s", binary.Operator)
 	}
 
 	// Left should be addition
-	leftBinary, ok := binary.Left.(*verb.BinaryExpr)
+	leftBinary, ok := binary.Left.(*ir.BinaryExpr)
 	if !ok {
 		t.Errorf("expected left to be BinaryExpr, got %T", binary.Left)
-	} else if leftBinary.Operator != verb.BinaryAdd {
+	} else if leftBinary.Operator != ir.BinaryAdd {
 		t.Errorf("expected left to be +, got %s", leftBinary.Operator)
 	}
 }

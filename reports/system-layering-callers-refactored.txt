@@ -1,0 +1,26 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCallersFormatting/no_lines         	   92496	      3745 ns/op	    6016 B/op	      25 allocs/op
+BenchmarkCallersFormatting/no_lines         	   90760	      3823 ns/op	    6016 B/op	      25 allocs/op
+BenchmarkCallersFormatting/no_lines         	   96751	      3704 ns/op	    6016 B/op	      25 allocs/op
+BenchmarkCallersFormatting/no_lines         	   88695	      3573 ns/op	    6016 B/op	      25 allocs/op
+BenchmarkCallersFormatting/no_lines         	   99915	      3667 ns/op	    6016 B/op	      25 allocs/op
+BenchmarkCallersFormatting/no_lines         	   95674	      4005 ns/op	    6016 B/op	      25 allocs/op
+BenchmarkCallersFormatting/no_lines         	   91273	      3551 ns/op	    6016 B/op	      25 allocs/op
+BenchmarkCallersFormatting/no_lines         	   93267	      3616 ns/op	    6016 B/op	      25 allocs/op
+BenchmarkCallersFormatting/no_lines         	   91971	      3584 ns/op	    6016 B/op	      25 allocs/op
+BenchmarkCallersFormatting/no_lines         	  101506	      3526 ns/op	    6016 B/op	      25 allocs/op
+BenchmarkCallersFormatting/lines            	   91729	      3608 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkCallersFormatting/lines            	  100756	      3425 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkCallersFormatting/lines            	   96996	      3759 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkCallersFormatting/lines            	   95757	      3899 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkCallersFormatting/lines            	  108064	      3374 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkCallersFormatting/lines            	  107571	      3365 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkCallersFormatting/lines            	  104629	      3293 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkCallersFormatting/lines            	  113047	      3219 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkCallersFormatting/lines            	  105284	      3411 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkCallersFormatting/lines            	   95559	      3287 ns/op	    6128 B/op	      25 allocs/op
+PASS
+ok  	github.com/MongooseMoo/barn/engine	7.356s

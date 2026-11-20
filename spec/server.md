@@ -12,9 +12,14 @@ A MOO server manages object persistence, player connections, and task execution.
 
 1. Load database from disk
 2. Initialize network listeners (create sockets, bind ports, but do not accept yet)
-3. Call `#0:server_started()` (no arguments)
+3. Call `#0:do_start_script` for each startup script option (§1.3), then
+   `#0:server_started()` (no arguments)
 4. Begin accepting connections on initialized listeners
 5. Enter main loop
+
+No queued task runs before `#0:server_started()` has returned: a forked task
+restored from the database that is already overdue at load runs after
+`server_started`, even when `server_started` does work first.
 
 ### 1.2 Server Started Hook
 
@@ -26,7 +31,20 @@ A MOO server manages object persistence, player connections, and task execution.
 
 **Purpose:** Initialize runtime state, start background tasks, log startup.
 
-**No return value expected.**
+**No return value expected.** Its outcome (return value, error, suspension)
+does not affect startup. Task context: `server.md` §5.2a.
+
+### 1.3 Startup Scripts
+
+The launch options `-c LINE` / `--start-line LINE` and `-f FILE` /
+`--start-script FILE` each call `#0:do_start_script(...)` before
+`#0:server_started()`, in the order the options were given. A start line is
+passed as one argument string (`args == {LINE}`); a start-script file is
+passed as one argument per line, blank lines included (`"first line\n\nlast
+line\n"` gives `{"first line", "", "last line"}`). The arguments are passed
+as data: the server never executes them as code, and if `do_start_script` is
+missing or not executable nothing runs. The hook's outcome does not affect
+startup.
 
 ---
 
@@ -73,7 +91,11 @@ Tasks run cooperatively:
 ```moo
 #0:checkpoint_finished(success)
 ```
-- `success`: 1 if successful, 0 if failed
+- `success`: 1 if successful, 0 if failed (for example when the database
+  file cannot be written or published); after a failure the server keeps
+  running and later checkpoints can succeed
+- Both hooks run with the server-hook task context (§5.2a); their outcome
+  (return value, error, suspension) does not stop the checkpoint
 
 ### 3.3 Semantics
 
@@ -114,6 +136,22 @@ Triggered by:
 
 **No hooks called during panic.**
 
+### 4.3 POSIX Signals
+
+Toast installs these handlers (`server.cc` `setup_signals`, `network.cc`
+`network_initialize`, `timers.cc`):
+
+| Signal | Behavior |
+|--------|----------|
+| SIGINT, SIGTERM | Graceful shutdown with message `shutdown signal received`: each connection gets `*** Shutting down: shutdown signal received ***`, the log gets `SHUTDOWN: shutdown signal received`, the current state is dumped, and the server exits cleanly. `#0:handle_signal` and the checkpoint hooks are not called. |
+| SIGHUP | Panic (as below), unless SIGHUP was already ignored when the server was started; then it stays ignored. |
+| SIGILL, SIGQUIT, SIGSEGV, SIGBUS | Panic: log `PANIC: Caught signal N`, send `*** Shutting down: server panic ***` to each connection, write a `PANIC-DUMPING` dump to `<output db>.PANIC` (a loadable database holding the current state), then abort. |
+| SIGFPE, SIGPIPE | Ignored; the server stays responsive and `#0:handle_signal` is not called. |
+| SIGUSR1, SIGUSR2 | Call `#0:handle_signal("SIGUSR1")` / `("SIGUSR2")` as a server task (`player == #-1`, `this == #0`, running with the verb owner's permissions). If the hook is absent or completes immediately with a false value, the default runs: SIGUSR1 reopens the named log file (logging `LOGFILE: Closing due to remote request signal.` then `LOGFILE: Reopening due to remote request signal.`; nothing happens without a named log), SIGUSR2 requests a checkpoint (logging `CHECKPOINTING due to remote request signal.`, then calling `#0:checkpoint_started` and `#0:checkpoint_finished(1)` as for any checkpoint). If the hook returns true, raises an error, or suspends (even briefly), the default does not run. |
+| SIGCHLD | Reaps finished children: `exec()` children complete their `exec()` calls with their own exit status, and checkpoint children complete their checkpoint; the two never mix. |
+| SIGALRM | Runs the earliest pending real-time timer. At idle that is the checkpoint timer (a checkpoint without the remote-request log line); during a blocked outbound connect it is that connect's timeout, so `open_network_connection` fails at once with `E_INVARG` (`"Connection failure"`) and no checkpoint runs. A running task is not aborted. |
+| SIGVTALRM | Task seconds limit (where the build uses virtual timers): aborts the running task and calls `#0:handle_task_timeout("seconds", ...)`; the server stays usable. |
+
 ---
 
 ## 5. System Object (#0)
@@ -122,7 +160,7 @@ Triggered by:
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `server_options` | MAP | Server configuration (see §5.3) |
+| `server_options` | OBJ | Server configuration object (see §5.3) |
 | `maxint` | INT | Maximum integer value |
 | `minint` | INT | Minimum integer value |
 
@@ -138,9 +176,32 @@ Triggered by:
 | `user_reconnected` | `(player)` | Player reconnected (same object) |
 | `do_login_command` | `(player, command)` | Pre-login command processing |
 
+### 5.2a Server Hook Task Context
+
+Every hook the server itself calls (`server_started`, `checkpoint_started`,
+`checkpoint_finished`, the connection hooks, `handle_signal`, ...) runs as a
+fresh server task whose frame is: `this` = the object the hook is called on,
+`caller == #-1`, `player` = the hook's subject (`#-1` for `server_started` and
+the checkpoint hooks; the player or connection for connection hooks),
+`args` = the hook's arguments, `argstr == ""`, `dobj == #-1`, `dobjstr == ""`,
+`prepstr == ""`, `iobj == #-1`, `iobjstr == ""`, `task_perms()` = the hook
+verb's owner, `caller_perms() == #-1`, and `callers() == {}`.
+
+The hook's outcome does not change what the server does next for
+`server_started` and the checkpoint hooks: returning true or false, raising an
+error, or suspending all leave startup and the checkpoint to complete
+normally. `server_started` runs once per startup. `checkpoint_started` is
+called with no arguments and `checkpoint_finished` with `{1}` after a
+successful checkpoint.
+
 ### 5.3 Server Options
 
-`#0.server_options` is a map controlling server behavior:
+`#0.server_options` holds an object whose properties are the server options
+(an option is looked up as a property on that object; if `#0.server_options`
+is not a valid object, every option takes its default). An option of the
+wrong type reads as its default. Some options are cached and need
+`load_server_options()` to take effect (see `builtins/server.md` §2.3); the rest
+are read when used:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -150,7 +211,10 @@ Triggered by:
 | `fg_seconds` | INT | 5 | Foreground task time limit |
 | `max_stack_depth` | INT | 50 | Maximum call stack depth |
 | `connect_timeout` | INT | 300 | Seconds before unlogged connection times out |
-| `checkpoint_interval` | INT | 3600 | Seconds between automatic checkpoints |
+| `dump_interval` | INT | 3600 | Seconds between automatic checkpoints (a value below 60 acts as 3600) |
+| `max_queued_output` | INT | 65536 | Output queue capacity in bytes (cached; a positive value below 2048 acts as 2048) |
+| `outbound_connect_timeout` | INT | 5 | Seconds an `open_network_connection()` connect may take |
+| `trusted_proxies` | LIST | none | IP address strings whose pre-login `PROXY` lines are honored (see `login.md` §2.2a) |
 
 ---
 
@@ -183,6 +247,24 @@ When connection closes:
 - Pending output discarded
 - Associated foreground tasks are killed
 - Associated background tasks continue running (implementation may allow configuration via server_options)
+
+### 6.5 Input Line Limit
+
+A TCP connection whose pending unterminated input line reaches
+`MAX_LINE_BYTES` (5242880 bytes) is closed the next time the server reads from
+it, logging ``Connection `NAME` closed for exceeding MAX_LINE_BYTES! (N /5242880)``.
+A telnet subnegotiation (`IAC SB` ...) that reaches the same size is closed the
+same way, logging ``Connection `NAME` exceeded MAX_LINE_BYTES in telnet command! (N /5242880)``.
+
+### 6.6 Binary Input
+
+On a connection with the `binary` connection option set, input is not split
+into lines and telnet processing is skipped: the bytes from each network read
+(at most 1024) are encoded in MOO binary string form (`~XX` for `~` and every byte that is
+not a printable ASCII character or space) and delivered as one input, with no CR or LF required. Input
+boundaries therefore follow network reads, not the client's writes. Text
+already pending from before binary mode was enabled is kept and delivered as
+the prefix of the next binary input.
 
 ---
 
@@ -374,7 +456,7 @@ Use `os.Rename` for atomic checkpoint (write temp, rename).
 
 ### 9.3 Signals
 
-Use `signal.Notify` for OS signals, but internal shutdown via context.
+Use `signal.Notify` for OS signals, with the observable behavior of §4.3.
 
 ---
 
@@ -382,7 +464,6 @@ Use `signal.Notify` for OS signals, but internal shutdown via context.
 
 This spec intentionally omits:
 - Fork-based checkpointing (Go can checkpoint in-process or via goroutine)
-- Signal-specific behavior (use Go's signal handling)
 - C++ memory management details
 - Platform-specific networking
 

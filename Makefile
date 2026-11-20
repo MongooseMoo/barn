@@ -70,7 +70,7 @@ conformance-x: CONFORMANCE_OUTPUT = -x -v
 # K narrows any target while retaining canonical admission in the same session.
 conformance conformance-v conformance-x conformance-k: conformance-build
 	$(MANAGED_CONFORMANCE) \
-		--server-command='"$(abspath $(BIN))/barn$(EXE)" --db {db} --listen tcp://127.0.0.1:{port} --config="$(CURDIR)/profiles/barn/outbound-on.conf" --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}' \
+		--server-command='"$(abspath $(BIN))/barn$(EXE)" serve --db {db} --listen tcp://127.0.0.1:{port} --config="$(CURDIR)/profiles/barn/outbound-on.conf" --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}' \
 		$(CONFORMANCE_OUTPUT)
 
 # Stock WSL Toast uses the same managed harness and its verified profile.

@@ -49,7 +49,6 @@ func newMetadataPermissionFixture(t *testing.T, targetFlag dbstore.ObjectFlags) 
 		t.Fatalf("DefineProperty(existing): %s", errCode)
 	}
 	verb := dbstore.NewVerb(
-		"existing",
 		[]string{"existing"},
 		owner,
 		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute,
@@ -98,7 +97,7 @@ func metadataPermissionCases() []metadataPermissionCase {
 					types.NewObj(f.target),
 					types.NewStr("added"),
 					types.NewInt(2),
-					types.NewStr("rw"),
+					types.NewList([]types.Value{types.NewObj(f.ctx.Programmer), types.NewStr("rw")}),
 				})
 			},
 		},
@@ -196,16 +195,32 @@ func TestObjectMetadataBuiltinsAllowOwnerObjectFlagAndWizard(t *testing.T) {
 	}
 }
 
-func TestDeleteVerbPreservesNotFoundPrecedenceForUnauthorizedProgrammer(t *testing.T) {
+// Toast bf_delete_verb (src/verbs.cc:253-256) checks object write permission
+// before it looks the verb up, so a missing verb is E_PERM for this programmer.
+func TestDeleteVerbChecksPermissionBeforeLookupForUnauthorizedProgrammer(t *testing.T) {
 	for _, descriptor := range []types.Value{types.NewStr("missing"), types.NewInt(99)} {
 		f := newMetadataPermissionFixture(t, 0)
 		result := admitTestBuiltin("delete_verb", f.ctx, []types.Value{
 			types.NewObj(f.target),
 			descriptor,
 		})
-		if !result.IsError() || result.Error != types.E_VERBNF {
-			t.Fatalf("missing descriptor %v = %+v, want E_VERBNF", descriptor, result)
+		if !result.IsError() || result.Error != types.E_PERM {
+			t.Fatalf("missing descriptor %v = %+v, want E_PERM", descriptor, result)
 		}
+	}
+}
+
+// Toast bf_delete_prop (src/property.cc:246-251) checks object write
+// permission before the lookup; bf_clear_prop (src/property.cc:276-279) reports
+// a missing property before any permission check.
+func TestPropertyRemovalErrorPrecedenceForMissingProperty(t *testing.T) {
+	f := newMetadataPermissionFixture(t, 0)
+	missing := []types.Value{types.NewObj(f.target), types.NewStr("missing")}
+	if result := admitTestBuiltin("delete_property", f.ctx, missing); !result.IsError() || result.Error != types.E_PERM {
+		t.Fatalf("delete_property missing = %+v, want E_PERM", result)
+	}
+	if result := admitTestBuiltin("clear_property", f.ctx, missing); !result.IsError() || result.Error != types.E_PROPNF {
+		t.Fatalf("clear_property missing = %+v, want E_PROPNF", result)
 	}
 }
 
@@ -359,7 +374,6 @@ func TestObjectMetadataBuiltinsUseSameTaskStagedAuthority(t *testing.T) {
 func addMetadataTestVerb(t *testing.T, f metadataPermissionFixture, name string, names []string) int {
 	t.Helper()
 	verb := dbstore.NewVerb(
-		name,
 		names,
 		f.owner,
 		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute,

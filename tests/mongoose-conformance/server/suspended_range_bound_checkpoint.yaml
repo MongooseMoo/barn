@@ -1,0 +1,54 @@
+name: suspended_range_bound_checkpoint
+description: A task suspended in a verb called from a range loop's upper bound resumes after restart and runs the loop from the lower bound it had already evaluated.
+requires:
+  builtins: [create, recycle, add_property, delete_property, add_verb, set_verb_code, suspend, dump_database]
+  config: [managed_server]
+tests:
+  - name: suspended_range_bound_checkpoint_roundtrip
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_suspended_range_bound_checkpoint", o, {player, ""});
+          for name in ({"flat_paused", "flat_resumed", "flat_finished", "nested_paused", "nested_resumed", "nested_finished"}) add_property(o, name, 0, {player, ""}); endfor
+          for name in ({"seen", "pairs"}) add_property(o, name, {}, {player, ""}); endfor
+          add_verb(o, {player, "rxd", "limit"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "limit", {"{value, key} = args;", "if (!this.(key + \"_paused\"))", "this.(key + \"_paused\") = 1;", "suspend(20);", "this.(key + \"_resumed\") = 1;", "endif", "return value;"});
+          if (errors) raise(E_INVARG, "limit compile failed", errors); endif
+          add_verb(o, {player, "rxd", "flat"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "flat", {"low = 2;", "for n in [low..this:limit(4, \"flat\")]", "this.seen = {@this.seen, n};", "endfor", "this.flat_finished = this.flat_finished + 1;"});
+          if (errors) raise(E_INVARG, "flat compile failed", errors); endif
+          add_verb(o, {player, "rxd", "nested"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "nested", {"for a in [1..2]", "for b in [10 * a..this:limit(10 * a + 1, \"nested\")]", "this.pairs = {@this.pairs, {a, b}};", "endfor", "endfor", "this.nested_finished = this.nested_finished + 1;"});
+          if (errors) raise(E_INVARG, "nested compile failed", errors); endif
+          fork (0) o:flat(); endfork
+          fork (0) o:nested(); endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_suspended_range_bound_checkpoint;
+          return {o.flat_paused, o.flat_resumed, o.seen, o.flat_finished, o.nested_paused, o.nested_resumed, o.pairs, o.nested_finished};
+        expect:
+          value: [1, 0, [], 0, 1, 0, [], 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_suspended_range_bound_checkpoint;
+          return {o.flat_paused, o.flat_resumed, o.seen, o.flat_finished, o.nested_paused, o.nested_resumed, o.pairs, o.nested_finished};
+        expect:
+          value: [1, 1, [2, 3, 4], 1, 1, 1, [[1, 10], [1, 11], [2, 20], [2, 21]], 1]
+    cleanup:
+      - run: |
+          o = #1.conformance_suspended_range_bound_checkpoint;
+          delete_property(#1, "conformance_suspended_range_bound_checkpoint");
+          recycle(o);
+          return 0;

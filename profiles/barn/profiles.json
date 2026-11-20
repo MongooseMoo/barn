@@ -9,10 +9,13 @@
       "support_status": "supported",
       "unsupported_reason": "",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": true,
         "builtin.open_network_connection": "present"
       },
-      "command_template": "./bin/barn --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/outbound-on.conf --profile-id barn-linux-testdb-outbound-on --profile-manifest {manifest}"
+      "command_template": "./bin/barn serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/outbound-on.conf --profile-id barn-linux-testdb-outbound-on --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-linux-testdb-outbound-off",
@@ -23,10 +26,13 @@
       "support_status": "supported",
       "unsupported_reason": "",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": false,
         "builtin.open_network_connection": "present"
       },
-      "command_template": "./bin/barn --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/outbound-off.conf --profile-id barn-linux-testdb-outbound-off --profile-manifest {manifest}"
+      "command_template": "./bin/barn serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/outbound-off.conf --profile-id barn-linux-testdb-outbound-off --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-linux-mongoose-outbound-on",
@@ -37,11 +43,16 @@
       "support_status": "supported",
       "unsupported_reason": "",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": true,
         "option.PROMOTE_NUMBERS": true,
+        "feature.ast": true,
+        "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
-      "command_template": "./bin/barn --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/mongoose-outbound-on.conf --profile-id barn-linux-mongoose-outbound-on --profile-manifest {manifest}"
+      "command_template": "./bin/barn serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/mongoose-outbound-on.conf --profile-id barn-linux-mongoose-outbound-on --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-linux-mongoose-outbound-off",
@@ -52,11 +63,16 @@
       "support_status": "supported",
       "unsupported_reason": "",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": false,
         "option.PROMOTE_NUMBERS": true,
+        "feature.ast": true,
+        "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
-      "command_template": "./bin/barn --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/mongoose-outbound-off.conf --profile-id barn-linux-mongoose-outbound-off --profile-manifest {manifest}"
+      "command_template": "./bin/barn serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/mongoose-outbound-off.conf --profile-id barn-linux-mongoose-outbound-off --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-windows-testdb-outbound-on",
@@ -67,10 +83,13 @@
       "support_status": "diagnostic",
       "unsupported_reason": "Windows profile is diagnostic until paired with a matching Windows Toast oracle.",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": true,
         "builtin.open_network_connection": "present"
       },
-      "command_template": ".\\bin\\barn.exe --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\outbound-on.conf --profile-id barn-windows-testdb-outbound-on --profile-manifest {manifest}"
+      "command_template": ".\\bin\\barn.exe serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\outbound-on.conf --profile-id barn-windows-testdb-outbound-on --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-windows-testdb-outbound-off",
@@ -81,10 +100,13 @@
       "support_status": "diagnostic",
       "unsupported_reason": "Windows profile is diagnostic until paired with a matching Windows Toast oracle.",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": false,
         "builtin.open_network_connection": "present"
       },
-      "command_template": ".\\bin\\barn.exe --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\outbound-off.conf --profile-id barn-windows-testdb-outbound-off --profile-manifest {manifest}"
+      "command_template": ".\\bin\\barn.exe serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\outbound-off.conf --profile-id barn-windows-testdb-outbound-off --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-windows-mongoose-outbound-on",
@@ -95,11 +117,16 @@
       "support_status": "diagnostic",
       "unsupported_reason": "Windows profile is diagnostic until paired with a matching Windows Toast oracle.",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": true,
         "option.PROMOTE_NUMBERS": true,
+        "feature.ast": true,
+        "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
-      "command_template": ".\\bin\\barn.exe --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\mongoose-outbound-on.conf --profile-id barn-windows-mongoose-outbound-on --profile-manifest {manifest}"
+      "command_template": ".\\bin\\barn.exe serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\mongoose-outbound-on.conf --profile-id barn-windows-mongoose-outbound-on --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-windows-mongoose-outbound-off",
@@ -110,11 +137,16 @@
       "support_status": "diagnostic",
       "unsupported_reason": "Windows profile is diagnostic until paired with a matching Windows Toast oracle.",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": false,
         "option.PROMOTE_NUMBERS": true,
+        "feature.ast": true,
+        "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
-      "command_template": ".\\bin\\barn.exe --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\mongoose-outbound-off.conf --profile-id barn-windows-mongoose-outbound-off --profile-manifest {manifest}"
+      "command_template": ".\\bin\\barn.exe serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\mongoose-outbound-off.conf --profile-id barn-windows-mongoose-outbound-off --profile-manifest {manifest}"
     }
   ]
 }

@@ -4,6 +4,8 @@
 package buildinfo
 
 import (
+	"fmt"
+	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -22,6 +24,32 @@ type Info struct {
 	Revision   string
 	Modified   bool
 	VCS        string
+	// Time is the commit time Go recorded (vcs.time, RFC 3339), or empty.
+	Time string
+	// GoVersion is the toolchain that built the executable.
+	GoVersion string
+}
+
+// Line is the one-line identity every command prints for --version, e.g.
+//
+//	barn 0.0.0-dev+0123456789ab.dirty (git 0123456789abcdef..., 2026-11-15T03:04:05Z, go1.27.1, linux/amd64)
+func (i Info) Line(name string) string {
+	revision := "unknown revision"
+	if i.Revision != "" {
+		revision = i.Revision
+		if i.VCS != "" {
+			revision = i.VCS + " " + revision
+		}
+		if i.Modified {
+			revision += " (modified)"
+		}
+	}
+	details := []string{revision}
+	if i.Time != "" {
+		details = append(details, i.Time)
+	}
+	details = append(details, i.GoVersion, runtime.GOOS+"/"+runtime.GOARCH)
+	return fmt.Sprintf("%s %s (%s)", name, i.String, strings.Join(details, ", "))
 }
 
 // Current returns metadata for the running executable.
@@ -36,15 +64,19 @@ func Current() Info {
 // Resolve normalizes injected release data and Go build metadata. It is
 // exported so callers can test both packaged and development build identities.
 func Resolve(info *debug.BuildInfo, release string) Info {
-	vcs, revision, modified := vcsMetadata(info)
+	vcs, revision, commitTime, modified := vcsMetadata(info)
+	goVersion := runtime.Version()
 	version := strings.TrimSpace(release)
-	if version == "" && info != nil {
-		version = info.Main.Version
+	if info != nil {
+		goVersion = info.GoVersion
+		if version == "" {
+			version = info.Main.Version
+		}
 	}
 
 	major, minor, patch, prerelease, normalized, ok := parseVersion(version)
 	if ok {
-		return Info{major, minor, patch, prerelease, normalized, revision, modified, vcs}
+		return Info{major, minor, patch, prerelease, normalized, revision, modified, vcs, commitTime, goVersion}
 	}
 
 	identity := "unknown"
@@ -57,12 +89,12 @@ func Resolve(info *debug.BuildInfo, release string) Info {
 	if modified {
 		identity += ".dirty"
 	}
-	return Info{0, 0, 0, "dev", "0.0.0-dev+" + identity, revision, modified, vcs}
+	return Info{0, 0, 0, "dev", "0.0.0-dev+" + identity, revision, modified, vcs, commitTime, goVersion}
 }
 
-func vcsMetadata(info *debug.BuildInfo) (vcs, revision string, modified bool) {
+func vcsMetadata(info *debug.BuildInfo) (vcs, revision, commitTime string, modified bool) {
 	if info == nil {
-		return "", "", false
+		return "", "", "", false
 	}
 	for _, setting := range info.Settings {
 		switch setting.Key {
@@ -70,11 +102,13 @@ func vcsMetadata(info *debug.BuildInfo) (vcs, revision string, modified bool) {
 			vcs = setting.Value
 		case "vcs.revision":
 			revision = setting.Value
+		case "vcs.time":
+			commitTime = setting.Value
 		case "vcs.modified":
 			modified = setting.Value == "true"
 		}
 	}
-	return vcs, revision, modified
+	return vcs, revision, commitTime, modified
 }
 
 func parseVersion(version string) (major, minor, patch int64, prerelease, normalized string, ok bool) {

@@ -6,6 +6,11 @@ import (
 
 func (vm *VM) executeMakeList() error {
 	count := vm.FetchByte()
+	if count == 0 {
+		// {} and the start of every f(@list) argument list.
+		vm.Push(types.NewEmptyList())
+		return nil
+	}
 	elements := vm.PopN(int(count))
 	result := types.NewList(elements)
 	if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, result); errCode != types.E_NONE {

@@ -1,0 +1,142 @@
+{:index 0 :process 0 :type :invoke :f :txn :value [[:r 23000002 nil] [:r 23000002 nil] [:append 23000002 1] [:append 23000002 2]]}
+{:index 1 :process 2 :type :invoke :f :txn :value [[:r 13000006 nil]]}
+{:index 2 :process 3 :type :invoke :f :txn :value [[:append 23000002 3] [:append 23000003 1] [:append 23000002 4] [:r 23000002 nil]]}
+{:index 3 :process 4 :type :invoke :f :txn :value [[:append 13000007 1] [:r 13000007 nil] [:r 13000007 nil] [:append 13000005 1]]}
+{:index 4 :process 0 :type :ok :f :txn :value [[:r 23000002 []] [:r 23000002 []] [:append 23000002 1] [:append 23000002 2]]}
+{:index 5 :process 5 :type :invoke :f :txn :value [[:append 23000003 2] [:append 23000002 5] [:append 23000002 6] [:r 23000000 nil]]}
+{:index 6 :process 2 :type :ok :f :txn :value [[:r 13000006 []]]}
+{:index 7 :process 3 :type :ok :f :txn :value [[:append 23000002 3] [:append 23000003 1] [:append 23000002 4] [:r 23000002 [1 2 3 4]]]}
+{:index 8 :process 6 :type :invoke :f :txn :value [[:r 13000006 nil]]}
+{:index 9 :process 7 :type :invoke :f :txn :value [[:append 3000004 1] [:r 3000004 nil]]}
+{:index 10 :process 0 :type :invoke :f :txn :value [[:append 23000004 1] [:append 23000004 2]]}
+{:index 11 :process 0 :type :ok :f :txn :value [[:append 23000004 1] [:append 23000004 2]]}
+{:index 12 :process 0 :type :invoke :f :txn :value [[:append 23000002 7]]}
+{:index 13 :process 4 :type :ok :f :txn :value [[:append 13000007 1] [:r 13000007 [1]] [:r 13000007 [1]] [:append 13000005 1]]}
+{:index 14 :process 0 :type :ok :f :txn :value [[:append 23000002 7]]}
+{:index 15 :process 5 :type :ok :f :txn :value [[:append 23000003 2] [:append 23000002 5] [:append 23000002 6] [:r 23000000 []]]}
+{:index 16 :process 1 :type :invoke :f :txn :value [[:r 3000002 nil] [:append 3000004 2]]}
+{:index 17 :process 2 :type :invoke :f :txn :value [[:append 3000005 1]]}
+{:index 18 :process 2 :type :ok :f :txn :value [[:append 3000005 1]]}
+{:index 19 :process 6 :type :ok :f :txn :value [[:r 13000006 []]]}
+{:index 20 :process 7 :type :ok :f :txn :value [[:append 3000004 1] [:r 3000004 [1]]]}
+{:index 21 :process 3 :type :invoke :f :txn :value [[:append 23000004 3] [:append 23000002 8] [:r 23000004 nil]]}
+{:index 22 :process 3 :type :ok :f :txn :value [[:append 23000004 3] [:append 23000002 8] [:r 23000004 [1 2 3]]]}
+{:index 23 :process 1 :type :ok :f :txn :value [[:r 3000002 []] [:append 3000004 2]]}
+{:index 24 :process 4 :type :invoke :f :txn :value [[:append 23000004 4] [:r 23000000 nil] [:r 23000004 nil] [:r 23000005 nil]]}
+{:index 25 :process 4 :type :ok :f :txn :value [[:append 23000004 4] [:r 23000000 []] [:r 23000004 [1 2 3 4]] [:r 23000005 []]]}
+{:index 26 :process 5 :type :invoke :f :txn :value [[:append 13000007 2] [:r 13000001 nil] [:append 13000006 1] [:append 13000007 3]]}
+{:index 27 :process 5 :type :ok :f :txn :value [[:append 13000007 2] [:r 13000001 []] [:append 13000006 1] [:append 13000007 3]]}
+{:index 28 :process 6 :type :invoke :f :txn :value [[:append 3000005 2] [:r 3000000 nil]]}
+{:index 29 :process 6 :type :ok :f :txn :value [[:append 3000005 2] [:r 3000000 []]]}
+{:index 30 :process 7 :type :invoke :f :txn :value [[:append 3000005 3] [:append 3000002 1]]}
+{:index 31 :process 7 :type :ok :f :txn :value [[:append 3000005 3] [:append 3000002 1]]}
+{:index 32 :process 0 :type :invoke :f :txn :value [[:append 23000004 5] [:r 23000004 nil] [:r 23000004 nil] [:r 23000004 nil]]}
+{:index 33 :process 0 :type :ok :f :txn :value [[:append 23000004 5] [:r 23000004 [1 2 3 4 5]] [:r 23000004 [1 2 3 4 5]] [:r 23000004 [1 2 3 4 5]]]}
+{:index 34 :process 0 :type :invoke :f :txn :value [[:r 23000004 nil] [:append 23000004 6]]}
+{:index 35 :process 1 :type :invoke :f :txn :value [[:r 23000004 nil] [:r 23000004 nil]]}
+{:index 36 :process 0 :type :ok :f :txn :value [[:r 23000004 [1 2 3 4 5]] [:append 23000004 6]]}
+{:index 37 :process 1 :type :ok :f :txn :value [[:r 23000004 [1 2 3 4 5 6]] [:r 23000004 [1 2 3 4 5 6]]]}
+{:index 38 :process 2 :type :invoke :f :txn :value [[:r 13000007 nil] [:append 13000007 4] [:append 13000007 5] [:r 13000005 nil]]}
+{:index 39 :process 3 :type :invoke :f :txn :value [[:append 13000006 2] [:append 13000007 6] [:r 13000007 nil] [:r 13000006 nil]]}
+{:index 40 :process 2 :type :ok :f :txn :value [[:r 13000007 [1 2 3]] [:append 13000007 4] [:append 13000007 5] [:r 13000005 [1]]]}
+{:index 41 :process 3 :type :ok :f :txn :value [[:append 13000006 2] [:append 13000007 6] [:r 13000007 [1 2 3 4 5 6]] [:r 13000006 [1 2]]]}
+{:index 42 :process 4 :type :invoke :f :txn :value [[:r 3000005 nil] [:append 3000002 2] [:r 3000000 nil]]}
+{:index 43 :process 4 :type :ok :f :txn :value [[:r 3000005 [1 2 3]] [:append 3000002 2] [:r 3000000 []]]}
+{:index 44 :process 5 :type :invoke :f :txn :value [[:append 3000005 4] [:r 3000005 nil]]}
+{:index 45 :process 6 :type :invoke :f :txn :value [[:r 13000007 nil] [:append 13000007 7] [:r 13000000 nil] [:r 13000007 nil]]}
+{:index 46 :process 5 :type :ok :f :txn :value [[:append 3000005 4] [:r 3000005 [1 2 3 4]]]}
+{:index 47 :process 6 :type :ok :f :txn :value [[:r 13000007 [1 2 3 4 5 6]] [:append 13000007 7] [:r 13000000 []] [:r 13000007 [1 2 3 4 5 6 7]]]}
+{:index 48 :process 7 :type :invoke :f :txn :value [[:r 3000003 nil] [:append 3000005 5]]}
+{:index 49 :process 7 :type :ok :f :txn :value [[:r 3000003 []] [:append 3000005 5]]}
+{:index 50 :process 0 :type :invoke :f :txn :value [[:r 3000003 nil]]}
+{:index 51 :process 0 :type :ok :f :txn :value [[:r 3000003 []]]}
+{:index 52 :process 0 :type :invoke :f :txn :value [[:r 3000003 nil] [:r 3000006 nil]]}
+{:index 53 :process 0 :type :ok :f :txn :value [[:r 3000003 []] [:r 3000006 []]]}
+{:index 54 :process 1 :type :invoke :f :txn :value [[:append 3000001 1] [:append 3000003 1]]}
+{:index 55 :process 1 :type :ok :f :txn :value [[:append 3000001 1] [:append 3000003 1]]}
+{:index 56 :process 2 :type :invoke :f :txn :value [[:append 3000005 6] [:r 3000005 nil] [:r 3000005 nil] [:r 3000005 nil]]}
+{:index 57 :process 2 :type :ok :f :txn :value [[:append 3000005 6] [:r 3000005 [1 2 3 4 5 6]] [:r 3000005 [1 2 3 4 5 6]] [:r 3000005 [1 2 3 4 5 6]]]}
+{:index 58 :process 3 :type :invoke :f :txn :value [[:r 23000005 nil] [:r 23000004 nil] [:append 23000004 7]]}
+{:index 59 :process 3 :type :ok :f :txn :value [[:r 23000005 []] [:r 23000004 [1 2 3 4 5 6]] [:append 23000004 7]]}
+{:index 60 :process 4 :type :invoke :f :txn :value [[:r 13000006 nil] [:append 13000004 1]]}
+{:index 61 :process 5 :type :invoke :f :txn :value [[:r 3000006 nil] [:append 3000000 1] [:r 3000005 nil] [:r 3000005 nil]]}
+{:index 62 :process 4 :type :ok :f :txn :value [[:r 13000006 [1 2]] [:append 13000004 1]]}
+{:index 63 :process 5 :type :ok :f :txn :value [[:r 3000006 []] [:append 3000000 1] [:r 3000005 [1 2 3 4 5 6]] [:r 3000005 [1 2 3 4 5 6]]]}
+{:index 64 :process 6 :type :invoke :f :txn :value [[:append 13000007 8]]}
+{:index 65 :process 6 :type :ok :f :txn :value [[:append 13000007 8]]}
+{:index 66 :process 7 :type :invoke :f :txn :value [[:append 13000005 2] [:append 13000007 9] [:r 13000007 nil] [:r 13000005 nil]]}
+{:index 67 :process 7 :type :ok :f :txn :value [[:append 13000005 2] [:append 13000007 9] [:r 13000007 [1 2 3 4 5 6 7 8 9]] [:r 13000005 [1 2]]]}
+{:index 68 :process 0 :type :invoke :f :txn :value [[:append 13000006 3] [:r 13000007 nil] [:r 13000007 nil] [:append 13000007 10]]}
+{:index 69 :process 0 :type :ok :f :txn :value [[:append 13000006 3] [:r 13000007 [1 2 3 4 5 6 7 8 9]] [:r 13000007 [1 2 3 4 5 6 7 8 9]] [:append 13000007 10]]}
+{:index 70 :process 0 :type :invoke :f :txn :value [[:r 13000004 nil] [:r 13000005 nil] [:r 13000006 nil]]}
+{:index 71 :process 0 :type :ok :f :txn :value [[:r 13000004 [1]] [:r 13000005 [1 2]] [:r 13000006 [1 2 3]]]}
+{:index 72 :process 1 :type :invoke :f :txn :value [[:r 23000005 nil] [:r 23000004 nil] [:append 23000004 8]]}
+{:index 73 :process 2 :type :invoke :f :txn :value [[:r 23000004 nil]]}
+{:index 74 :process 1 :type :ok :f :txn :value [[:r 23000005 []] [:r 23000004 [1 2 3 4 5 6 7]] [:append 23000004 8]]}
+{:index 75 :process 2 :type :ok :f :txn :value [[:r 23000004 [1 2 3 4 5 6 7 8]]]}
+{:index 76 :process 3 :type :invoke :f :txn :value [[:append 23000000 1] [:r 23000001 nil] [:append 23000005 1] [:append 23000004 9]]}
+{:index 77 :process 3 :type :ok :f :txn :value [[:append 23000000 1] [:r 23000001 []] [:append 23000005 1] [:append 23000004 9]]}
+{:index 78 :process 4 :type :invoke :f :txn :value [[:r 13000005 nil] [:append 13000007 11] [:r 13000007 nil]]}
+{:index 79 :process 4 :type :ok :f :txn :value [[:r 13000005 [1 2]] [:append 13000007 11] [:r 13000007 [1 2 3 4 5 6 7 8 9 10 11]]]}
+{:index 80 :process 5 :type :invoke :f :txn :value [[:append 3000005 7] [:append 3000005 8] [:append 3000005 9] [:r 3000001 nil]]}
+{:index 81 :process 5 :type :ok :f :txn :value [[:append 3000005 7] [:append 3000005 8] [:append 3000005 9] [:r 3000001 [1]]]}
+{:index 82 :process 6 :type :invoke :f :txn :value [[:append 23000005 2] [:r 23000004 nil]]}
+{:index 83 :process 6 :type :ok :f :txn :value [[:append 23000005 2] [:r 23000004 [1 2 3 4 5 6 7 8 9]]]}
+{:index 84 :process 7 :type :invoke :f :txn :value [[:r 3000005 nil] [:r 3000007 nil] [:append 3000005 10] [:append 3000007 1]]}
+{:index 85 :process 7 :type :ok :f :txn :value [[:r 3000005 [1 2 3 4 5 6 7 8 9]] [:r 3000007 []] [:append 3000005 10] [:append 3000007 1]]}
+{:index 86 :process 0 :type :invoke :f :txn :value [[:append 13000005 3] [:r 13000007 nil]]}
+{:index 87 :process 0 :type :ok :f :txn :value [[:append 13000005 3] [:r 13000007 [1 2 3 4 5 6 7 8 9 10 11]]]}
+{:index 88 :process 0 :type :invoke :f :txn :value [[:r 13000004 nil] [:append 13000007 12] [:append 13000005 4]]}
+{:index 89 :process 0 :type :ok :f :txn :value [[:r 13000004 [1]] [:append 13000007 12] [:append 13000005 4]]}
+{:index 90 :process 1 :type :invoke :f :txn :value [[:r 3000007 nil]]}
+{:index 91 :process 1 :type :ok :f :txn :value [[:r 3000007 [1]]]}
+{:index 92 :process 2 :type :invoke :f :txn :value [[:r 23000004 nil] [:r 23000004 nil] [:r 23000005 nil] [:append 23000004 10]]}
+{:index 93 :process 2 :type :ok :f :txn :value [[:r 23000004 [1 2 3 4 5 6 7 8 9]] [:r 23000004 [1 2 3 4 5 6 7 8 9]] [:r 23000005 [1 2]] [:append 23000004 10]]}
+{:index 94 :process 3 :type :invoke :f :txn :value [[:r 23000005 nil]]}
+{:index 95 :process 3 :type :ok :f :txn :value [[:r 23000005 [1 2]]]}
+{:index 96 :process 4 :type :invoke :f :txn :value [[:append 3000006 1] [:r 3000006 nil]]}
+{:index 97 :process 4 :type :ok :f :txn :value [[:append 3000006 1] [:r 3000006 [1]]]}
+{:index 98 :process 5 :type :invoke :f :txn :value [[:r 13000004 nil] [:append 13000007 13] [:append 13000007 14]]}
+{:index 99 :process 5 :type :ok :f :txn :value [[:r 13000004 [1]] [:append 13000007 13] [:append 13000007 14]]}
+{:index 100 :process 6 :type :invoke :f :txn :value [[:append 3000007 2] [:append 3000005 11] [:append 3000005 12]]}
+{:index 101 :process 6 :type :ok :f :txn :value [[:append 3000007 2] [:append 3000005 11] [:append 3000005 12]]}
+{:index 102 :process 7 :type :invoke :f :txn :value [[:append 23000004 11] [:append 23000004 12] [:append 23000005 3] [:r 23000005 nil]]}
+{:index 103 :process 7 :type :ok :f :txn :value [[:append 23000004 11] [:append 23000004 12] [:append 23000005 3] [:r 23000005 [1 2 3]]]}
+{:index 104 :process 0 :type :invoke :f :txn :value [[:append 13000007 15] [:r 13000007 nil] [:append 13000007 16]]}
+{:index 105 :process 0 :type :ok :f :txn :value [[:append 13000007 15] [:r 13000007 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15]] [:append 13000007 16]]}
+{:index 106 :process 0 :type :invoke :f :txn :value [[:r 23000004 nil] [:append 23000004 13] [:append 23000004 14]]}
+{:index 107 :process 0 :type :ok :f :txn :value [[:r 23000004 [1 2 3 4 5 6 7 8 9 10 11 12]] [:append 23000004 13] [:append 23000004 14]]}
+{:index 108 :process 1 :type :invoke :f :txn :value [[:append 23000000 2] [:r 23000000 nil]]}
+{:index 109 :process 1 :type :ok :f :txn :value [[:append 23000000 2] [:r 23000000 [1 2]]]}
+{:index 110 :process 2 :type :invoke :f :txn :value [[:r 3000006 nil]]}
+{:index 111 :process 2 :type :ok :f :txn :value [[:r 3000006 [1]]]}
+{:index 112 :process 3 :type :invoke :f :txn :value [[:r 3000005 nil]]}
+{:index 113 :process 3 :type :ok :f :txn :value [[:r 3000005 [1 2 3 4 5 6 7 8 9 10 11 12]]]}
+{:index 114 :process 4 :type :invoke :f :txn :value [[:r 13000004 nil] [:r 13000007 nil]]}
+{:index 115 :process 4 :type :ok :f :txn :value [[:r 13000004 [1]] [:r 13000007 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16]]]}
+{:index 116 :process 5 :type :invoke :f :txn :value [[:append 23000005 4]]}
+{:index 117 :process 5 :type :ok :f :txn :value [[:append 23000005 4]]}
+{:index 118 :process 6 :type :invoke :f :txn :value [[:r 3000005 nil]]}
+{:index 119 :process 6 :type :ok :f :txn :value [[:r 3000005 [1 2 3 4 5 6 7 8 9 10 11 12]]]}
+{:index 120 :process 7 :type :invoke :f :txn :value [[:append 3000006 2] [:append 3000005 13] [:r 3000007 nil]]}
+{:index 121 :process 7 :type :ok :f :txn :value [[:append 3000006 2] [:append 3000005 13] [:r 3000007 [1 2]]]}
+{:index 122 :process 0 :type :invoke :f :txn :value [[:r 23000005 nil] [:append 23000001 1] [:append 23000004 15]]}
+{:index 123 :process 0 :type :ok :f :txn :value [[:r 23000005 [1 2 3 4]] [:append 23000001 1] [:append 23000004 15]]}
+{:index 124 :process 1 :type :invoke :f :txn :value [[:append 3000000 2]]}
+{:index 125 :process 1 :type :ok :f :txn :value [[:append 3000000 2]]}
+{:index 126 :process 2 :type :invoke :f :txn :value [[:append 23000004 16] [:append 23000004 17]]}
+{:index 127 :process 2 :type :ok :f :txn :value [[:append 23000004 16] [:append 23000004 17]]}
+{:index 128 :process 3 :type :invoke :f :txn :value [[:append 23000004 18] [:r 23000004 nil] [:r 23000005 nil] [:append 23000005 5]]}
+{:index 129 :process 4 :type :invoke :f :txn :value [[:append 23000005 6] [:r 23000004 nil] [:r 23000005 nil]]}
+{:index 130 :process 3 :type :ok :f :txn :value [[:append 23000004 18] [:r 23000004 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18]] [:r 23000005 [1 2 3 4]] [:append 23000005 5]]}
+{:index 131 :process 4 :type :ok :f :txn :value [[:append 23000005 6] [:r 23000004 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18]] [:r 23000005 [1 2 3 4 5 6]]]}
+{:index 132 :process 5 :type :invoke :f :txn :value [[:append 3000001 2] [:r 3000008 nil] [:append 3000008 1] [:r 3000008 nil]]}
+{:index 133 :process 5 :type :ok :f :txn :value [[:append 3000001 2] [:r 3000008 []] [:append 3000008 1] [:r 3000008 [1]]]}
+{:index 134 :process 6 :type :invoke :f :txn :value [[:append 13000003 1] [:r 13000008 nil]]}
+{:index 135 :process 6 :type :ok :f :txn :value [[:append 13000003 1] [:r 13000008 []]]}
+{:index 136 :process 7 :type :invoke :f :txn :value [[:append 13000007 17] [:append 13000007 18] [:append 13000007 19]]}
+{:index 137 :process 7 :type :ok :f :txn :value [[:append 13000007 17] [:append 13000007 18] [:append 13000007 19]]}
+{:index 138 :process 1000000000 :type :invoke :f :txn :value [[:r 3000000 nil] [:r 3000001 nil] [:r 3000002 nil] [:r 3000003 nil] [:r 3000004 nil] [:r 3000005 nil] [:r 3000006 nil] [:r 3000007 nil] [:r 13000000 nil] [:r 13000001 nil] [:r 13000004 nil] [:r 13000005 nil] [:r 13000006 nil] [:r 13000007 nil] [:r 23000000 nil] [:r 23000001 nil] [:r 23000002 nil] [:r 23000003 nil] [:r 23000004 nil] [:r 23000005 nil]]}
+{:index 139 :process 1000000000 :type :ok :f :txn :value [[:r 3000000 [1 2]] [:r 3000001 [1 2]] [:r 3000002 [1 2]] [:r 3000003 [1]] [:r 3000004 [1 2]] [:r 3000005 [1 2 3 4 5 6 7 8 9 10 11 12 13]] [:r 3000006 [1 2]] [:r 3000007 [1 2]] [:r 13000000 []] [:r 13000001 []] [:r 13000004 [1]] [:r 13000005 [1 2 3 4]] [:r 13000006 [1 2 3]] [:r 13000007 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19]] [:r 23000000 [1 2]] [:r 23000001 [1]] [:r 23000002 [1 2 3 4 7 5 6 8]] [:r 23000003 [1 2]] [:r 23000004 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18]] [:r 23000005 [1 2 3 4 5 6]]]}
+{:index 140 :process 1000000001 :type :invoke :f :txn :value [[:r 3000000 nil] [:r 3000001 nil] [:r 3000002 nil] [:r 3000003 nil] [:r 3000004 nil] [:r 3000005 nil] [:r 3000006 nil] [:r 3000007 nil] [:r 3000008 nil] [:r 13000000 nil] [:r 13000001 nil] [:r 13000003 nil] [:r 13000004 nil] [:r 13000005 nil] [:r 13000006 nil] [:r 13000007 nil] [:r 13000008 nil] [:r 23000000 nil] [:r 23000001 nil] [:r 23000002 nil] [:r 23000003 nil] [:r 23000004 nil] [:r 23000005 nil]]}
+{:index 141 :process 1000000001 :type :ok :f :txn :value [[:r 3000000 [1 2]] [:r 3000001 [1 2]] [:r 3000002 [1 2]] [:r 3000003 [1]] [:r 3000004 [1 2]] [:r 3000005 [1 2 3 4 5 6 7 8 9 10 11 12 13]] [:r 3000006 [1 2]] [:r 3000007 [1 2]] [:r 3000008 [1]] [:r 13000000 []] [:r 13000001 []] [:r 13000003 []] [:r 13000004 []] [:r 13000005 [1 2 3]] [:r 13000006 [1 2]] [:r 13000007 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18]] [:r 13000008 []] [:r 23000000 [1 2]] [:r 23000001 [1]] [:r 23000002 [1 2 3 4 7 5 6 8]] [:r 23000003 [1 2]] [:r 23000004 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18]] [:r 23000005 [1 2 3 4 5 6]]]}

@@ -35,11 +35,10 @@ id = task_id();   => 12345 (varies)
 
 **Signature:** `caller_perms() → OBJ`
 
-**Description:** Returns the permission context object.
-
-**Semantics:**
-- Usually the player who initiated the task
-- Can be changed by wizards
+**Description:** Returns the programmer of the calling activation, or `#-1`
+in the task's root activation (execute.cc `bf_caller_perms`). In a server
+callback's root activation it is therefore `#-1` (see
+[tasks.md §10.3](../tasks.md)).
 
 ---
 
@@ -47,9 +46,11 @@ id = task_id();   => 12345 (varies)
 
 **Signature:** `set_task_perms(who) → none`
 
-**Description:** Changes permission context.
+**Description:** Sets the programmer of the current (top) activation
+(execute.cc `bf_set_task_perms`).
 
-**Wizard only.**
+**Permissions:** A wizard may set any object; a non-wizard only its current
+programmer, otherwise `E_PERM`.
 
 **Examples:**
 ```moo
@@ -62,9 +63,9 @@ set_task_perms(#wizard);  // Run as wizard
 
 **Signature:** `task_perms() → OBJ`
 
-**Description:** Alias for `caller_perms()`. Returns the permission context object.
-
-**Note:** This is identical to `caller_perms()` - ToastStunt provides both names for compatibility.
+**Description:** Returns the programmer of the current activation
+(execute.cc `bf_task_perms`, `RUN_ACTIV.progr`). This differs from
+`caller_perms()`, which reports the calling activation's programmer.
 
 ---
 
@@ -98,16 +99,24 @@ callers(1)
 
 ### 2.2 task_stack (ToastStunt)
 
-**Signature:** `task_stack(task_id [, include_vars [, include_temp_vars]]) → LIST`
+**Signature:** `task_stack(task_id [, line_numbers [, include_vars]]) → LIST`
 
-**Description:** Returns detailed stack for specified task.
+**Description:** Returns the stack of a task waiting in suspend() (including
+one already resumed and not yet run), in read() or read_http(), or on exec() (Toast
+execute.cc bf_task_stack, tasks.cc find_suspended_task).
 
 **Parameters:**
 - `task_id` (INT): Task ID to inspect (required)
-- `include_vars` (ANY, optional): Include local variables if truthy
-- `include_temp_vars` (ANY, optional): Include temporary variables if truthy
+- `line_numbers` (ANY, optional): Include each frame's line number if truthy
+- `include_vars` (ANY, optional): Include each frame's variables if truthy
 
 **Returns:** List of frames with more detail than callers().
+
+**Errors:**
+- E_INVARG: No such task among those above (including the current task and a
+  forked task that has not yet started)
+- E_PERM: Caller is neither a wizard nor the programmer of the task's current
+  verb
 
 ---
 
@@ -118,8 +127,12 @@ callers(1)
 **Description:** Returns list of queued (waiting) tasks, or count if requested.
 
 **Parameters:**
-- `include_vars` (INT, optional): If truthy, include variable info in task records
-- `return_count` (INT, optional): If truthy, return count (INT) instead of list
+- `include_vars` (INT or BOOL, optional): If truthy, include variable info in task records
+- `return_count` (INT or BOOL, optional): If truthy, return count (INT) instead of list
+
+Both are `TYPE_FLAG` arguments (tasks.cc `register_function("queued_tasks", 0,
+2, ..., TYPE_FLAG, TYPE_FLAG)`): an INT or BOOL is accepted, any other type
+raises `E_TYPE` (`builtins/flag_args_accept_bool.yaml`).
 
 **Returns:**
 - Without `return_count`: List of task info:
@@ -144,13 +157,27 @@ endfor
 
 **Signature:** `finished_tasks() → LIST`
 
-**Description:** Returns list of recently completed tasks, if task history is enabled.
+**Description:** Returns a record of each recent interpreter run, oldest first. Wizard only (`E_PERM` otherwise).
 
 **Notes:**
-- Only available when compiled with `SAVE_FINISHED_TASKS`. Otherwise, the builtin does not exist.
-- Server must be configured to track finished tasks. Returns empty list if disabled.
+- In ToastStunt, only available when compiled with `SAVE_FINISHED_TASKS`; stock builds don't have it. A build with it reports the configured limit as `SAVE_FINISHED_TASKS` in `server_version("options")` (15 in the build the conformance suite uses).
+- One record is added per run: a new task, and each resumption after a suspend. Fields describe the activation on top of the stack when the run started.
+- The newest `$server_options.finished_tasks_limit` records are kept (default 15, never fewer than 1).
 
-**Returns:** List of completed task information, similar format to `queued_tasks()`.
+**Returns:** List of maps with these keys:
+
+| Key | Value |
+|---|---|
+| `this` | `this` of the top activation |
+| `player` | player |
+| `programmer` | effective programmer |
+| `receiver` | object the verb was looked up on (`#-1` for an anonymous object) |
+| `object` | object defining the verb |
+| `verb` | verb name as called, or `"n/a"` if empty |
+| `fullverb` | the verb's whole names string, or `"n/a"` if empty |
+| `foreground` | 1 for a new command or server task, 0 for a forked task or a resumption |
+| `suspended` | 1 if the run ended by suspending |
+| `time` | wall seconds the run took (FLOAT) |
 
 ---
 
@@ -197,7 +224,8 @@ val = suspend();   // Wait for resume
 
 **Signature:** `resume(task_id [, value]) → none`
 
-**Description:** Resumes a suspended task.
+**Description:** Makes a task waiting in suspend() runnable now, or replaces
+the pending value of one already resumed. See [tasks.md §6.2](../tasks.md).
 
 **Parameters:**
 - `task_id`: Task to resume
@@ -209,8 +237,12 @@ resume(other_task, "wake up!");
 ```
 
 **Errors:**
-- E_INVARG: Task not suspended
-- E_PERM: Not owner or wizard
+- E_INVARG: No task waiting in suspend() or already resumed has this ID
+  (including the current task, a task in read() or read_http(), and a forked
+  task not yet
+  started)
+- E_PERM: Caller is neither a wizard nor the programmer of the verb the task
+  is suspended in
 
 ---
 
@@ -218,11 +250,15 @@ resume(other_task, "wake up!");
 
 **Signature:** `kill_task(task_id) → none`
 
-**Description:** Terminates a task.
+**Description:** Terminates a task. See [tasks.md §7.1](../tasks.md).
 
 **Permissions:**
-- Can kill own tasks
 - Wizards can kill any task
+- Otherwise the caller must be the programmer the task is checked against: the
+  forking programmer for a fork not yet started, the programmer of the verb a
+  suspended task is suspended in, the queue's programmer for a task waiting in
+  a background queue, or the connection's player for a task in read() or
+  read_http()
 
 **Examples:**
 ```moo
@@ -231,7 +267,8 @@ kill_task(runaway_task);
 
 **Errors:**
 - E_INVARG: Invalid task ID
-- E_PERM: Not owner or wizard
+- E_PERM: Caller is neither a wizard nor the programmer the task is checked
+  against
 
 ---
 
@@ -241,44 +278,57 @@ kill_task(runaway_task);
 
 **Signature:** `ticks_left() → INT`
 
-**Description:** Returns remaining ticks for current task.
+**Description:** Returns the ticks remaining in the current interpreter run
+(execute.cc `bf_ticks_left` returns `ticks_remaining`).
 
-**Note:** Returns 0 in eval context (non-forked tasks) where no tick limit is configured.
+**Note:** Every run has a tick budget. `run_interpreter` sets it from
+`fg_ticks` for a new foreground task (a command, including a player's `;`
+eval command, or a server task) and from `bg_ticks` for a forked task or a
+resumption, with a floor of 100 (`setup_task_execution_limits`, execute.cc).
+`eval()` code runs inside the calling task (verbs.cc `bf_eval` pushes an
+activation with `setup_activ_for_eval` and returns a call pack), so it reports
+and consumes the caller's budget; it never reports 0 for lack of a limit.
 
 ---
 
 ### 4.2 seconds_left
 
-**Signature:** `seconds_left() → FLOAT`
+**Signature:** `seconds_left() → INT`
 
-**Description:** Returns remaining seconds for current task.
+**Description:** Returns the whole seconds remaining before the current run's
+time limit (execute.cc `bf_seconds_left` returns
+`timer_wakeup_interval(task_alarm_id)` as an INT).
 
-**Note:** Returns 0.0 in eval context (non-forked tasks) where no time limit is configured.
+**Note:** As with `ticks_left()`, every run has a limit, set from `fg_seconds`
+or `bg_seconds` with a floor of 1 second (`setup_task_execution_limits`), and
+`eval()` code shares the calling task's limit.
 
 ---
 
 ### 4.3 yin (ToastStunt: yield if needed)
 
-**Signature:** `yin([threshold [, ticks [, seconds]]]) → none`
+**Signature:** `yin([seconds [, min_ticks [, min_seconds]]]) → VALUE`
 
-**Description:** Yields execution if resources are low.
+**Description:** Suspends the task only if it is low on ticks or seconds
+(execute.cc `bf_yield_if_needed`). See [tasks.md §4.5](../tasks.md).
 
 **Parameters:**
-- `threshold` (NUMERIC, optional): Tick threshold - yield if ticks_left() < threshold
-- `ticks` (INT, optional): Additional tick threshold
-- `seconds` (INT, optional): Additional time threshold
+- `seconds` (NUMERIC, optional): How long to suspend if it yields (default 0)
+- `min_ticks` (INT, optional): Yield when `ticks_left() < min_ticks` (default 2000)
+- `min_seconds` (INT, optional): Yield when the seconds left are below
+  `min_seconds` (default 2)
 
 **Semantics:**
-- If ticks remaining is below threshold, suspend and resume later
-- Refreshes tick count on resume
-- Can be called with no arguments to unconditionally yield
+- Otherwise returns `0` at once without suspending.
+- When it yields, the task resumes as a background task with fresh background
+  limits, and `yin()` returns the value passed to `resume()` (0 by default).
+- With any argument supplied, a negative `seconds`, a nonpositive threshold, or
+  a threshold at or above `fg_ticks` / `fg_seconds` raises `E_INVARG`.
 
 **Examples:**
 ```moo
-yin();              // Unconditional yield
-yin(1000);         // Yield if low on ticks
 for i in [1..10000]
-    yin(1000);     // Yield if low on ticks
+    yin();         // Yield only when fewer than 2000 ticks or 2 seconds remain
     process_item(i);
 endfor
 ```
@@ -292,15 +342,40 @@ endfor
 **Description:** Controls whether certain builtins run in background threads for the current task activation.
 
 **Parameters:**
-- `mode` (INT, optional): If omitted, returns the current mode. If provided, sets the mode to `mode != 0`.
+- `mode` (INT or BOOL, optional; `TYPE_FLAG`, any other type raises `E_TYPE`): If omitted, returns the current mode. If provided, sets the mode to its truth value.
 
 **Returns:**
 - No arguments: current mode (INT)
 - With argument: returns 0
 
 **Notes:**
-- Default mode is `DEFAULT_THREAD_MODE` (true in the reference build).
+- Default mode is `DEFAULT_THREAD_MODE` (true in the reference build, `options.h`).
 - This affects builtins implemented via the background thread system, such as `sort`, `all_members`, `locate_by_name`, `occupants`, `connection_name_lookup`, `curl`, `argon2`, `argon2_verify`, `sqlite_query`, and `sqlite_execute`.
+
+**Activation scope:** The mode belongs to the running activation, not the task
+(`get_thread_mode`/`set_thread_mode` read and write `RUN_ACTIV.threaded`,
+execute.cc). Every new activation starts with `DEFAULT_THREAD_MODE`: a verb
+call and a `pass()` target (`call_verb2(..., DEFAULT_THREAD_MODE)`, execute.cc),
+`eval()` code (`setup_activ_for_eval`), and a forked task (tasks.cc
+`enqueue_forked_task2` and `run_ready_tasks`). Consequently:
+- A callee's change never reaches its caller, on normal return in either
+  direction and on error unwind.
+- A verb called, or a `pass()` target reached, from an activation with the mode
+  off starts with it on; so do `eval()` code and a forked child.
+- An activation keeps its own mode across `suspend()` and resumption.
+
+**Threaded calls** (background.cc `background_thread`): with the calling
+activation's mode on, every such call suspends the task, even one with no work
+to do (`sort({})`); other tasks run meanwhile. The task resumes as a background
+task (`resume_from_previous_vm`, execute.cc), so `ticks_left()` and
+`seconds_left()` restart at the background limits after the call. An error
+value produced by the work is raised at the call site on resumption. Before
+suspending, the call is refused with `E_QUOTA` when the thread table is full
+(`max_background_threads`) or the programmer's queued-task limit is reached.
+With the mode off the work runs inline: the task does not suspend, its budget
+is not reset, and an error value from the work is returned as the call's value
+rather than raised (for example `sort({1, "a"})` returns `E_TYPE`). Argument
+type and count errors are raised in either mode, before any work starts.
 
 ---
 
@@ -427,43 +502,8 @@ endfork
 
 ## 7. Server Control
 
-### 7.1 server_version
-
-**Signature:** `server_version() → STR`
-
-**Description:** Returns server version string.
-
----
-
-### 7.2 memory_usage (ToastStunt)
-
-**Signature:** `memory_usage() → LIST`
-
-**Description:** Returns memory statistics.
-
----
-
-### 7.3 shutdown
-
-**Signature:** `shutdown([message [, restart]]) → none`
-
-**Description:** Initiates server shutdown or restart.
-
-**Parameters:**
-- `message` (STR, optional): Shutdown message to display
-- `restart` (ANY, optional): If truthy, restart server instead of shutting down
-
-**Wizard only.**
-
----
-
-### 7.4 dump_database
-
-**Signature:** `dump_database() → none`
-
-**Description:** Forces database checkpoint.
-
-**Wizard only.**
+`server_version()`, `memory_usage()`, `shutdown()` and `dump_database()` are
+documented in [server.md](server.md) §1.1, §1.2, §2.1 and §2.2.
 
 ---
 

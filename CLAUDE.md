@@ -66,26 +66,6 @@ coverage and do not invent a Barn source change.
 
 ---
 
-## CRITICAL: Subagent File Writing Failures
-
-**If Edit/Write fails with "file unexpectedly modified", follow this procedure:**
-
-1. Try `./relative/path.py` (relative with dot)
-2. Try `C:/Users/Q/absolute/path.py` (forward slashes)
-3. Try `C:\Users\Q\absolute\path.py` (backslashes)
-4. Try `relative/path.py` (bare relative)
-
-**If ALL FOUR fail:**
-- STOP IMMEDIATELY
-- Report "I cannot continue - all path formats failed for [filename]"
-- DO NOT use cat, echo, sed, or any bash workaround
-- TERMINATE
-
-Using bash commands to write files when Edit/Write fail DESTROYS FILES.
-The path format workaround works. Bash workarounds do not. Try paths first, then stop.
-
----
-
 ## CRITICAL: Test Against The Managed WSL Toast Oracle First
 
 **SEE RULE ZERO ABOVE. This is not optional.**
@@ -114,7 +94,7 @@ do not invent a Barn change.
 When a tool doesn't work, **fix the tool** - don't work around it with debug logging or manual inspection. Time spent fixing tooling pays dividends. Time spent on workarounds compounds into more workarounds.
 
 Examples:
-- `barn -verb-code` doesn't load mongoose.db → Fix Barn's inspection path, don't add printf debugging
+- `barn verb-code` doesn't load mongoose.db → Fix Barn's inspection path, don't add printf debugging
 - cow_py fails to parse database → Fix the parser or use barn's own loader
 - Test harness unreliable → Fix harness, don't run tests manually
 
@@ -147,6 +127,10 @@ Paths below written as `C:/Users/Q/...` are from the Windows workstation. On the
 Linux checkout (`/home/ds32/mongoose/`), the sibling repos are
 `../moo-conformance-tests` and `../toaststunt` (built binary at
 `../toaststunt/build/moo`), and there is no WSL layer.
+
+The suite's ToastCore startup database (`_db/startup/toastcore/toastcore.db`)
+is a git submodule: run `git submodule update --init` in every
+moo-conformance-tests checkout, or managed runs fail when a suite starts it.
 
 `AGENTS.md` holds binding operational rules (conformance discipline, the
 capability-admission requirement, and the rule against unapproved manual Barn or
@@ -181,7 +165,7 @@ CI's managed conformance invocation, which is the canonical Linux form:
 ```bash
 uv run --project ../moo-conformance-tests --frozen moo-conformance \
   -m "admission or conformance" \
-  --server-command "$PWD/bin/barn --db {db} --listen tcp://127.0.0.1:{port} --config=$PWD/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
+  --server-command "$PWD/bin/barn serve --db {db} --listen tcp://127.0.0.1:{port} --config=$PWD/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
   --server-db=../moo-conformance-tests/src/moo_conformance/_db/Test.db \
   --server-db-dir=../moo-conformance-tests/src/moo_conformance/_db/startup \
   --moo-host=127.0.0.1 \
@@ -201,8 +185,9 @@ Request flow: `server` (connections, login, input) → `engine.Runtime`
 
 - **Source to execution:** `parser` (lexer, AST, unparser) → `compiler` (owns
   complete source compilation, with a cache keyed by `sourcekey`) → `bytecode`
-  (opcodes, verifier, disassembler) → `vm`. `verb` holds the
-  language-neutral verb IR. `command` does player command parsing and
+  (opcodes, verifier, disassembler) → `vm`. `ir` holds the
+  semantic program IR. `preposition` owns the shared preposition vocabulary.
+  `command` does player command parsing and
   verb/object matching.
 - **State:** `db/store` is an MVCC store. Tasks read at a snapshot timestamp and
   stage writes, and commits validate their read sets. A stale read aborts, and
@@ -216,15 +201,18 @@ Request flow: `server` (connections, login, input) → `engine.Runtime`
   is the per-task context passed into builtins.
 - **Values:** `types` (MOO values, persistent lists/maps, waifs, error codes,
   activation frames).
-- **Wiring:** `cmd/barn` → `internal/app`. `internal/dbtool` implements the
-  `-eval`/`-verb-code`/... inspection flags and the in-process path used by
+- **Wiring:** `cmd/barn` (cobra subcommands) → `internal/app`. `internal/cli`
+  gives every `cmd/` tool the same shape: GNU flags, `--version`/`-V` from
+  `internal/buildinfo`, `-v`/`-q`/`--log-level`, exit 2 on a command-line
+  mistake. `internal/dbtool` implements the
+  `eval`/`verb-code`/... inspection commands and the in-process path used by
   `scripts/bench_differ.py`. `internal/listener` holds the TCP/TLS/WebSocket
   listeners, and `config` parses the server options and capabilities.
 - **Observability:** `logging` (slog), `metrics` (expvar), `trace`
   (`docs/TRACING.md`).
 
 Repo conventions: active plans are in `plans/`, measured results in
-`experiments/`, durable prose in `docs/`, and agent notes in `notes/`.
+`experiments/`, durable prose in `docs/`, and agent task notes in `agent-notes/` (older notes remain in `notes/`).
 `repository_hygiene_test.go` fails `go test` if any of a list of retired root
 scratch files comes back. `scripts/clean-scratch.ps1` lists and removes
 untracked root scratch.
@@ -252,8 +240,11 @@ disposable database behavior, login-script environment mechanism, required run
 record, and cross-repository Toast-green/Barn-red/Barn-green loop, follow
 `plans/barn-toast-mongoose-convergence-workstreams.md`.
 
-Manual reproduction is exceptional and requires the user's explicit approval,
-as specified in `AGENTS.md`.
+Manual reproduction (launching a Barn or Toast server yourself) is exceptional
+and requires the user's explicit approval, as specified in `AGENTS.md`.
+Investigating Barn needs no approval: read the code, write a Go test, run
+`bin/moo` or `barn eval`, or use a debugger. "That would need a manual repro"
+is never a reason to stop at "I don't know".
 
 ## Reviewing What Happened On A Run
 
@@ -265,19 +256,34 @@ default — no flag needed.
 
 ```bash
 go build -o bin/ ./cmd/barn_logs
-./bin/barn_logs -level error     # failures only; exits 1 if the run logged an error
+./bin/barn_logs --level error    # failures only; exits 1 if the run logged an error
 ./bin/barn_logs                  # warnings and errors
-./bin/barn_logs -run list        # available runs
+./bin/barn_logs --run list       # available runs
 ```
 
-An uncaught MOO error is **one** log record carrying the rendered traceback, the
-structured frames (verb, object, line, **source line**), and the error code. A
-recovered panic carries a Go stack. `barn_logs` prints those indented under the
-failure. The files are line-delimited JSON, so `jq` works too:
+Every uncaught task exception is **one** `uncaught exception` record carrying the
+rendered traceback, the structured frames (verb, object, line, **source line**), the
+error code, `error_msg` (the `raise()` message when one was given), `forked`, and
+`handled`. Forked tasks and failures of `#0:handle_uncaught_error` itself are
+included. An error a database hook handled (`#0:handle_uncaught_error` returned
+true or suspended, or `handle_task_timeout` took it) logs at WARN; an unhandled one
+at ERROR, so `-level error` still means "nothing caught it". A recovered panic
+carries a Go stack. `barn_logs` prints those indented under the failure. The files
+are line-delimited JSON, so `jq` works too:
 
 ```bash
 jq -c 'select(.level=="ERROR")' logs/latest.jsonl
+jq -c 'select(.msg=="uncaught exception" and .handled)' logs/latest.jsonl
 ```
+
+**Heap growth.** A watchdog reads live heap (`/gc/heap/live:bytes`) every 5 s
+against the reading after database load. At 2x, then each further doubling, it logs
+one WARN `heap growth` record (`live_bytes`, `baseline_bytes`, `tasks_live`,
+`unfinished_tasks`, and up to 20 unfinished `tasks` with id, verb, this,
+programmer, state). With a log directory it then writes
+`heap-<unix>.pprof`, `goroutine-<unix>.pprof` and a 5 s `moo-<unix>.pprof` there
+and names them in a `heap growth profiles` record (the MOO profile is skipped,
+with a note, while another MOO profile session is running).
 
 **Caveat:** `Test.db` has genuinely broken object refs, so every boot logs ~30
 `src=startup_repair` warnings (Toast repairs them too — conformance *asserts* these
@@ -287,20 +293,35 @@ messages). Use `-level error` to see what actually broke.
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `-log-level` | `info` | `debug`, `info`, `warn`, `error` |
-| `-log-dir` | `logs` | Empty disables the JSON file sink |
-| `-debug-addr` | `127.0.0.1:0` | pprof + expvar; `off` disables |
+| `--log-level` | `info` | `debug`, `info`, `warn`, `error`; or `-v` (debug), `-q` (warn), `-qq` (error) |
+| `--log-dir` | `logs` | Empty disables the JSON file sink |
+| `--debug-addr` (`serve`) | `127.0.0.1:0` | pprof + expvar; `off` disables |
 
-The debug endpoint binds an **ephemeral port**; find the real address in the log:
+The debug endpoint binds an **ephemeral port**; its bound address is written to
+`debug.addr` in the log directory (servers sharing a log directory overwrite it;
+the `debug endpoint listening` record has it too):
 
 ```bash
-ADDR=$(jq -r 'select(.msg=="debug endpoint listening") | .addr' logs/latest.jsonl)
+ADDR=$(cat logs/debug.addr)
 curl -s "http://$ADDR/debug/vars" | jq 'with_entries(select(.key|startswith("barn.")))'
 curl -s "http://$ADDR/debug/pprof/heap" > heap.out
 curl -s "http://$ADDR/debug/pprof/moo?seconds=30" > moo.pprof  # MOO verb stacks, not Go functions
 go tool pprof -top moo.pprof                                    # values: ticks, wall; label moo.verb
 curl -X POST "http://$ADDR/debug/loglevel?level=debug"   # no restart needed
+curl -s "http://$ADDR/debug/conflict-census" | jq '.Keys[:5]'  # what lost commits were stale on
 ```
+
+`/debug/conflict-census` serves the store's MVCC conflict census as JSON: lost
+commits per key, sole and refused counts, and the labels that lost. With
+`CONFLICT_CENSUS = 1` in the `--config` file, tracking is on and each property and
+map-key row also names the writer (label, verb and line) of the version the loser
+went stale on, the loser's first-read site and slice ticks, how many losses were on
+an unchanged value, and the ticks thrown away; `SliceAttempts` is a histogram of
+attempts per task slice. `EarlyDetection` counts what an early abort would save:
+at each 1024-tick checkpoint a task with staged writes checks whether a hot property
+it read has since been rewritten (count only, execution is unchanged), and
+`SavableTicks` sums the ticks from that detection to the loss (per key too). Tracking
+costs time and memory on every transaction, so it is off by default.
 
 Counters: `barn.tasks_started`, `barn.tasks_killed`, `barn.uncaught_exceptions`,
 `barn.panics_recovered` (nonzero = a Barn bug), `barn.checkpoints`,
@@ -346,22 +367,47 @@ end-to-end latency. Single-thread Go microbenchmarks stay in
 
 ## Database Inspection Tools
 
-Build the `barn` binary once; database inspection uses the same `-db` flag as
-the server and exits without starting listeners.
+Build the `barn` binary once; each inspection is a subcommand that takes the
+same `--db` flag as `barn serve` and exits without starting listeners. `barn
+help` lists them; `barn <command> --help` shows each one's flags. Every Barn
+tool prints its version and git revision with `--version` (`-V`).
 
 ```bash
 go build -o bin/ ./cmd/barn
 
-./bin/barn -db Test.db -verb-code '#0:do_login_command'
-./bin/barn -db Test.db -list-verbs '#0'
-./bin/barn -db Test.db -obj-info '#2'
-./bin/barn -db Test.db -eval '1 + 2'
-./bin/barn -db Test.db -dump-obj-raw '#2'
-./bin/barn -db Test.db -verb-lookup '#2:look'
-./bin/barn -db Test.db -ancestry '#2'
-./bin/barn -db Test.db -dump copy.db  # writes, reloads, and compares persistence fields
-./bin/barn -db Test.db -memory-report -memory-profile heap.pprof  # retained heap and property-slot counts after load
+./bin/barn verb-code --db Test.db '#0:do_login_command'
+./bin/barn list-verbs --db Test.db '#0'
+./bin/barn obj-info --db Test.db '#2'
+./bin/barn eval --db Test.db '1 + 2'
+./bin/barn eval --db Test.db --file probes.moo  # one input per line
+./bin/barn dump-obj-raw --db Test.db '#2'
+./bin/barn verb-lookup --db Test.db '#2:look'
+./bin/barn ancestry --db Test.db '#2'
+./bin/barn grep-verbs --db Test.db 'notify\('
+./bin/barn dump --db Test.db copy.db  # writes, reloads, and compares persistence fields
+./bin/barn memory-report --db Test.db --profile heap.pprof  # retained heap and property-slot counts after load
 ```
+
+## Running MOO Code Without A Server
+
+`moo` is a MOO interpreter with no listeners. Code runs as the database's first
+wizard through the same eval path as `barn eval`, and prints the same result
+lines (`=> VALUE`, `Error: CODE`, `Compile error: ...`).
+
+```bash
+go build -o bin/ ./cmd/moo
+
+./bin/moo -e '1 + 2'         # one input: statements, or one expression
+./bin/moo program.moo        # a whole file as one program
+./bin/moo                    # stdin, one input per line (prompts on a terminal)
+```
+
+Without `--db` the database is an in-memory Minimal.db: `#0` System Object, `#1`
+Root Class, `#2` The First Room and `#3` Wizard, with no verbs or properties.
+`--db path` loads a database file instead. Nothing is written to disk either way.
+`-e` and a file exit 1 on a compile error, an uncaught error, or a panic; stdin
+mode exits 0 at EOF. There is no host (`builtins/host.go`), so no connection
+exists for `notify()` to deliver to.
 
 ## Spec Audit Workflow
 

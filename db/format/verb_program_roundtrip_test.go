@@ -31,7 +31,7 @@ func TestRoundTripPreservesEmptyVerbCodeSection(t *testing.T) {
 	}
 
 	mkVerb := func(name string) store.Verb {
-		return store.NewVerb(name, []string{name}, 0, store.VerbPerms(0),
+		return store.NewVerb([]string{name}, 0, store.VerbPerms(0),
 			store.VerbArgs{This: "none", Prep: "none", That: "none"}, nil)
 	}
 

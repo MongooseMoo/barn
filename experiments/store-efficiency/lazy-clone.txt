@@ -1,0 +1,100 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   30163	      5285 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     18235 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2734	     73432 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   29802	      5184 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	  118935	      3036 ns/op	    2864 B/op	      17 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   42355	      5135 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     15993 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2768	     88929 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   30048	      5163 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   55323	      2925 ns/op	    2864 B/op	      17 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   38241	      5045 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     15701 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2742	     71425 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   42992	      4427 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   97101	      3183 ns/op	    2864 B/op	      17 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   40744	      5406 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     18164 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2862	     82018 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   43140	      5004 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	  114447	      3582 ns/op	    2864 B/op	      17 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   35330	      4716 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     20194 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2821	     69518 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   32216	      5481 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   60738	      3195 ns/op	    2864 B/op	      17 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   39542	      5989 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     20227 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2686	     78939 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   26874	      5927 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   75403	      2680 ns/op	    2864 B/op	      17 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   40905	      4879 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     17493 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2364	    100894 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   36801	      5151 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   85593	      2251 ns/op	    2864 B/op	      17 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   40118	      5590 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     17877 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2061	     90970 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   31364	      6385 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   86505	      2336 ns/op	    2864 B/op	      17 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   38365	      4587 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     18897 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2586	     78358 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   42045	      5491 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   93838	      3005 ns/op	    2864 B/op	      17 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   41731	      4124 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     16848 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2917	     73903 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   38695	      5893 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   96373	      2291 ns/op	    2864 B/op	      17 allocs/op
+PASS

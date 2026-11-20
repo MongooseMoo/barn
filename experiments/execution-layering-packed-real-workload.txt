@@ -1,0 +1,155 @@
+=== RUN   TestMongooseRealWorkload
+    mongoose_real_bench_test.go:913: gc settings in effect: percent=400 memlimit_bytes=9223372036854775807 (GOGC="" GOMEMLIMIT="")
+2026/10/26 02:45:46 INFO PARSER: Warning in #49:init_session: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 9:  Unknown built-in function: validate_string_lines src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #49:save_buffer: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 14:  Unknown built-in function: validate_string_lines src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #49:stage_ready: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 5:  Unknown built-in function: validate_string_lines src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #49:_write_code: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 5:  Unknown built-in function: validate_string_lines src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #12929:test_walk: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 1:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 11:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #12929:test_paths: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 1:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 6:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 11:  Unknown built-in function: validate_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 12:  Unknown built-in function: unparse_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 12:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 13:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 15:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #12929:test_inspection: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 1:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 11:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #12929:test_native_errors: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 1:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #12929:property_generated: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 2:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 24:  Unknown built-in function: validate_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 25:  Unknown built-in function: unparse_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 25:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #12929:test_structures: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 3:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #12929:check_initializer: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 6:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #12929:check_initializer_save: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 8:  Unknown built-in function: validate_string_lines src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #12929:_check_yield: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 22:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #12929:inventory_fixtures: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 89:  Unknown built-in function: verb_ast src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #12929:test_fixture_inventory: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 4:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 8:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 10:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO            Line 36:  Unknown built-in function: parse_ast src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #20700:fixture_capture453: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 68:  Unknown built-in function: waif_owner_count src=startup_parser
+2026/10/26 02:45:46 INFO            Line 90:  Unknown built-in function: waif_owner_count src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #20700:fixture_cleanup453: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 97:  Unknown built-in function: waif_owner_count src=startup_parser
+2026/10/26 02:45:46 INFO PARSER: Warning in #20700:fixture_actor_dispose453: src=startup_parser
+2026/10/26 02:45:46 INFO            Line 44:  Unknown built-in function: waif_owner_count src=startup_parser
+    mongoose_real_bench_test.go:453: loaded C:\Users\Q\code\barn\mongoose.db.new in 4.9612233s
+    mongoose_real_bench_test.go:466: players with valid location: 485
+    mongoose_real_bench_test.go:560: sound catalog: C:\Users\Q\code\barn-266-sound\sound.sqlite
+2026/10/26 02:45:47 INFO Creating database schema for database 'log.sqlite'... task_id=0 player=0 verb="" src=server_log
+2026/10/26 02:45:47 INFO Creating database schema for database 'news.sqlite'... task_id=0 player=0 verb="" src=server_log
+    mongoose_real_bench_test.go:613: snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked}: {1, {1, 4, {1, 2, 3, 4}, 1, 0}}
+    mongoose_real_bench_test.go:635: GOMAXPROCS=4 warmup=2s measure=8s stale_reads=false mix=[{look look 35} {say say Hello there, this is a benchmark message! 30} {inventory i 10} {who @who 10} {home home 15}]
+    mongoose_real_bench_test.go:809: cohort submitted=416 completed=416 failed=0 unsettled_at_return=0 elapsed=8.0147387s drain=14.7387ms
+    mongoose_real_bench_test.go:813: players=1 goodput=52/s failed=0 uncaught=0 abort=1.59% elided=7207 p50=17.21ms p99=99.24ms p999=286.92ms max=286.92ms allocs/op=101703 bytes/op=8406014 GCs=1
+    mongoose_real_bench_test.go:845:   shape look       ok=135      fail=0      avg=29.96ms
+    mongoose_real_bench_test.go:845:   shape say        ok=147      fail=0      avg=23.72ms
+    mongoose_real_bench_test.go:845:   shape inventory  ok=39       fail=0      avg=8.50ms
+    mongoose_real_bench_test.go:845:   shape who        ok=39       fail=0      avg=2.81ms
+    mongoose_real_bench_test.go:845:   shape home       ok=56       fail=0      avg=762.9us
+    mongoose_real_bench_test.go:848:   commits: attempts=1823 successes=1820 conflicts=3 retries=29 hot_read_renewed=2 hot_read_refused=5 hot_read_declined=0
+    mongoose_real_bench_test.go:1036:   conflicts: lost_commits=29 refused_renewals=2 keys=193 overflow_losses=0 sole_cause=3.4% keys_per_loss=8.69
+    mongoose_real_bench_test.go:1071:   conflict property       #1007.scheduled_tasks        lost=25      86.2% sole=0      refused=0     stale_at_read=n/a    per_command=0.06 by=[#1007:s_run=25]
+    mongoose_real_bench_test.go:1071:   conflict property       #9655.pending                lost=18      62.1% sole=1      refused=2     stale_at_read=n/a    per_command=0.04 by=[#1007:s_run=17 #9655:start_rearm=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #1007.scheduler_task         lost=11      37.9% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#1007:s_run=11]
+    mongoose_real_bench_test.go:1071:   conflict property       #9296.position               lost=3       10.3% sole=0      refused=0     stale_at_read=n/a    per_command=0.01 by=[#2:say=1 #598:tick=1 #1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #10078.position              lost=3       10.3% sole=0      refused=0     stale_at_read=n/a    per_command=0.01 by=[#2:say=1 #598:tick=1 #1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           0c8c410fee1e796eb1cd55929423c00a lost=2        6.9% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#2:say=1 #598:tick=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           3a27a14b43d7b2aa87a3ba9fe18a176b lost=2        6.9% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#2:say=1 #598:tick=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           596a2a71751701bb291ea67183e554ec lost=2        6.9% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#2:say=1 #598:tick=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           731772af41a8bea7694982c83532fd29 lost=2        6.9% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#2:say=1 #598:tick=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4143.cycle_start_states     lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4143.cycling                lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4143.just_moved             lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4207.ion_time               lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4207.position               lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4210.position               lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4210.velocity               lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4574.position               lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4968.position               lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4968.velocity               lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4982.ion_time               lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4982.position               lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4985.position               lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4985.velocity               lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4986.position               lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #4986.velocity               lost=1        3.4% sole=0      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:859:   idle 2s: attempts=548 successes=548 retries=1
+    mongoose_real_bench_test.go:809: cohort submitted=359 completed=357 failed=2 unsettled_at_return=0 elapsed=9.255773s drain=1.255773s
+    mongoose_real_bench_test.go:813: players=4 goodput=39/s failed=2 uncaught=2 abort=12.71% elided=12263 p50=27.99ms p99=1386.07ms p999=2717.75ms max=2717.75ms allocs/op=142423 bytes/op=14114605 GCs=1
+    mongoose_real_bench_test.go:845:   shape look       ok=116      fail=0      avg=119.63ms
+    mongoose_real_bench_test.go:845:   shape say        ok=124      fail=0      avg=116.47ms
+    mongoose_real_bench_test.go:845:   shape inventory  ok=36       fail=0      avg=34.13ms
+    mongoose_real_bench_test.go:845:   shape who        ok=32       fail=0      avg=33.26ms
+    mongoose_real_bench_test.go:845:   shape home       ok=49       fail=2      avg=55.83ms
+    mongoose_real_bench_test.go:848:   commits: attempts=2360 successes=2061 conflicts=299 retries=300 hot_read_renewed=19 hot_read_refused=135 hot_read_declined=0
+    mongoose_real_bench_test.go:1036:   conflicts: lost_commits=300 refused_renewals=0 keys=10 overflow_losses=0 sole_cause=75.3% keys_per_loss=1.44
+    mongoose_real_bench_test.go:1071:   conflict property       #68987.state                 lost=271     90.3% sole=198    refused=0     stale_at_read=n/a    per_command=0.76 by=[#442:look=110 #36:say=95 #592:look=52 #71:say=5 #15:look=4 #83:say=4 #36:@who=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #2585.handle                 lost=93      31.0% sole=26     refused=0     stale_at_read=n/a    per_command=0.26 by=[#36:say=73 #2:say=9 #83:say=6 #71:say=5]
+    mongoose_real_bench_test.go:1071:   conflict property       #9296.position               lost=11       3.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#442:look=6 #71:say=4 #2:say=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #10078.position              lost=11       3.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#442:look=6 #71:say=4 #2:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           0c8c410fee1e796eb1cd55929423c00a lost=11       3.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#442:look=6 #71:say=4 #2:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           3a27a14b43d7b2aa87a3ba9fe18a176b lost=11       3.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#442:look=6 #71:say=4 #2:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           596a2a71751701bb291ea67183e554ec lost=11       3.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#442:look=6 #71:say=4 #2:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           731772af41a8bea7694982c83532fd29 lost=11       3.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#442:look=6 #71:say=4 #2:say=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #2478.records                lost=1        0.3% sole=1      refused=0     stale_at_read=n/a    per_command=0.00 by=[#1007:s_run=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #9655.pending                lost=1        0.3% sole=1      refused=0     stale_at_read=n/a    per_command=0.00 by=[#9655:start_rearm=1]
+    mongoose_real_bench_test.go:859:   idle 2s: attempts=2781 successes=2781 retries=2
+    mongoose_real_bench_test.go:873:   failure sample (x1): home -> uncaught:E_NACC task=3220 stack=[{"verbloc":1584,"verb":"bf_move","this":0,"player":71,"programmer":71,"line":20},{"verbloc":9501,"verb":"move_as_owner","this":9501,"player":71,"programmer":71,"line":4},{"verbloc":1,"verb":"moveto","this":71,"player":71,"programmer":2,"line":14},{"verbloc":2200,"verb":"moveto","this":71,"player":71,"programmer":14322,"line":24},{"verbloc":6,"verb":"moveto","this":71,"player":71,"programmer":71,"line":13},{"verbloc":88,"verb":"teleport","this":71,"player":71,"programmer":71,"line":25},{"verbloc":1174,"verb":"hom*e","this":71,"player":71,"programmer":2,"line":15}]
+    mongoose_real_bench_test.go:873:   failure sample (x1): home -> uncaught:E_NACC task=3255 stack=[{"verbloc":1584,"verb":"bf_move","this":0,"player":71,"programmer":71,"line":20},{"verbloc":9501,"verb":"move_as_owner","this":9501,"player":71,"programmer":71,"line":4},{"verbloc":1,"verb":"moveto","this":71,"player":71,"programmer":2,"line":14},{"verbloc":2200,"verb":"moveto","this":71,"player":71,"programmer":14322,"line":24},{"verbloc":6,"verb":"moveto","this":71,"player":71,"programmer":71,"line":13},{"verbloc":88,"verb":"teleport","this":71,"player":71,"programmer":71,"line":25},{"verbloc":1174,"verb":"hom*e","this":71,"player":71,"programmer":2,"line":15}]
+    mongoose_real_bench_test.go:809: cohort submitted=524 completed=524 failed=0 unsettled_at_return=0 elapsed=10.2187587s drain=2.2187587s
+    mongoose_real_bench_test.go:813: players=16 goodput=51/s failed=0 uncaught=0 abort=18.17% elided=13040 p50=31.94ms p99=3532.31ms p999=6645.82ms max=6645.82ms allocs/op=112644 bytes/op=8387293 GCs=0
+    mongoose_real_bench_test.go:845:   shape look       ok=193      fail=0      avg=198.14ms
+    mongoose_real_bench_test.go:845:   shape say        ok=148      fail=0      avg=522.26ms
+    mongoose_real_bench_test.go:845:   shape inventory  ok=54       fail=0      avg=95.39ms
+    mongoose_real_bench_test.go:845:   shape who        ok=51       fail=0      avg=139.32ms
+    mongoose_real_bench_test.go:845:   shape home       ok=78       fail=0      avg=74.20ms
+    mongoose_real_bench_test.go:848:   commits: attempts=2229 successes=1829 conflicts=400 retries=405 hot_read_renewed=18 hot_read_refused=272 hot_read_declined=0
+    mongoose_real_bench_test.go:1036:   conflicts: lost_commits=405 refused_renewals=0 keys=117 overflow_losses=0 sole_cause=63.2% keys_per_loss=2.78
+    mongoose_real_bench_test.go:1071:   conflict property       #2585.handle                 lost=264     65.2% sole=161    refused=0     stale_at_read=n/a    per_command=0.50 by=[#36:say=59 #693:say=42 #100:say=28 #249:say=26 #2:say=24 #133:say=8 #116:say=7 #83:say=6 other=64]
+    mongoose_real_bench_test.go:1071:   conflict property       #68987.state                 lost=181     44.7% sole=83     refused=0     stale_at_read=n/a    per_command=0.35 by=[#442:look=40 #693:say=28 #1117:look=7 #592:look=3 #180:@who=2 #3421:look=2 #2:say=1 #83:@who=1 other=97]
+    mongoose_real_bench_test.go:1071:   conflict waif           10eb612b41822752a4329072d7b3df50 lost=27       6.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.05 by=[#660:look=17 #100:say=7 #180:say=2 #598:tick=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           33ebdd7db207455975d8f90018b53a89 lost=27       6.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.05 by=[#660:look=17 #100:say=7 #180:say=2 #598:tick=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           5e2ea6cfc192c589c576c37d5b17af2d lost=27       6.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.05 by=[#660:look=17 #100:say=7 #180:say=2 #598:tick=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           9c35aa7ac2aeeb4f8030ae2d6b9f0cda lost=27       6.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.05 by=[#660:look=17 #100:say=7 #180:say=2 #598:tick=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           d4142020681810578757d080692f3fa4 lost=27       6.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.05 by=[#660:look=17 #100:say=7 #180:say=2 #598:tick=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           00376a229ccfaa8c975c055fc6e24cd1 lost=16       4.0% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#693:say=7 #442:look=4 #541:say=4 #83:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           00b7962ef6df3b5b199a285b38448fe4 lost=16       4.0% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#693:say=7 #442:look=4 #541:say=4 #83:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           07d79c7a697518e43d4a52d2faeff8c5 lost=16       4.0% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#693:say=7 #442:look=4 #541:say=4 #83:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           0ab20cb3613f4527ae927de98904a0be lost=16       4.0% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#693:say=7 #442:look=4 #541:say=4 #83:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           5c2e06e8e2e96e0fcadf85cefe7897b7 lost=16       4.0% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#693:say=7 #442:look=4 #541:say=4 #83:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           66b3980f5ed827a010c417e4130bd8cd lost=16       4.0% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#693:say=7 #442:look=4 #541:say=4 #83:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           9d32a69022a33597f780ae1233311613 lost=16       4.0% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#693:say=7 #442:look=4 #541:say=4 #83:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           a32b245ec6bc367cbb88296b0d0fbc03 lost=16       4.0% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#693:say=7 #442:look=4 #541:say=4 #83:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           b4273a4445b9d29d19cf193d22cc9e34 lost=16       4.0% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#693:say=7 #442:look=4 #541:say=4 #83:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           b80f392f5901bec377d3a0f7b2b8b4e3 lost=16       4.0% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#693:say=7 #442:look=4 #541:say=4 #83:say=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           cfc5c97fea7421515f27b248d387ac42 lost=16       4.0% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#660:look=11 #100:say=5]
+    mongoose_real_bench_test.go:1071:   conflict property       #80.#180pdata                lost=15       3.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#100:say=6 #660:look=6 #180:@who=2 #180:say=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #180.notifies                lost=15       3.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#100:say=6 #660:look=6 #180:@who=2 #180:say=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #80.#83pdata                 lost=14       3.5% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#693:say=7 #541:say=5 #83:say=1 #442:look=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #83.notifies                 lost=14       3.5% sole=0      refused=0     stale_at_read=n/a    per_command=0.03 by=[#693:say=7 #541:say=5 #83:say=1 #442:look=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #9296.position               lost=11       2.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.02 by=[#442:look=4 #693:say=3 #541:say=2 #527:say=1 #1117:look=1]
+    mongoose_real_bench_test.go:1071:   conflict property       #10078.position              lost=11       2.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.02 by=[#442:look=4 #693:say=3 #541:say=2 #527:say=1 #1117:look=1]
+    mongoose_real_bench_test.go:1071:   conflict waif           0c8c410fee1e796eb1cd55929423c00a lost=11       2.7% sole=0      refused=0     stale_at_read=n/a    per_command=0.02 by=[#442:look=4 #693:say=3 #541:say=2 #527:say=1 #1117:look=1]
+    mongoose_real_bench_test.go:859:   idle 2s: attempts=2166 successes=2166 retries=1
+--- PASS: TestMongooseRealWorkload (67.35s)
+PASS
+ok  	github.com/MongooseMoo/barn/engine	71.495s

@@ -1,0 +1,36 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkObjectLifecycle/anon=false/slots=0/Create/parents=1-4         	     512	    166758 ns/op	        32.00 objects/op	  202361 B/op	    1346 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Create/parents=1-4         	     512	    168334 ns/op	        32.00 objects/op	  202370 B/op	    1346 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Create/parents=1-4         	     512	    163785 ns/op	        32.00 objects/op	  202361 B/op	    1346 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Create/parents=1-4         	     512	    162151 ns/op	        32.00 objects/op	  202361 B/op	    1346 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Create/parents=1-4         	     512	    162602 ns/op	        32.00 objects/op	  202360 B/op	    1346 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Recycle/parents=1-4        	     512	    150442 ns/op	        32.00 objects/op	  180720 B/op	    1101 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Recycle/parents=1-4        	     512	    151802 ns/op	        32.00 objects/op	  180721 B/op	    1101 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Recycle/parents=1-4        	     512	    144341 ns/op	        32.00 objects/op	  180720 B/op	    1101 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Recycle/parents=1-4        	     512	    153144 ns/op	        32.00 objects/op	  180720 B/op	    1101 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Recycle/parents=1-4        	     512	    149502 ns/op	        32.00 objects/op	  180720 B/op	    1101 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Pair/parents=1-4           	     512	    303140 ns/op	        32.00 objects/op	  351288 B/op	    2382 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Pair/parents=1-4           	     512	    302233 ns/op	        32.00 objects/op	  351288 B/op	    2382 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Pair/parents=1-4           	     512	    302876 ns/op	        32.00 objects/op	  351289 B/op	    2382 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Pair/parents=1-4           	     512	    307391 ns/op	        32.00 objects/op	  351289 B/op	    2382 allocs/op
+BenchmarkObjectLifecycle/anon=false/slots=0/Pair/parents=1-4           	     512	    306299 ns/op	        32.00 objects/op	  351288 B/op	    2382 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Create/parents=1-4          	     512	     61876 ns/op	        32.00 objects/op	   74528 B/op	     538 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Create/parents=1-4          	     512	     61616 ns/op	        32.00 objects/op	   74528 B/op	     538 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Create/parents=1-4          	     512	     62316 ns/op	        32.00 objects/op	   74529 B/op	     538 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Create/parents=1-4          	     512	     63512 ns/op	        32.00 objects/op	   74528 B/op	     538 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Create/parents=1-4          	     512	     63356 ns/op	        32.00 objects/op	   74528 B/op	     538 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Recycle/parents=1-4         	     512	     18951 ns/op	        32.00 objects/op	   24320 B/op	     224 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Recycle/parents=1-4         	     512	     19158 ns/op	        32.00 objects/op	   24320 B/op	     224 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Recycle/parents=1-4         	     512	     20246 ns/op	        32.00 objects/op	   24320 B/op	     224 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Recycle/parents=1-4         	     512	     22684 ns/op	        32.00 objects/op	   24321 B/op	     224 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Recycle/parents=1-4         	     512	     20835 ns/op	        32.00 objects/op	   24320 B/op	     224 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Pair/parents=1-4            	     512	     81931 ns/op	        32.00 objects/op	   95000 B/op	     762 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Pair/parents=1-4            	     512	     83357 ns/op	        32.00 objects/op	   95000 B/op	     762 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Pair/parents=1-4            	     512	     79893 ns/op	        32.00 objects/op	   95000 B/op	     762 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Pair/parents=1-4            	     512	     81892 ns/op	        32.00 objects/op	   95000 B/op	     762 allocs/op
+BenchmarkObjectLifecycle/anon=true/slots=0/Pair/parents=1-4            	     512	     82496 ns/op	        32.00 objects/op	   95000 B/op	     762 allocs/op
+PASS
+ok  	github.com/MongooseMoo/barn/db/store	6.591s

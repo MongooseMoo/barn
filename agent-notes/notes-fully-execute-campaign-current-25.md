@@ -1,0 +1,21 @@
+# Current campaign checkpoint 25
+
+- Conformance issue opened: `MongooseMoo/moo-conformance-tests#44`, still OPEN.
+- Draft PR opened: `MongooseMoo/moo-conformance-tests#45`, still OPEN, DRAFT, CLEAN, and unmerged.
+- Exact branch/head: `agent/toast-shutdown-gc-edges` at `1cd9dd26ba9bca9287149b97ded3a01de4ab158d`.
+- Exact scope: one commit, seven files only: three immutable startup DB fixtures, their checksum-manifest additions, and three exit-only server YAML suites. No Barn files and no PR 22 files changed.
+- PR body contains literal `Closes #44`; GitHub `closingIssuesReferences` contains only issue 44.
+- Confirmed managed Toast behavior:
+  - deferred WAIF `:recycle` enters, `shutdown()` returns, hook completes, server exits cleanly, output has zero pending roots;
+  - panic through public `shutdown(message, 1)` while one suspended task owns WAIF and anonymous values writes zero pending roots and one suspended task;
+  - one direct pending WAIF containing a nested WAIF remains one top-level pending root with `c 1` nested under `c 0`.
+- Local evidence: focused managed WSL Toast `3 passed in 10.50s`; fixture checksums pass; harness units 281 passed; packaged collection 11,590; duplicate baseline, Ruff, and mypy pass.
+- GitHub workflow `31004707542` fully green:
+  - harness quality green;
+  - 64-bit outbound on: 11,519 passed, 71 reviewed skips;
+  - 64-bit outbound off: 11,504 passed, 86 reviewed skips;
+  - 32-bit outbound on: 11,500 passed, 90 reviewed skips;
+  - exact profile-union Full suite ledger green.
+- Worktree is clean. PR remains draft/unmerged as required; issue 44 remains open until merge.
+- Scope note: emergency command-line mode was not exercised because public conformance fixtures can express and observe the unclean panic path via `shutdown(message, 1)`; the issue and PR state this boundary explicitly.
+- Next action: parent agent may independently review PR 45 and decide when to promote/merge it within the wider campaign. No further change is required in this subtask.

@@ -11,6 +11,53 @@ import (
 	"testing"
 )
 
+// Toast's ng_read_object (db_file.cc, DBV_NextGen and later, i.e. v5 and v17)
+// reads a numbered object's "#N" label and ignores it: dbpriv_new_object(-1)
+// takes the next slot. v4_read_object instead rejects a non-consecutive label.
+func TestNumberedObjectLabelMismatch(t *testing.T) {
+	for _, tc := range []struct {
+		path, eol string
+		wantErr   bool
+	}{
+		{"testdata/Broken1.db", "\n", false},
+		{"testdata/Anon6.db", "\n", false},
+		{"../../Test_fresh2.db", "\r\n", true},
+	} {
+		t.Run(filepath.Base(tc.path), func(t *testing.T) {
+			raw, err := os.ReadFile(tc.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			original, err := parseDatabaseWithWaifIdentities(bufio.NewReader(strings.NewReader(string(raw))), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			label := tc.eol + "#2" + tc.eol
+			if !strings.Contains(string(raw), label) {
+				t.Fatalf("fixture has no %q record", label)
+			}
+			mutated := strings.Replace(string(raw), label, tc.eol+"#9"+tc.eol, 1)
+			database, err := parseDatabaseWithWaifIdentities(bufio.NewReader(strings.NewReader(mutated)), nil)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "READ_DB_FILE: Bad object #2.") {
+					t.Fatalf("error = %v, want rejected label #9 at record 2", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, ok := database.Objects[2]
+			if !ok || got.Name() != original.Objects[2].Name() {
+				t.Fatalf("record 2 not placed at #2: %v", database.Objects)
+			}
+			if _, ok := database.Objects[9]; ok {
+				t.Fatal("label #9 created object #9")
+			}
+		})
+	}
+}
+
 func TestNewStoreFromDatabaseReturnsAddError(t *testing.T) {
 	first := store.NewObjectBuilder(1)
 	duplicate := store.NewObjectBuilder(1)
@@ -65,6 +112,55 @@ func TestLoadDatabase(t *testing.T) {
 	t.Logf("Loaded database version %d with %d objects", database.Version, len(database.Objects))
 	t.Logf("System object: %s", systemObj.Name())
 	t.Logf("Players: %d", len(database.Players))
+}
+
+func TestLoadDatabaseHeader(t *testing.T) {
+	toast, err := os.ReadFile(filepath.Join("testdata", "toastcore.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v5, err := os.ReadFile(filepath.Join("testdata", "Broken5.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const header17 = "** LambdaMOO Database, Format Version 17 **"
+	for _, tc := range []struct {
+		name    string
+		data    string
+		version int
+	}{
+		{"v4", "** LambdaMOO Database, Format Version 4 **\n0\n0\n0\n0\n0 clocks\n0 queued tasks\n0 suspended tasks\n", 4},
+		{"v5", string(v5), 5},
+		{"v17", string(toast), 17},
+		{"outer-whitespace", strings.Replace(string(toast), header17, " \t"+header17+"\r", 1), 17},
+		{"numeric-suffix", strings.Replace(string(toast), "Version 17", "Version 170", 1), 0},
+		{"v4-numeric-suffix", strings.Replace(string(toast), "Version 17", "Version 40", 1), 0},
+		{"v5-numeric-suffix", strings.Replace(string(toast), "Version 17", "Version 50", 1), 0},
+		{"text-suffix", strings.Replace(string(toast), "Version 17", "Version 17x", 1), 0},
+		{"numeric-prefix", strings.Replace(string(toast), "Version 17", "Version 117", 1), 0},
+		{"missing-frame", strings.Replace(string(toast), header17, "Format Version 17", 1), 0},
+		{"trailing-text", strings.Replace(string(toast), header17, header17+" garbage", 1), 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "header.db")
+			if err := os.WriteFile(path, []byte(tc.data), 0600); err != nil {
+				t.Fatal(err)
+			}
+			database, err := LoadDatabase(path)
+			if tc.version == 0 {
+				if err == nil || !strings.Contains(err.Error(), "unsupported database format:") {
+					t.Fatalf("header error = %v, want unsupported database format", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if database.Version != tc.version {
+				t.Fatalf("version = %d, want %d", database.Version, tc.version)
+			}
+		})
+	}
 }
 
 func TestParentParsing(t *testing.T) {

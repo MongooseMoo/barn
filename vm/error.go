@@ -14,9 +14,11 @@ import (
 type MooError struct {
 	Code   types.ErrorCode
 	Detail string
+	Reason types.ExceptionReason
 
 	detailFormat string
 	detailArgs   []any
+	publicDetail bool
 }
 
 type annotatedError struct {
@@ -32,11 +34,21 @@ func (e annotatedError) Unwrap() error {
 	return e.err
 }
 
-func (e MooError) Error() string {
-	detail := e.Detail
+func (e MooError) detail() string {
 	if e.detailFormat != "" {
-		detail = fmt.Sprintf(e.detailFormat, e.detailArgs...)
+		return fmt.Sprintf(e.detailFormat, e.detailArgs...)
 	}
+	return e.Detail
+}
+
+// withMessage marks source-defined MOO error text, rather than a VM diagnostic.
+func (e MooError) withMessage() MooError {
+	e.publicDetail = true
+	return e
+}
+
+func (e MooError) Error() string {
+	detail := e.detail()
 	if detail == "" {
 		return e.Code.String()
 	}
@@ -54,12 +66,54 @@ func newMooErrorf(code types.ErrorCode, format string, args ...any) MooError {
 // VMException carries a structured exception value alongside an error code.
 // Used for propagating builtin raise() payloads into except variables.
 type VMException struct {
-	Code  types.ErrorCode
-	Value types.Value
+	Code   types.ErrorCode
+	Value  types.Value
+	Reason types.ExceptionReason
 }
 
 func (e VMException) Error() string {
 	return e.Code.String()
+}
+
+// unreportedAbort is what a finished finally body re-raises for a
+// task.PendingAbort reason: the task goes on ending, running enclosing
+// finally bodies, with no error for a handler to catch or for
+// #0:handle_uncaught_error to be told about.
+type unreportedAbort struct{}
+
+func (unreportedAbort) Error() string { return "task aborted" }
+
+// Unwinding may replace a lifecycle callback's error while the outward MOO
+// result retains its original code. Only attach guard metadata to a compatible
+// outward code; this does not change the existing code, value or control flow.
+func outwardExceptionReason(code types.ErrorCode, reason types.ExceptionReason) types.ExceptionReason {
+	if code != types.E_MAXREC || reason > types.ExceptionReasonSecondsBudget {
+		return types.ExceptionReasonUnknown
+	}
+	return reason
+}
+
+// exceptionReason only reads typed metadata. Text, including a manually raised
+// E_MAXREC message, cannot establish which native guard produced an error.
+func exceptionReason(err error) types.ExceptionReason {
+	for err != nil {
+		switch e := err.(type) {
+		case VMException:
+			return e.Reason
+		case *VMException:
+			if e != nil {
+				return e.Reason
+			}
+		case MooError:
+			return e.Reason
+		case *MooError:
+			if e != nil {
+				return e.Reason
+			}
+		}
+		err = errors.Unwrap(err)
+	}
+	return types.ExceptionReasonUnknown
 }
 
 // extractErrorCode parses an error code from an error message string.
@@ -86,6 +140,19 @@ func extractErrorCode(err error) types.ErrorCode {
 // errors wrapped with source context. String parsing remains solely as a
 // compatibility fallback for errors returned by external integrations.
 func errorCode(err error) types.ErrorCode {
+	// The usual shapes, read without the heap targets errors.As needs.
+	for unwrapped := err; ; {
+		switch e := unwrapped.(type) {
+		case VMException:
+			return e.Code
+		case MooError:
+			return e.Code
+		case annotatedError:
+			unwrapped = e.err
+			continue
+		}
+		break
+	}
 	var exception VMException
 	if errors.As(err, &exception) {
 		return exception.Code
@@ -110,7 +177,11 @@ func (vm *VM) sourceLineForFrame(frame *StackFrame, line int) string {
 	if frame == nil || frame.Program == nil || line <= 0 {
 		return ""
 	}
-	if line > len(frame.Program.Source) {
+	if first := frame.Program.Origin.FirstLine; first > 1 {
+		// Source is a restored fork body numbered from first.
+		line -= first - 1
+	}
+	if line <= 0 || line > len(frame.Program.Source) {
 		return ""
 	}
 	return strings.TrimSpace(frame.Program.Source[line-1])
@@ -119,32 +190,5 @@ func (vm *VM) sourceLineForFrame(frame *StackFrame, line int) string {
 // typeMismatchMessage renders Toast's type_mismatch_string for one expected
 // type: "Type mismatch (expected list; got string)".
 func typeMismatchMessage(expected, got types.TypeCode) string {
-	return fmt.Sprintf("Type mismatch (expected %s; got %s)", toastTypeName(expected), toastTypeName(got))
-}
-
-// toastTypeName is Toast's parse_type() spelling of a value type.
-func toastTypeName(t types.TypeCode) string {
-	switch t {
-	case types.TYPE_INT:
-		return "integer"
-	case types.TYPE_OBJ:
-		return "object"
-	case types.TYPE_ERR:
-		return "error"
-	case types.TYPE_STR:
-		return "string"
-	case types.TYPE_FLOAT:
-		return "float"
-	case types.TYPE_LIST:
-		return "list"
-	case types.TYPE_MAP:
-		return "map"
-	case types.TYPE_ANON:
-		return "anonymous object"
-	case types.TYPE_WAIF:
-		return "waif"
-	case types.TYPE_BOOL:
-		return "bool"
-	}
-	return "unknown type"
+	return fmt.Sprintf("Type mismatch (expected %s; got %s)", expected.ToastName(), got.ToastName())
 }

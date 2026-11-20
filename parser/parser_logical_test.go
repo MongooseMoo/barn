@@ -1,19 +1,19 @@
 package parser
 
 import (
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 	"testing"
 )
 
 func TestLogicalOperators(t *testing.T) {
 	tests := []struct {
 		input    string
-		operator verb.BinaryOperator
+		operator ir.BinaryOperator
 	}{
-		{"a && b", verb.BinaryAnd},
-		{"x || y", verb.BinaryOr},
-		{"true && false", verb.BinaryAnd},
-		{"1 || 0", verb.BinaryOr},
+		{"a && b", ir.BinaryAnd},
+		{"x || y", ir.BinaryOr},
+		{"true && false", ir.BinaryAnd},
+		{"1 || 0", ir.BinaryOr},
 	}
 
 	for _, tt := range tests {
@@ -24,7 +24,7 @@ func TestLogicalOperators(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*verb.BinaryExpr)
+			binary, ok := expr.(*ir.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr, got %T", expr)
 			}
@@ -39,13 +39,13 @@ func TestLogicalOperators(t *testing.T) {
 func TestLogicalPrecedence(t *testing.T) {
 	tests := []struct {
 		input  string
-		rootOp verb.BinaryOperator
+		rootOp ir.BinaryOperator
 		desc   string
 	}{
 		// Toast's grammar declares `%left tOR tAND`: one left-associative level.
-		{"a || b && c", verb.BinaryAnd, "should parse as (a || b) && c"},
-		{"a && b || c && d", verb.BinaryAnd, "should parse as ((a && b) || c) && d"},
-		{"a && b || c", verb.BinaryOr, "should parse as (a && b) || c"},
+		{"a || b && c", ir.BinaryAnd, "should parse as (a || b) && c"},
+		{"a && b || c && d", ir.BinaryAnd, "should parse as ((a && b) || c) && d"},
+		{"a && b || c", ir.BinaryOr, "should parse as (a && b) || c"},
 	}
 
 	for _, tt := range tests {
@@ -56,7 +56,7 @@ func TestLogicalPrecedence(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*verb.BinaryExpr)
+			binary, ok := expr.(*ir.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr at root, got %T", expr)
 			}
@@ -77,27 +77,27 @@ func TestLogicalVsComparison(t *testing.T) {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	binary, ok := expr.(*verb.BinaryExpr)
+	binary, ok := expr.(*ir.BinaryExpr)
 	if !ok {
 		t.Fatalf("expected BinaryExpr at root, got %T", expr)
 	}
 
-	if binary.Operator != verb.BinaryAnd {
+	if binary.Operator != ir.BinaryAnd {
 		t.Errorf("expected AND at root, got %s", binary.Operator)
 	}
 
 	// Both sides should be comparison operators
-	leftBinary, ok := binary.Left.(*verb.BinaryExpr)
+	leftBinary, ok := binary.Left.(*ir.BinaryExpr)
 	if !ok {
 		t.Errorf("expected left to be BinaryExpr, got %T", binary.Left)
-	} else if leftBinary.Operator != verb.BinaryLess {
+	} else if leftBinary.Operator != ir.BinaryLess {
 		t.Errorf("expected left to be <, got %s", leftBinary.Operator)
 	}
 
-	rightBinary, ok := binary.Right.(*verb.BinaryExpr)
+	rightBinary, ok := binary.Right.(*ir.BinaryExpr)
 	if !ok {
 		t.Errorf("expected right to be BinaryExpr, got %T", binary.Right)
-	} else if rightBinary.Operator != verb.BinaryGreater {
+	} else if rightBinary.Operator != ir.BinaryGreater {
 		t.Errorf("expected right to be >, got %s", rightBinary.Operator)
 	}
 }

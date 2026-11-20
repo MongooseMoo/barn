@@ -32,16 +32,36 @@ func isObjectRef(v types.Value) bool {
 	return t == types.TYPE_OBJ || t == types.TYPE_ANON
 }
 
+// Registration wildcards (structures.h): argument types below zero that admit
+// more than one value type. function_info reports them as these codes.
+const (
+	argAny     int64 = -1 // TYPE_ANY
+	argNumeric int64 = -2 // TYPE_NUMERIC: INT or FLOAT
+	argFlag    int64 = -3 // TYPE_FLAG: INT or BOOL
+)
+
 func valueMatchesFunctionArgType(v types.Value, expected int64) bool {
 	switch expected {
-	case -1:
+	case argAny:
 		return true
-	case -2:
+	case argNumeric:
 		t := v.Type()
 		return t == types.TYPE_INT || t == types.TYPE_FLOAT
+	case argFlag:
+		t := v.Type()
+		return t == types.TYPE_INT || t == types.TYPE_BOOL
 	default:
 		return int64(v.Type()) == expected
 	}
+}
+
+// flagArg is is_true of a value in an argFlag position; ok is false when the
+// value is neither INT nor BOOL (E_TYPE).
+func flagArg(v types.Value) (truth, ok bool) {
+	if !valueMatchesFunctionArgType(v, argFlag) {
+		return false, false
+	}
+	return v.Truthy(), true
 }
 
 func validateFunctionArgs(sig Signature, args []types.Value) types.ErrorCode {
@@ -116,7 +136,7 @@ func builtinFunctionInfo(ctx *Execution, args []types.Value) types.Result {
 		sort.Strings(names)
 		entries := make([]types.Value, 0, len(names))
 		for _, name := range names {
-			entries = append(entries, functionInfoEntry(name, r.entries[r.nameToID[name]].sig))
+			entries = append(entries, functionInfoEntry(name, *r.entries[r.nameToID[name]].signature(ctx)))
 		}
 		return types.Ok(types.NewList(entries))
 	}
@@ -129,7 +149,7 @@ func builtinFunctionInfo(ctx *Execution, args []types.Value) types.Result {
 	if !found || r.entries[id].visibility == Hidden {
 		return types.Err(types.E_INVARG)
 	}
-	return types.Ok(functionInfoEntry(name, r.entries[id].sig))
+	return types.Ok(functionInfoEntry(name, *r.entries[id].signature(ctx)))
 }
 
 // debugCallFunction gates temporary call_function failure logging (shares the
@@ -151,7 +171,13 @@ func builtinCallFunction(ctx *Execution, args []types.Value) types.Result {
 	name := args[0].Str()
 	fn, found := r.Get(name)
 	if !found {
-		return types.Err(types.E_INVARG)
+		// execute.cc bf_call_function: make_raise_pack(E_INVARG, "Unknown
+		// built-in function", <name>).
+		return types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_INVARG,
+			Val:   types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr("Unknown built-in function"), args[0]}),
+		}
 	}
 	result := fn(ctx, args[1:])
 	if debugCallFunction && result.Flow == types.FlowException {

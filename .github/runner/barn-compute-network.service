@@ -1,0 +1,11 @@
+[Unit]
+Description=Network boundaries for the Barn compute account
+Before=barn-compute.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft -f /etc/barn-compute/egress.nft
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

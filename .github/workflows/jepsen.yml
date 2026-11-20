@@ -1,0 +1,286 @@
+name: Jepsen checkpoint
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  merge_group:
+  # Extended mode: the nightly run, or a dispatch with extended set. The jobs
+  # and required check names are the same; only the run parameters grow (see
+  # each run step). Scheduled at 04:37 UTC, after elle.yml's 01:17 UTC
+  # extended run has finished (its job timeout is 180 minutes).
+  schedule:
+    - cron: '37 4 * * *'
+  workflow_dispatch:
+    inputs:
+      extended:
+        description: Extended mode (three seeds, five times the phases, twice the rate)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  # An extended run on master must not cancel, or be cancelled by, a push run.
+  group: jepsen-${{ github.ref }}${{ (github.event_name == 'schedule' || inputs.extended) && '-extended' || '' }}
+  cancel-in-progress: true
+
+env:
+  # The MOO transport (SocketTransport) and the public Test.db fixture come
+  # from this fixed moo-conformance-tests commit. Moving it is a deliberate
+  # change to this file; the pass record names it too.
+  CONFORMANCE_REF: cacd8bccda337d26043721ac3905dda8c145758d
+  EXTENDED: ${{ github.event_name == 'schedule' || inputs.extended }}
+
+jobs:
+  # Skip when a run of this repository already passed on this exact tree
+  # (see .github/actions/tested-tree). A manual dispatch and the nightly
+  # extended run always run.
+  tested:
+    name: Check for an earlier pass
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    outputs:
+      hit: ${{ steps.tree.outputs.hit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - id: tree
+        if: github.event_name != 'workflow_dispatch' && github.event_name != 'schedule'
+        uses: ./.github/actions/tested-tree
+        with:
+          mode: check
+          name: jepsen
+          extra: ${{ env.CONFORMANCE_REF }}
+
+  record:
+    name: Record pass
+    needs: [campaign, stages]
+    # The pass record stands for the PR configuration; an extended run uses
+    # other seeds and parameters and must not populate it.
+    if: github.event_name != 'schedule' && !inputs.extended
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/tested-tree
+        with:
+          mode: record
+          name: jepsen
+          extra: ${{ env.CONFORMANCE_REF }}
+
+  campaign:
+    name: Checkpoint durability campaign
+    needs: tested
+    if: needs.tested.outputs.hit != 'true'
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.extended) && 180 || 20 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check runner device
+        run: test -c /dev/null
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+      # Jepsen 0.3.15's dependencies are Java 21 class files.
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build pinned checker
+        uses: ./.github/actions/elle-cli
+      - name: Build Barn
+        run: go build -o bin/barn ./cmd/barn/
+      - name: Test and build Jepsen workload
+        working-directory: tests/jepsen-checkpoint
+        run: JAVA_CMD="$JAVA_HOME/bin/java" lein do test, uberjar
+      - name: Checkout moo-conformance-tests
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: MongooseMoo/moo-conformance-tests
+          ref: ${{ env.CONFORMANCE_REF }}
+          path: moo-conformance-tests
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+      # Exit status: 0 healthy, 1 correctness violation, 3 recovery/progress
+      # failure, 4 incomplete experiment, 5 invalid harness evidence. The
+      # transport-stall control exits 0 only when its designated witness is
+      # reported (6 otherwise). Both run so one failure keeps the other's evidence.
+      # Extended mode runs the same campaign once per seed, seeds taken from
+      # the run number so each night differs (each seed's results.json keeps
+      # its argv): five times the PR phases
+      # (1350 s of clients) at twice the rate, with more clients and a longer
+      # dwell, all seven transport kinds (the default). About 30 minutes per
+      # seed; the PR campaign takes 6 minutes for 270 s of phases.
+      - name: Run campaign
+        run: |
+          set -uo pipefail
+          run() {
+            uv run --project moo-conformance-tests --frozen python scripts/jepsen_checkpoint.py \
+              --barn bin/barn \
+              --leak-check \
+              --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
+              --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
+              --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" "$@"
+          }
+          status=0
+          lane=(--workloads 'smoke,props,keyed,effects,authority,topology' --tasks)
+          if [ "$EXTENDED" = true ]; then
+            first=$((GITHUB_RUN_NUMBER * 10))
+            for seed in $(seq "$first" $((first + 2))); do
+              run "${lane[@]}" --seed "$seed" --rate 60 --concurrency 16 --dwell 4 \
+                --phase1 300 --phase3 450 --phase-live 300 --phase-transport 300 \
+                --output "jepsen-evidence/seed-$seed" --jepsen-timeout 3600 || status=1
+            done
+          else
+            run "${lane[@]}" --rate 30 --dwell 1 \
+              --phase-transport 60 --output jepsen-evidence --jepsen-timeout 600 || status=1
+          fi
+          # Transport lane control (ordinary binary, no stage step): the pause
+          # kind never sends SIGCONT, so the bounded recovery check must report
+          # stalled-recovery from lifecycle and journal rows.
+          run --control transport-stall --workloads smoke --phase1 10 --phase3 0 --phase-live 0 \
+            --phase-transport 20 --output jepsen-evidence-transport-stall --jepsen-timeout 180 || status=1
+          exit "$status"
+      - name: Archive raw evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          dirs=()
+          for dir in jepsen-evidence jepsen-evidence-transport-stall; do
+            if [ -d "$dir" ]; then dirs+=("$dir"); fi
+          done
+          if [ "${#dirs[@]}" -gt 0 ]; then
+            tar -czf jepsen-evidence.tar.gz "${dirs[@]}"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: jepsen-evidence-${{ github.sha }}
+          path: jepsen-evidence.tar.gz
+          if-no-files-found: warn
+
+  # Deterministic checkpoint-stage schedule on the elle build's stop points,
+  # the double crash, and the three negative controls through the same
+  # adapter and checker (scripts/jepsen_checkpoint.py STAGE_SCHEDULE, CONTROLS).
+  stages:
+    name: Checkpoint stage schedule and negative controls
+    needs: tested
+    if: needs.tested.outputs.hit != 'true'
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.extended) && 180 || 20 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check runner device
+        run: test -c /dev/null
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build pinned checker
+        uses: ./.github/actions/elle-cli
+      - name: Build elle Barn
+        run: go build -tags elle -o bin/barn-elle ./cmd/barn/
+      # The stop points and checkpoint faults compile only into the elle
+      # build; ci.yml's untagged go test never runs these.
+      - name: Elle checkpoint tests
+        run: |
+          set -euo pipefail
+          go test -tags elle ./internal/isolationprobe ./db/format -run 'Checkpoint' -count=1
+          for fault in checkpoint-mixed-pair checkpoint-drop-append checkpoint-duplicate-append; do
+            BARN_ELLE_FAULT="$fault" go test -tags elle ./db/format -run 'TestCheckpoint(RowFaults|MixedPairFault)' -count=1 -v
+          done
+      - name: Build Jepsen workload
+        working-directory: tests/jepsen-checkpoint
+        run: JAVA_CMD="$JAVA_HOME/bin/java" lein uberjar
+      - name: Checkout moo-conformance-tests
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: MongooseMoo/moo-conformance-tests
+          ref: ${{ env.CONFORMANCE_REF }}
+          path: moo-conformance-tests
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+      # Stage schedule exit status as for the campaign; each control exits 0
+      # only when its designated witness is reported (6 otherwise). Every run
+      # executes so one failure keeps the others' evidence.
+      # Extended mode runs the stage schedule once per seed (seeds from the run
+      # number) with all six row families, six times the client seconds around
+      # each step, and the campaign's extended rate, clients and dwell; about
+      # 15 minutes per seed (the PR schedule takes 2.3 minutes). The controls
+      # run unchanged in both modes.
+      - name: Run stage schedule and controls
+        run: |
+          set -uo pipefail
+          run() {
+            uv run --project moo-conformance-tests --frozen python scripts/jepsen_checkpoint.py \
+              --barn bin/barn-elle \
+              --leak-check \
+              --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
+              --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
+              --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" \
+              --workloads smoke,props,keyed "$@"
+          }
+          status=0
+          if [ "$EXTENDED" = true ]; then
+            first=$((GITHUB_RUN_NUMBER * 10))
+            for seed in $(seq "$first" $((first + 4))); do
+              run --stages all --workloads smoke,props,keyed,effects,authority,topology --seed "$seed" \
+                --stage-seconds 60 --rate 60 --concurrency 16 --dwell 4 \
+                --output "jepsen-stage-evidence/schedule-seed-$seed" --jepsen-timeout 2400 || status=1
+            done
+          else
+            run --stages all --output jepsen-stage-evidence/schedule --jepsen-timeout 420 || status=1
+          fi
+          for control in checkpoint-mixed-pair checkpoint-drop-append checkpoint-duplicate-append; do
+            run --control "$control" --output "jepsen-stage-evidence/control-$control" --jepsen-timeout 180 || status=1
+          done
+          # Effects lane control (no stage step): a live-process commit-conflict
+          # retry publishes the lost attempt's notifications; the effect
+          # checker must report duplicated-live-retry-effect.
+          run --control pending-effect-retry --workloads effects --phase1 20 --phase3 10 --phase-live 0 \
+            --output jepsen-stage-evidence/control-pending-effect-retry --jepsen-timeout 180 || status=1
+          # Store validation controls (no stage step): each fault turns the
+          # shaped families' write-skew shapes into an Elle G2-item. The real
+          # binary has no barrier, so overlap comes from rate, concurrency and
+          # the --dwell wait (string_hash calls, about 1.7 ms each) between each
+          # verb's reads and writes: a memo fault needs a shape change to commit
+          # inside a memo-hitting observer's window, so v_observe dwells
+          # OBSERVE_DWELL times as long (scripts/jepsen_checkpoint.py).
+          for control in relationship-reads verb-memo hot-memo-guard; do
+            family=authority
+            if [ "$control" = relationship-reads ]; then family=topology; fi
+            run --control "$control" --workloads "$family" --phase1 45 --phase3 0 --phase-live 0 \
+              --rate 100 --concurrency 32 --dwell 10 \
+              --output "jepsen-stage-evidence/control-$control" --jepsen-timeout 240 || status=1
+          done
+          exit "$status"
+      - name: Archive raw evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -d jepsen-stage-evidence ]; then
+            tar -czf jepsen-stage-evidence.tar.gz jepsen-stage-evidence
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: jepsen-stage-evidence-${{ github.sha }}
+          path: jepsen-stage-evidence.tar.gz
+          if-no-files-found: warn

@@ -2,10 +2,11 @@ package compiler
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 type indexBoundaryContext byte
@@ -16,8 +17,8 @@ const (
 )
 
 // compileAssign compiles an assignment expression
-func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
-	if target, ok := n.Target.(*verb.PropertyTarget); ok {
+func (c *lowerer) compileAssign(n *ir.AssignExpr) error {
+	if target, ok := n.Target.(*ir.PropertyTarget); ok {
 		// Sequential property assignments have disjoint temporary lifetimes, so
 		// reuse their slots. Nested assignments increment the depth and therefore
 		// retain distinct live slots while their outer assignment is suspended.
@@ -60,10 +61,10 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 		}
 		return nil
 	}
-	if target, ok := n.Target.(*verb.IndexTarget); ok {
+	if target, ok := n.Target.(*ir.IndexTarget); ok {
 		return c.compileIndexAssign(target, n.Value)
 	}
-	if target, ok := n.Target.(*verb.RangeTarget); ok {
+	if target, ok := n.Target.(*ir.RangeTarget); ok {
 		return c.compileRangeAssign(target, n.Value)
 	}
 
@@ -77,12 +78,12 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 
 	// Handle different target types
 	switch target := n.Target.(type) {
-	case *verb.VariableTarget:
+	case *ir.VariableTarget:
 		// Simple variable assignment
 		idx := c.declareVariable(target.Name)
 		c.emit(bytecode.OP_SET_VAR)
 		c.emitByte(byte(idx))
-	case *verb.DestructuringTarget:
+	case *ir.DestructuringTarget:
 		return c.compileDestructuringTarget(target)
 	default:
 		return fmt.Errorf("invalid assignment target: %T", target)
@@ -91,10 +92,10 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 	return nil
 }
 
-// compileRangeIndex compiles a range index expression against its collection.
-// bytecode.OP_INDEX_MARKER resolves ^ and $ while preserving those semantic operations
-// in the compiled program.
-func (c *lowerer) compileRangeIndex(expr verb.Expr, varIdx int) error {
+// compileRangeIndex compiles a range index expression against its collection,
+// the value of target held in varIdx. bytecode.OP_INDEX_MARKER resolves ^ and
+// $ while preserving those semantic operations in the compiled program.
+func (c *lowerer) compileRangeIndex(expr ir.Expr, varIdx int, target ir.CollectionTarget) error {
 	if !containsIndexBoundary(expr) {
 		return c.compileNode(expr)
 	}
@@ -102,10 +103,11 @@ func (c *lowerer) compileRangeIndex(expr verb.Expr, varIdx int) error {
 	oldContextVar := c.indexContextVar
 	oldBoundaryContext := c.indexBoundaryContext
 
-	tempIdx := c.declareInternalVariable(c.tempVar("rngsetctx"))
+	tempIdx := c.collectionAssignTemp("rngsetctx", 0)
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(varIdx))
 	c.emitStoreLocal(tempIdx)
+	c.markHeldTarget(tempIdx, target)
 
 	c.indexContextVar = tempIdx
 	c.indexBoundaryContext = indexBoundaryRange
@@ -118,6 +120,33 @@ func (c *lowerer) compileRangeIndex(expr verb.Expr, varIdx int) error {
 	return err
 }
 
+// markHeldTarget names the compiler temporary slot as holding target's value,
+// which Toast holds as an operand while it evaluates the indexes after it
+// (nativeVector.target), so a task suspended there converts to and from
+// Toast's frame.
+func (c *lowerer) markHeldTarget(slot int, target ir.CollectionTarget) {
+	if c.importLayout != nil {
+		c.importLayout.flush(c)
+		c.importLayout.locals[slot] = barnImportValue{origin: NativeValueOrigin{Kind: NativeExpression, Node: target}}
+	}
+}
+
+// enterCollectionAssign opens one index or range assignment and returns the
+// function that closes it. Sequential collection assignments have disjoint
+// temporary lifetimes, so they reuse slots; an assignment nested anywhere in
+// another one's target or value runs one depth deeper and keeps distinct slots
+// while the outer assignment's temporaries are live.
+func (c *lowerer) enterCollectionAssign() func() {
+	c.collectionAssignDepth++
+	return func() { c.collectionAssignDepth-- }
+}
+
+// collectionAssignTemp returns the slot for the innermost active collection
+// assignment's temporary of the given kind and position.
+func (c *lowerer) collectionAssignTemp(kind string, position int) int {
+	return c.declareInternalVariable(fmt.Sprintf("__%s_%d_depth_%d__", kind, position, c.collectionAssignDepth))
+}
+
 type propertyWriteback struct {
 	objectVar int
 	nameVar   int
@@ -126,12 +155,14 @@ type propertyWriteback struct {
 
 // prepareCollectionBase evaluates a collection target before the assignment
 // value. Property objects and dynamic names are retained for the eventual
-// write-back, so no target expression is evaluated twice.
-func (c *lowerer) prepareCollectionBase(target verb.CollectionTarget) (int, *propertyWriteback, error) {
-	if variable, ok := target.(*verb.VariableTarget); ok {
+// write-back, so no target expression is evaluated twice. keyedBase fetches a
+// static property with OP_GET_PROP_KEYBASE, for an assignment that writes it
+// back with OP_SET_PROP_KEYED.
+func (c *lowerer) prepareCollectionBase(target ir.CollectionTarget, keyedBase bool) (int, *propertyWriteback, error) {
+	if variable, ok := target.(*ir.VariableTarget); ok {
 		return c.declareVariable(variable.Name), nil, nil
 	}
-	property, ok := target.(*verb.PropertyTarget)
+	property, ok := target.(*ir.PropertyTarget)
 	if !ok {
 		return 0, nil, fmt.Errorf("collection assignment target must be a variable or property")
 	}
@@ -140,7 +171,7 @@ func (c *lowerer) prepareCollectionBase(target verb.CollectionTarget) (int, *pro
 		return 0, nil, err
 	}
 	writeback := &propertyWriteback{
-		objectVar: c.declareInternalVariable(c.tempVar("collectionobj")),
+		objectVar: c.collectionAssignTemp("collectionobj", 0),
 		nameVar:   -1,
 		name:      property.Name,
 	}
@@ -153,21 +184,25 @@ func (c *lowerer) prepareCollectionBase(target verb.CollectionTarget) (int, *pro
 		if err := c.compileNode(property.NameExpr); err != nil {
 			return 0, nil, err
 		}
-		writeback.nameVar = c.declareInternalVariable(c.tempVar("collectionname"))
+		writeback.nameVar = c.collectionAssignTemp("collectionname", 0)
 		c.emitStoreLocal(writeback.nameVar)
 	}
 
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(writeback.objectVar))
-	if property.Name != "" {
+	if property.Name != "" && keyedBase {
+		c.emit(bytecode.OP_GET_PROP_KEYBASE)
+		c.emitShort(uint16(c.addConstant(types.NewStr(property.Name))))
+	} else if property.Name != "" {
 		c.emitStaticNameOperation(bytecode.OP_GET_PROP, bytecode.OP_GET_PROP_WIDE, property.Name)
 	} else {
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(writeback.nameVar))
 		c.emit(bytecode.OP_GET_PROP_DYNAMIC)
 	}
-	baseVar := c.declareInternalVariable(c.tempVar("collectionbase"))
+	baseVar := c.collectionAssignTemp("collectionbase", 0)
 	c.emitStoreLocal(baseVar)
+	c.markHeldTarget(baseVar, property)
 	return baseVar, writeback, nil
 }
 
@@ -188,7 +223,7 @@ func (c *lowerer) emitCollectionWriteback(baseVar int, writeback *propertyWriteb
 	}
 }
 
-func (c *lowerer) compileIndexForCollection(expr verb.Expr, collectionVar int) error {
+func (c *lowerer) compileIndexForCollection(expr ir.Expr, collectionVar int) error {
 	oldContextVar := c.indexContextVar
 	oldBoundaryContext := c.indexBoundaryContext
 	defer func() {
@@ -202,22 +237,36 @@ func (c *lowerer) compileIndexForCollection(expr verb.Expr, collectionVar int) e
 	return c.compileNode(expr)
 }
 
-func (c *lowerer) compileIndexAssign(target *verb.IndexTarget, value verb.Expr) error {
-	var indices []verb.Expr
-	var base verb.CollectionTarget = target
+// collectionIndices returns target's index expressions from the outermost
+// collection inward, the index target each one completes, and the base
+// collection they index.
+func collectionIndices(target *ir.IndexTarget) ([]ir.Expr, []*ir.IndexTarget, ir.CollectionTarget) {
+	var indices []ir.Expr
+	var targets []*ir.IndexTarget
+	var base ir.CollectionTarget = target
 	for {
-		index, ok := base.(*verb.IndexTarget)
+		index, ok := base.(*ir.IndexTarget)
 		if !ok {
 			break
 		}
 		indices = append(indices, index.Index)
+		targets = append(targets, index)
 		base = index.Collection
 	}
-	for left, right := 0, len(indices)-1; left < right; left, right = left+1, right-1 {
-		indices[left], indices[right] = indices[right], indices[left]
-	}
+	slices.Reverse(indices)
+	slices.Reverse(targets)
+	return indices, targets, base
+}
 
-	baseVar, writeback, err := c.prepareCollectionBase(base)
+func (c *lowerer) compileIndexAssign(target *ir.IndexTarget, value ir.Expr) error {
+	defer c.enterCollectionAssign()()
+	indices, targets, base := collectionIndices(target)
+
+	// obj.prop[key] = v with a static name and no ^ or $ in key changes one
+	// entry of the property's value; the store can track it per key.
+	property, isProperty := base.(*ir.PropertyTarget)
+	keyed := isProperty && property.Name != "" && len(indices) == 1 && !containsIndexBoundary(indices[0])
+	baseVar, writeback, err := c.prepareCollectionBase(base, keyed)
 	if err != nil {
 		return err
 	}
@@ -228,7 +277,7 @@ func (c *lowerer) compileIndexAssign(target *verb.IndexTarget, value verb.Expr) 
 		if err := c.compileIndexForCollection(index, collectionVar); err != nil {
 			return err
 		}
-		indexVars[i] = c.declareInternalVariable(c.tempVar("assignindex"))
+		indexVars[i] = c.collectionAssignTemp("assignindex", i)
 		c.emitStoreLocal(indexVars[i])
 		if i < len(indices)-1 {
 			c.emit(bytecode.OP_GET_VAR)
@@ -237,8 +286,9 @@ func (c *lowerer) compileIndexAssign(target *verb.IndexTarget, value verb.Expr) 
 			c.emitByte(byte(indexVars[i]))
 			c.emitTicks(0) // Toast's OP_PUSH_REF is tick-free
 			c.emit(bytecode.OP_INDEX)
-			intermediateVars[i] = c.declareInternalVariable(c.tempVar("assignintermediate"))
+			intermediateVars[i] = c.collectionAssignTemp("assignintermediate", i)
 			c.emitStoreLocal(intermediateVars[i])
+			c.markHeldTarget(intermediateVars[i], targets[i])
 			collectionVar = intermediateVars[i]
 		}
 	}
@@ -263,6 +313,18 @@ func (c *lowerer) compileIndexAssign(target *verb.IndexTarget, value verb.Expr) 
 		c.emitByte(byte(indexVars[i]))
 		c.emitCollectionIndexSet(parentVar, baseVar, writeback)
 	}
+	if keyed {
+		// OP_SET_PROP_KEYED pops obj, key, value: the key rides between them.
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(baseVar))
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(indexVars[0]))
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(writeback.objectVar))
+		c.emit(bytecode.OP_SET_PROP_KEYED)
+		c.emitShort(uint16(c.addConstant(types.NewStr(writeback.name))))
+		return nil
+	}
 	c.emitCollectionWriteback(baseVar, writeback)
 	return nil
 }
@@ -278,23 +340,24 @@ func (c *lowerer) emitCollectionIndexSet(target, baseVar int, writeback *propert
 	c.emitByte(byte(target))
 }
 
-func (c *lowerer) compileRangeAssign(target *verb.RangeTarget, value verb.Expr) error {
-	if nested, ok := target.Collection.(*verb.IndexTarget); ok {
+func (c *lowerer) compileRangeAssign(target *ir.RangeTarget, value ir.Expr) error {
+	defer c.enterCollectionAssign()()
+	if nested, ok := target.Collection.(*ir.IndexTarget); ok {
 		return c.compileNestedRangeAssign(nested, target.Start, target.End, value)
 	}
-	baseVar, writeback, err := c.prepareCollectionBase(target.Collection)
+	baseVar, writeback, err := c.prepareCollectionBase(target.Collection, false)
 	if err != nil {
 		return err
 	}
-	if err := c.compileRangeIndex(target.Start, baseVar); err != nil {
+	if err := c.compileRangeIndex(target.Start, baseVar, target.Collection); err != nil {
 		return err
 	}
-	startVar := c.declareInternalVariable(c.tempVar("rangestart"))
+	startVar := c.collectionAssignTemp("rangestart", 0)
 	c.emitStoreLocal(startVar)
-	if err := c.compileRangeIndex(target.End, baseVar); err != nil {
+	if err := c.compileRangeIndex(target.End, baseVar, target.Collection); err != nil {
 		return err
 	}
-	endVar := c.declareInternalVariable(c.tempVar("rangeend"))
+	endVar := c.collectionAssignTemp("rangeend", 0)
 	c.emitStoreLocal(endVar)
 
 	if err := c.compileNode(value); err != nil {
@@ -316,22 +379,11 @@ func (c *lowerer) compileRangeAssign(target *verb.RangeTarget, value verb.Expr) 
 
 // compileNestedRangeAssign lowers nested range assignments while retaining all
 // target components before evaluating value.
-func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start, end, value verb.Expr) error {
-	var indices []verb.Expr
-	var base verb.CollectionTarget = indexTarget
-	for {
-		index, ok := base.(*verb.IndexTarget)
-		if !ok {
-			break
-		}
-		indices = append(indices, index.Index)
-		base = index.Collection
-	}
-	for left, right := 0, len(indices)-1; left < right; left, right = left+1, right-1 {
-		indices[left], indices[right] = indices[right], indices[left]
-	}
+func (c *lowerer) compileNestedRangeAssign(indexTarget *ir.IndexTarget, start, end, value ir.Expr) error {
+	defer c.enterCollectionAssign()()
+	indices, targets, base := collectionIndices(indexTarget)
 
-	baseVar, writeback, err := c.prepareCollectionBase(base)
+	baseVar, writeback, err := c.prepareCollectionBase(base, false)
 	if err != nil {
 		return err
 	}
@@ -342,7 +394,7 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 		if err := c.compileIndexForCollection(index, collectionVar); err != nil {
 			return err
 		}
-		indexVars[i] = c.declareInternalVariable(c.tempVar("nestedrangeindex"))
+		indexVars[i] = c.collectionAssignTemp("nestedrangeindex", i)
 		c.emitStoreLocal(indexVars[i])
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(collectionVar))
@@ -350,21 +402,22 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 		c.emitByte(byte(indexVars[i]))
 		c.emitTicks(0) // Toast's OP_PUSH_REF is tick-free
 		c.emit(bytecode.OP_INDEX)
-		collectionVars[i] = c.declareInternalVariable(c.tempVar("nestedrangecollection"))
+		collectionVars[i] = c.collectionAssignTemp("nestedrangecollection", i)
 		c.emitStoreLocal(collectionVars[i])
+		c.markHeldTarget(collectionVars[i], targets[i])
 		collectionVar = collectionVars[i]
 	}
 	innerVar := collectionVars[len(collectionVars)-1]
 
-	if err := c.compileRangeIndex(start, innerVar); err != nil {
+	if err := c.compileRangeIndex(start, innerVar, indexTarget); err != nil {
 		return err
 	}
-	startVar := c.declareInternalVariable(c.tempVar("nestedrangestart"))
+	startVar := c.collectionAssignTemp("nestedrangestart", 0)
 	c.emitStoreLocal(startVar)
-	if err := c.compileRangeIndex(end, innerVar); err != nil {
+	if err := c.compileRangeIndex(end, innerVar, indexTarget); err != nil {
 		return err
 	}
-	endVar := c.declareInternalVariable(c.tempVar("nestedrangeend"))
+	endVar := c.collectionAssignTemp("nestedrangeend", 0)
 	c.emitStoreLocal(endVar)
 
 	if err := c.compileNode(value); err != nil {
@@ -394,18 +447,18 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 	return nil
 }
 
-func (c *lowerer) compileIndexBoundary(n *verb.IndexBoundaryExpr) error {
+func (c *lowerer) compileIndexBoundary(n *ir.IndexBoundaryExpr) error {
 	if c.indexContextVar >= 0 {
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(c.indexContextVar))
 		c.emit(bytecode.OP_INDEX_MARKER)
 		if c.indexBoundaryContext == indexBoundaryRange {
-			if n.Boundary == verb.IndexFirst {
+			if n.Boundary == ir.IndexFirst {
 				c.emitByte(bytecode.RangeMarkerFirst)
 			} else {
 				c.emitByte(bytecode.RangeMarkerLast)
 			}
-		} else if n.Boundary == verb.IndexFirst {
+		} else if n.Boundary == ir.IndexFirst {
 			c.emitByte(bytecode.IndexMarkerFirst)
 		} else {
 			c.emitByte(bytecode.IndexMarkerLast)
@@ -413,7 +466,7 @@ func (c *lowerer) compileIndexBoundary(n *verb.IndexBoundaryExpr) error {
 		return nil
 	}
 
-	if n.Boundary == verb.IndexFirst {
+	if n.Boundary == ir.IndexFirst {
 		c.emitConstant(types.NewInt(1))
 		return nil
 	}
@@ -425,19 +478,19 @@ func (c *lowerer) compileIndexBoundary(n *verb.IndexBoundaryExpr) error {
 	return nil
 }
 
-func (c *lowerer) compileExprStmt(n *verb.ExprStmt) error {
+func (c *lowerer) compileExprStmt(n *ir.ExprStmt) error {
 	// Effect-context fast path: a simple variable assignment used as a statement
 	// does not need its value. Emit the store directly, skipping the assignment's
 	// value-preserving bytecode.OP_DUP and the trailing bytecode.OP_POP (dead value shuffling that
 	// otherwise dominates assignment-heavy loops). Complex targets (scatter /
 	// index / property) keep the general value-producing path below.
-	if assign, ok := n.Expr.(*verb.AssignExpr); ok {
-		if ident, ok := assign.Target.(*verb.VariableTarget); ok {
+	if assign, ok := n.Expr.(*ir.AssignExpr); ok {
+		if ident, ok := assign.Target.(*ir.VariableTarget); ok {
 			// Self-add idiom: x = x + expr. This statement does not need the
 			// assignment's result value, so emit the compact compatibility opcode.
 			// Its VM handler shares the normal `+` implementation for every type.
-			if bin, ok := assign.Value.(*verb.BinaryExpr); ok && bin.Operator == verb.BinaryAdd {
-				if leftIdent, ok := bin.Left.(*verb.IdentifierExpr); ok && canonicalIdentifier(leftIdent.Name) == canonicalIdentifier(ident.Name) {
+			if bin, ok := assign.Value.(*ir.BinaryExpr); ok && bin.Operator == ir.BinaryAdd {
+				if leftIdent, ok := bin.Left.(*ir.IdentifierExpr); ok && canonicalIdentifier(leftIdent.Name) == canonicalIdentifier(ident.Name) {
 					idx := c.declareVariable(ident.Name)
 					c.emit(bytecode.OP_GET_VAR)
 					c.emitByte(byte(idx))
@@ -456,9 +509,9 @@ func (c *lowerer) compileExprStmt(n *verb.ExprStmt) error {
 			// trailing elements directly onto v. With the in-place Append path
 			// this turns an O(n^2) build loop into amortized O(n); the result is
 			// identical (v's elements followed by the trailing items).
-			if list, ok := assign.Value.(*verb.ListExpr); ok && len(list.Elements) > 0 {
-				if sp, ok := list.Elements[0].(*verb.SpliceExpr); ok {
-					if spIdent, ok := sp.Expr.(*verb.IdentifierExpr); ok && canonicalIdentifier(spIdent.Name) == canonicalIdentifier(ident.Name) {
+			if list, ok := assign.Value.(*ir.ListExpr); ok && len(list.Elements) > 0 {
+				if sp, ok := list.Elements[0].(*ir.SpliceExpr); ok {
+					if spIdent, ok := sp.Expr.(*ir.IdentifierExpr); ok && canonicalIdentifier(spIdent.Name) == canonicalIdentifier(ident.Name) {
 						idx := c.declareVariable(ident.Name)
 						c.emit(bytecode.OP_GET_VAR)
 						c.emitByte(byte(idx))
@@ -469,8 +522,12 @@ func (c *lowerer) compileExprStmt(n *verb.ExprStmt) error {
 						if len(list.Elements) == 1 {
 							c.emit(bytecode.OP_SPLICE)
 						}
+						if c.importLayout != nil {
+							// v's value is the list Toast holds after splicing @v.
+							c.importLayout.markListPrefix(c, list)
+						}
 						for i, elem := range list.Elements[1:] {
-							if splice, ok := elem.(*verb.SpliceExpr); ok {
+							if splice, ok := elem.(*ir.SpliceExpr); ok {
 								if err := c.compileNode(splice.Expr); err != nil {
 									return err
 								}
@@ -525,28 +582,28 @@ func (c *lowerer) compileExprStmt(n *verb.ExprStmt) error {
 // to an unbound boundary (compiles to a literal -1), not a compile error.
 // Over-detection is harmless: nested index/range expressions always push
 // and restore their own context around their own Index/Start/End fields.
-func containsIndexBoundary(expr verb.Expr) bool {
+func containsIndexBoundary(expr ir.Expr) bool {
 	switch n := expr.(type) {
 	case nil:
 		return false
-	case *verb.IndexBoundaryExpr:
-		return n.Boundary == verb.IndexLast || n.Boundary == verb.IndexFirst
-	case *verb.BinaryExpr:
+	case *ir.IndexBoundaryExpr:
+		return n.Boundary == ir.IndexLast || n.Boundary == ir.IndexFirst
+	case *ir.BinaryExpr:
 		return containsIndexBoundary(n.Left) || containsIndexBoundary(n.Right)
-	case *verb.UnaryExpr:
+	case *ir.UnaryExpr:
 		return containsIndexBoundary(n.Operand)
-	case *verb.TernaryExpr:
+	case *ir.TernaryExpr:
 		return containsIndexBoundary(n.Condition) || containsIndexBoundary(n.ThenExpr) || containsIndexBoundary(n.ElseExpr)
-	case *verb.IndexExpr:
+	case *ir.IndexExpr:
 		// n.Index is scoped to this IndexExpr's own brackets; only n.Expr
 		// (the collection being indexed) is in the enclosing context.
 		return containsIndexBoundary(n.Expr)
-	case *verb.RangeExpr:
+	case *ir.RangeExpr:
 		// n.Start/n.End are scoped to this RangeExpr's own brackets.
 		return containsIndexBoundary(n.Expr)
-	case *verb.PropertyExpr:
+	case *ir.PropertyExpr:
 		return containsIndexBoundary(n.Expr) || containsIndexBoundary(n.PropertyExpr)
-	case *verb.VerbCallExpr:
+	case *ir.VerbCallExpr:
 		if containsIndexBoundary(n.Expr) || containsIndexBoundary(n.VerbExpr) {
 			return true
 		}
@@ -556,29 +613,34 @@ func containsIndexBoundary(expr verb.Expr) bool {
 			}
 		}
 		return false
-	case *verb.BuiltinCallExpr:
+	case *ir.BuiltinCallExpr:
 		for _, arg := range n.Args {
 			if containsIndexBoundary(arg) {
 				return true
 			}
 		}
 		return false
-	case *verb.SpliceExpr:
+	case *ir.SpliceExpr:
 		return containsIndexBoundary(n.Expr)
-	case *verb.CatchExpr:
+	case *ir.CatchExpr:
+		for _, code := range n.Codes {
+			if containsIndexBoundary(code) {
+				return true
+			}
+		}
 		return containsIndexBoundary(n.Expr) || containsIndexBoundary(n.Default)
-	case *verb.AssignExpr:
+	case *ir.AssignExpr:
 		return containsTargetIndexBoundary(n.Target) || containsIndexBoundary(n.Value)
-	case *verb.ListExpr:
+	case *ir.ListExpr:
 		for _, el := range n.Elements {
 			if containsIndexBoundary(el) {
 				return true
 			}
 		}
 		return false
-	case *verb.ListRangeExpr:
+	case *ir.ListRangeExpr:
 		return containsIndexBoundary(n.Start) || containsIndexBoundary(n.End)
-	case *verb.MapExpr:
+	case *ir.MapExpr:
 		for _, pair := range n.Pairs {
 			if containsIndexBoundary(pair.Key) || containsIndexBoundary(pair.Value) {
 				return true
@@ -590,19 +652,19 @@ func containsIndexBoundary(expr verb.Expr) bool {
 	}
 }
 
-func containsTargetIndexBoundary(target verb.Target) bool {
+func containsTargetIndexBoundary(target ir.Target) bool {
 	switch target := target.(type) {
-	case *verb.VariableTarget:
+	case *ir.VariableTarget:
 		return false
-	case *verb.PropertyTarget:
+	case *ir.PropertyTarget:
 		return containsIndexBoundary(target.Object) || containsIndexBoundary(target.NameExpr)
-	case *verb.IndexTarget:
+	case *ir.IndexTarget:
 		return containsTargetIndexBoundary(target.Collection) || containsIndexBoundary(target.Index)
-	case *verb.RangeTarget:
+	case *ir.RangeTarget:
 		return containsTargetIndexBoundary(target.Collection) || containsIndexBoundary(target.Start) || containsIndexBoundary(target.End)
-	case *verb.DestructuringTarget:
+	case *ir.DestructuringTarget:
 		for _, binding := range target.Bindings {
-			if optional, ok := binding.(*verb.OptionalBinding); ok && containsIndexBoundary(optional.Default) {
+			if optional, ok := binding.(*ir.OptionalBinding); ok && containsIndexBoundary(optional.Default) {
 				return true
 			}
 		}
@@ -612,229 +674,107 @@ func containsTargetIndexBoundary(target verb.Target) bool {
 	}
 }
 
-func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) error {
-	// Scatter assignment: {a, ?b, @rest} = list
+func (c *lowerer) compileDestructuringTarget(target *ir.DestructuringTarget) error {
+	// Scatter assignment: {a, ?b = default, @rest} = list
 	//
-	// Runtime strategy:
-	// 1. Validate list shape via bytecode.OP_SCATTER.
-	// 2. Track two cursors (left/right) into the list.
-	// 3. Bind suffix targets (after @rest) from the right.
-	// 4. Bind prefix targets from the left.
-	// 5. Bind @rest to the remaining slice between left..right.
+	// OP_SCATTER is Toast's EOP_SCATTER (execute.cc): one instruction and one
+	// tick that checks the list and binds every target an element reaches,
+	// before any default runs. The defaults follow in target order, as in
+	// Toast's code (code_gen.cc EXPR_SCATTER), each run for an optional target
+	// the list was too short to reach. Toast jumps to the first of those and
+	// falls through the rest; here each tests the list's length, which says the
+	// same: optional targets get the elements beyond the required ones from the
+	// left, so the k-th is unreached when the list has fewer than required+k.
 	numRequired := 0
-	numOptional := 0
 	restIndex := -1
 	type compiledBinding struct {
 		name     string
 		optional bool
 		rest     bool
-		default_ verb.Expr
+		default_ ir.Expr
 	}
 	bindings := make([]compiledBinding, len(target.Bindings))
 	for i, binding := range target.Bindings {
 		switch binding := binding.(type) {
-		case *verb.RequiredBinding:
+		case *ir.RequiredBinding:
 			bindings[i].name = binding.Name
-		case *verb.OptionalBinding:
+		case *ir.OptionalBinding:
 			bindings[i] = compiledBinding{name: binding.Name, optional: true, default_: binding.Default}
-		case *verb.RestBinding:
+		case *ir.RestBinding:
 			bindings[i] = compiledBinding{name: binding.Name, rest: true}
 		}
 		if bindings[i].rest {
 			restIndex = i
 			continue
 		}
-		if bindings[i].optional {
-			numOptional++
-		} else {
+		if !bindings[i].optional {
 			numRequired++
 		}
 	}
-	hasRest := restIndex >= 0
+	hasDefault := false
+	slots := make([]int, len(bindings))
+	for i, binding := range bindings {
+		slots[i] = c.declareVariable(binding.name)
+		hasDefault = hasDefault || binding.default_ != nil
+	}
 
-	listVar := c.declareInternalVariable(c.tempVar("scatter_list"))
-	lenVar := c.declareInternalVariable(c.tempVar("scatter_len"))
-	leftVar := c.declareInternalVariable(c.tempVar("scatter_left"))
-	rightVar := c.declareInternalVariable(c.tempVar("scatter_right"))
-
-	c.emitStoreLocal(listVar)
-
-	// Preserve the original assignment value while validating the stored copy.
-	// OP_SCATTER is Toast's EOP_SCATTER, which binds every target for its one
-	// tick; the bookkeeping below is therefore tick-free, and only an optional
-	// target's default expression and its OP_PUT are charged.
-	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(listVar))
+	// OP_SCATTER pops the copy compileAssign made; the assignment's value stays
+	// on the stack as its result, as Toast keeps the list.
 	c.emit(bytecode.OP_SCATTER)
+	c.emitByte(byte(len(bindings)))
 	c.emitByte(byte(numRequired))
-	c.emitByte(byte(numOptional))
-	if hasRest {
-		c.emitByte(1)
+	if restIndex >= 0 {
+		c.emitByte(byte(restIndex + 1))
 	} else {
-		c.emitByte(0)
+		c.emitByte(byte(len(bindings) + 1))
 	}
-
-	// len = length(list)
-	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(listVar))
-	c.emit(bytecode.OP_LENGTH)
-	c.emitStoreLocal(lenVar)
-
-	// left = 1
-	if op, ok := bytecode.MakeImmediateOpcode(1); ok {
-		c.emit(op)
-	}
-	c.emitStoreLocal(leftVar)
-
-	// right = len
-	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(lenVar))
-	c.emitStoreLocal(rightVar)
-
-	// countRequired returns number of required non-rest targets in [start, end].
-	countRequired := func(start, end int) int {
-		count := 0
-		for i := start; i <= end && i < len(bindings); i++ {
-			if i < 0 {
-				continue
-			}
-			binding := bindings[i]
-			if !binding.rest && !binding.optional {
-				count++
-			}
+	for i, binding := range bindings {
+		c.emitByte(byte(slots[i]))
+		if binding.optional {
+			c.emitByte(1)
+		} else {
+			c.emitByte(0)
 		}
-		return count
 	}
-
-	// emitTake binds target = list[cursor] and steps the cursor toward the
-	// middle: forward from the left (step 0) or backward from the right (1).
-	emitTake := func(targetVar, cursorVar int, step byte) {
-		c.emit(bytecode.OP_SCATTER_TAKE)
-		c.emitByte(byte(listVar))
-		c.emitByte(byte(cursorVar))
-		c.emitByte(byte(targetVar))
-		c.emitByte(step)
-	}
-
-	emitOptionalCondition := func(requiredReserve int) {
-		// (right - left + 1) > requiredReserve
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(rightVar))
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(leftVar))
-		c.emitTicks(0)
-		c.emit(bytecode.OP_SUB)
-		if op, ok := bytecode.MakeImmediateOpcode(1); ok {
-			c.emit(op)
-		}
-		c.emitTicks(0)
-		c.emit(bytecode.OP_ADD)
-		c.emitIntLiteral(int64(requiredReserve))
-		c.emitTicks(0)
-		c.emit(bytecode.OP_GT)
-		c.emitTicks(0)
-	}
-
-	emitOptionalMissingValue := func(binding compiledBinding, targetVar int) error {
-		if binding.default_ != nil {
-			if err := c.compileNode(binding.default_); err != nil {
-				return err
-			}
-			c.emit(bytecode.OP_SET_VAR)
-			c.emitByte(byte(targetVar))
-		}
-		// When no default is specified, leave the variable as-is.
+	if !hasDefault {
 		return nil
 	}
 
-	// Bind suffix targets from the right when @rest is present.
-	if hasRest {
-		for i := len(bindings) - 1; i > restIndex; i-- {
-			binding := bindings[i]
-			if binding.rest {
-				continue
-			}
-			targetVar := c.declareVariable(binding.name)
-			if binding.optional {
-				requiredBefore := countRequired(0, i-1)
-				emitOptionalCondition(requiredBefore)
-				elseJump := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
+	// Sequential scatters have disjoint temporary lifetimes, so reuse the
+	// slot. A scatter nested in a default expression increments the depth and
+	// keeps a distinct slot while the outer scatter's length is live.
+	depth := c.scatterDepth
+	c.scatterDepth++
+	defer func() { c.scatterDepth-- }()
+	lenVar := c.declareInternalVariable(fmt.Sprintf("__scatter_len_depth_%d__", depth))
+	c.emit(bytecode.OP_DUP)
+	c.emit(bytecode.OP_LENGTH)
+	c.emitStoreLocal(lenVar)
 
-				emitTake(targetVar, rightVar, 1)
-				endJump := c.emitJump(bytecode.OP_JUMP)
-
-				c.patchJump(elseJump)
-				if err := emitOptionalMissingValue(binding, targetVar); err != nil {
-					return err
-				}
-				c.patchJump(endJump)
-			} else {
-				emitTake(targetVar, rightVar, 1)
-			}
-		}
-	}
-
-	// Bind prefix targets from the left.
-	prefixEnd := len(bindings) - 1
-	if hasRest {
-		prefixEnd = restIndex - 1
-	}
-	for i := 0; i <= prefixEnd; i++ {
-		binding := bindings[i]
-		if binding.rest {
+	// The length tests are bookkeeping inside EOP_SCATTER's tick; only a
+	// default expression and its OP_PUT are charged.
+	optionals := 0
+	for i, binding := range bindings {
+		if !binding.optional {
 			continue
 		}
-
-		targetVar := c.declareVariable(binding.name)
-		if binding.optional {
-			requiredAfter := countRequired(i+1, prefixEnd)
-			emitOptionalCondition(requiredAfter)
-			elseJump := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
-
-			emitTake(targetVar, leftVar, 0)
-			endJump := c.emitJump(bytecode.OP_JUMP)
-
-			c.patchJump(elseJump)
-			if err := emitOptionalMissingValue(binding, targetVar); err != nil {
-				return err
-			}
-			c.patchJump(endJump)
-		} else {
-			emitTake(targetVar, leftVar, 0)
+		optionals++
+		if binding.default_ == nil {
+			continue // an unreached target without a default keeps its value
 		}
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(lenVar))
+		c.emitIntLiteral(int64(numRequired + optionals))
+		c.emitTicks(0)
+		c.emit(bytecode.OP_LT)
+		c.emitTicks(0)
+		reached := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
+		if err := c.compileNode(binding.default_); err != nil {
+			return err
+		}
+		c.emit(bytecode.OP_SET_VAR)
+		c.emitByte(byte(slots[i]))
+		c.patchJump(reached)
 	}
-
-	// Bind @rest to the remaining middle slice.
-	if hasRest {
-		restBinding := bindings[restIndex]
-		restVar := c.declareVariable(restBinding.name)
-
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(leftVar))
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(rightVar))
-		c.emitTicks(0)
-		c.emit(bytecode.OP_LE)
-		c.emitTicks(0)
-		elseJump := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
-
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(listVar))
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(leftVar))
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(rightVar))
-		c.emitTicks(0)
-		c.emit(bytecode.OP_RANGE)
-		c.emitStoreLocal(restVar)
-		endJump := c.emitJump(bytecode.OP_JUMP)
-
-		c.patchJump(elseJump)
-		c.emit(bytecode.OP_MAKE_LIST)
-		c.emitByte(0)
-		c.emitStoreLocal(restVar)
-		c.patchJump(endJump)
-	}
-
 	return nil
 }

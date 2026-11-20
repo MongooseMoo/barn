@@ -156,12 +156,12 @@ func TestRuntimeWakeRunsEarlierArrivalAndTimedSuspension(t *testing.T) {
 	processor := NewInputProcessor(store, rt)
 	defer processor.Stop()
 	processor.Start()
-	queue := func(id int64, code string, delay time.Duration) *task.Task {
+	queue := func(id int64, code string, delay time.Duration) *engine.Task {
 		program, diagnostics := rt.Registry().Compiler().CompileMOO([]string{code})
 		if len(diagnostics) != 0 {
 			t.Fatal(diagnostics)
 		}
-		tk := task.NewTaskFull(id, types.ObjNothing, program, 1000, 5)
+		tk := engine.NewTaskFull(id, types.ObjNothing, program, 1000, 5)
 		tk.StartTime = time.Now().Add(delay)
 		tk.Done = make(chan struct{})
 		rt.QueueTask(tk)
@@ -194,7 +194,7 @@ func TestRuntimeWakeExternalCompletionAndLateCompletionAfterStop(t *testing.T) {
 	if len(diagnostics) != 0 {
 		t.Fatal(diagnostics)
 	}
-	tk := task.NewTaskFull(90201, types.ObjNothing, program, 1000, 5)
+	tk := engine.NewTaskFull(90201, types.ObjNothing, program, 1000, 5)
 	tk.Done = make(chan struct{})
 	rt.QueueTask(tk)
 	processor.Start()

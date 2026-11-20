@@ -1,0 +1,12 @@
+{
+  "cite_key": "sigelman2010dapper",
+  "title": "Dapper, a Large-Scale Distributed Systems Tracing Infrastructure",
+  "authors": ["Benjamin H. Sigelman", "Luiz Andre Barroso", "Mike Burrows", "Pat Stephenson", "Manoj Plakal", "Donald Beaver", "Saul Jaspan", "Chandan Shanbhag"],
+  "year": "2010",
+  "document_type": "report",
+  "arxiv_id": null,
+  "doi": null,
+  "abstract": null,
+  "url": "https://research.google/pubs/dapper-a-large-scale-distributed-systems-tracing-infrastructure/",
+  "pdf_url": "https://research.google.com/archive/papers/dapper-2010-1.pdf"
+}

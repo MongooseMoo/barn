@@ -1,19 +1,11 @@
 package store
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
 )
-
-func containsObjID(s []types.ObjID, id types.ObjID) bool {
-	for _, x := range s {
-		if x == id {
-			return true
-		}
-	}
-	return false
-}
 
 // commitMove stages what->where through a fresh txn and commits it, returning the
 // commit error code. It asserts the move did not take the coarse live-mutation path.
@@ -37,7 +29,7 @@ func TestTxnMoveDecentralizedMaintainsContents(t *testing.T) {
 	if ec := commitMove(t, s, x, roomA, 0); ec != types.E_NONE {
 		t.Fatalf("commit move to A: %v", ec)
 	}
-	if !containsObjID(s.load(roomA).contents, x) {
+	if !slices.Contains(s.load(roomA).contents, x) {
 		t.Fatalf("A.contents missing x after first move")
 	}
 
@@ -47,10 +39,10 @@ func TestTxnMoveDecentralizedMaintainsContents(t *testing.T) {
 	if loc := s.load(x).location; loc != roomB {
 		t.Errorf("x.location = %v, want %v", loc, roomB)
 	}
-	if !containsObjID(s.load(roomB).contents, x) {
+	if !slices.Contains(s.load(roomB).contents, x) {
 		t.Errorf("B.contents missing x")
 	}
-	if containsObjID(s.load(roomA).contents, x) {
+	if slices.Contains(s.load(roomA).contents, x) {
 		t.Errorf("A.contents still has x after move away")
 	}
 }
@@ -125,7 +117,7 @@ func TestTxnMoveSameRoomCommutes(t *testing.T) {
 	}
 	// Both objects landed in the room — no lost update.
 	c := s.load(dest).contents
-	if !containsObjID(c, x) || !containsObjID(c, y) {
+	if !slices.Contains(c, x) || !slices.Contains(c, y) {
 		t.Errorf("dest.contents = %v, want both x=%v and y=%v", c, x, y)
 	}
 }

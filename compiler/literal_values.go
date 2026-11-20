@@ -3,24 +3,24 @@ package compiler
 import (
 	"fmt"
 
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
 
-func valueFromLiteral(lit *verb.LiteralExpr) (types.Value, error) {
+func valueFromLiteral(lit *ir.LiteralExpr) (types.Value, error) {
 	switch lit.Kind {
-	case verb.LiteralInt:
+	case ir.LiteralInt:
 		return types.NewInt(lit.IntValue), nil
-	case verb.LiteralFloat:
+	case ir.LiteralFloat:
 		return types.NewFloat(lit.FloatValue), nil
-	case verb.LiteralString:
+	case ir.LiteralString:
 		return types.NewStr(lit.StringValue), nil
-	case verb.LiteralBool:
+	case ir.LiteralBool:
 		return types.NewBool(lit.BoolValue), nil
-	case verb.LiteralObj:
+	case ir.LiteralObj:
 		return types.NewObj(types.ObjID(lit.ObjID)), nil
-	case verb.LiteralErr:
-		code, ok := errorNameToCode(lit.ErrorName)
+	case ir.LiteralErr:
+		code, ok := types.ErrorFromString(lit.ErrorName)
 		if !ok {
 			return types.None, fmt.Errorf("unknown error code: %s", lit.ErrorName)
 		}
@@ -30,18 +30,20 @@ func valueFromLiteral(lit *verb.LiteralExpr) (types.Value, error) {
 	}
 }
 
-func errorNameToCode(name string) (types.ErrorCode, bool) {
-	return types.ErrorFromString(name)
-}
-
-func lowerErrorNames(names []string) ([]types.ErrorCode, error) {
-	codes := make([]types.ErrorCode, 0, len(names))
-	for _, name := range names {
-		code, ok := errorNameToCode(name)
-		if !ok {
-			return nil, fmt.Errorf("unknown error code: %s", name)
+// literalErrorCodes returns the error codes of a code list made only of error
+// literals; ok is false when any element is another expression or a splice.
+func literalErrorCodes(codes []ir.Expr) (errorCodes []types.ErrorCode, ok bool, err error) {
+	errorCodes = make([]types.ErrorCode, 0, len(codes))
+	for _, code := range codes {
+		literal, isLiteral := code.(*ir.LiteralExpr)
+		if !isLiteral || literal.Kind != ir.LiteralErr {
+			return nil, false, nil
 		}
-		codes = append(codes, code)
+		value, err := valueFromLiteral(literal)
+		if err != nil {
+			return nil, false, err
+		}
+		errorCodes = append(errorCodes, value.Code())
 	}
-	return codes, nil
+	return errorCodes, true, nil
 }

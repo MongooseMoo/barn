@@ -86,7 +86,7 @@ if ($Start) {
         Copy-Item -LiteralPath "$run/mongoose.db.new" -Destination "$cwd/mongoose.db.new" -Force
         Copy-Item -LiteralPath "$run/sound.sqlite" -Destination "$cwd/files/sqlite/sound.sqlite" -Force
         $processStarted = [DateTime]::UtcNow
-        $proc = Start-Process -FilePath "$run/barn.exe" -ArgumentList "-db mongoose.db.new -promote-numbers -port $Port -debug-addr 127.0.0.1:11486 -operator-addr 127.0.0.1:11487 -checkpoint-interval 0 -log-level debug -log-dir logs" -WorkingDirectory $cwd -WindowStyle Hidden -PassThru -RedirectStandardOutput "$prefix-server-out.txt" -RedirectStandardError "$prefix-server-err.txt"
+        $proc = Start-Process -FilePath "$run/barn.exe" -ArgumentList "serve --db mongoose.db.new --promote-numbers --port $Port --debug-addr 127.0.0.1:11486 --operator-addr 127.0.0.1:11487 --checkpoint-interval 0 --log-level debug --log-dir logs" -WorkingDirectory $cwd -WindowStyle Hidden -PassThru -RedirectStandardOutput "$prefix-server-out.txt" -RedirectStandardError "$prefix-server-err.txt"
     } else {
         $toastRun = '/tmp/barn-mongoose-account-' + $stamp
         if (-not (Test-Path -LiteralPath "$run/tz")) { throw 'Missing tz helper; run scripts/fetch-mongoose.ps1 first.' }
@@ -142,17 +142,17 @@ do {
     $inputFile = "$run/input-$stamp.txt"
     [IO.File]::WriteAllLines($inputFile, $lines, [Text.UTF8Encoding]::new($false))
     try {
-        $args = @('-host', '127.0.0.1', '-port', $Port, '-banner-wait', $BannerWait, '-inter-cmd', $InterCommand, '-timeout', $Timeout, '-max-duration', $MaxDuration)
+        $args = @('--host', '127.0.0.1', '--port', $Port, '--banner-wait', $BannerWait, '--inter-cmd', $InterCommand, '--timeout', $Timeout, '--max-duration', $MaxDuration)
         if ($Username -and -not $FixedDelays) {
-            $args += @('-login-prompts', '-login-ready', $CleanLoginMarker)
-            if ($UntilCleanLogin -and -not $VerifyTimeOffset -and $Commands.Count -eq 0) { $args += '-stop-after-login' }
+            $args += @('--login-prompts', '--login-ready', $CleanLoginMarker)
+            if ($UntilCleanLogin -and -not $VerifyTimeOffset -and $Commands.Count -eq 0) { $args += '--stop-after-login' }
         }
         if ($Engine -eq 'Barn') {
-            & $client @args -file $inputFile -event-log "$prefix-events.jsonl" 2>&1 |
+            & $client @args --file $inputFile --event-log "$prefix-events.jsonl" 2>&1 |
                 ForEach-Object { if ($Password) { $_.ToString().Replace($Password, '[redacted]') } else { $_.ToString() } } |
                 Tee-Object "$prefix-client.txt"
         } else {
-            & wsl -d $Distribution --exec "$linuxRun/moo_client" @args -file "$linuxRun/input-$stamp.txt" -event-log "$linuxRun/$(Split-Path $prefix -Leaf)-events.jsonl" 2>&1 |
+            & wsl -d $Distribution --exec "$linuxRun/moo_client" @args --file "$linuxRun/input-$stamp.txt" --event-log "$linuxRun/$(Split-Path $prefix -Leaf)-events.jsonl" 2>&1 |
                 ForEach-Object { if ($Password) { $_.ToString().Replace($Password, '[redacted]') } else { $_.ToString() } } |
                 Tee-Object "$prefix-client.txt"
         }

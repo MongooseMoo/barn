@@ -17,6 +17,16 @@ func TestStringEqualityTreatsBinaryControlEscapesAsBytes(t *testing.T) {
 	}
 }
 
+func TestStringEqualityWithoutEscapesDoesNotAllocate(t *testing.T) {
+	a, b := NewStr("The quick brown fox"), NewStr("the quick brown FOX")
+	if !a.Equal(b) {
+		t.Fatal("case variants should compare equal")
+	}
+	if allocs := testing.AllocsPerRun(100, func() { _ = a.Equal(b) }); allocs != 0 {
+		t.Fatalf("comparing two strings with no ~ escape allocated %v times", allocs)
+	}
+}
+
 func TestStringEqualityFoldsValidUTF8Case(t *testing.T) {
 	if !NewStr("À").Equal(NewStr("à")) {
 		t.Fatal("valid UTF-8 case variants should compare equal")

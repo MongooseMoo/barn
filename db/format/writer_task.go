@@ -24,7 +24,10 @@ func (w *Writer) SetTaskSnapshots(queued, suspended []task.Snapshot) {
 // writeQueuedTasks writes all queued (forked) tasks
 func (w *Writer) writeQueuedTasks() error {
 	for _, t := range w.queuedTasks {
-		if t.Fork == nil || len(t.Fork.SourceLines) == 0 {
+		// An empty fork body ("fork (n) endfork") is a valid program. Toast
+		// writes it as the terminator alone (db_io.cc
+		// dbio_write_forked_program), so only a missing fork is unwritable.
+		if t.Fork == nil {
 			return fmt.Errorf("queued task %d has no serializable fork program", t.ID)
 		}
 	}
@@ -78,7 +81,7 @@ func (w *Writer) writeQueuedTask(t task.Snapshot) error {
 
 	// Code: source lines
 	for _, line := range t.Fork.SourceLines {
-		if err := w.writeString(line); err != nil {
+		if err := w.writeSourceLine(line); err != nil {
 			return err
 		}
 	}
@@ -132,7 +135,7 @@ func (w *Writer) writeInterruptedTasks() error {
 			return fmt.Errorf("write interrupted task-local value: %w", err)
 		}
 		machine := interrupted.VM
-		if _, err := fmt.Fprintf(w.w, "%d -1 0 %d\n", len(machine.Frames)-1, machine.MaxStackDepth); err != nil {
+		if err := w.writeVMHeader(machine, 0); err != nil {
 			return err
 		}
 		for i, frame := range machine.Frames {
@@ -159,6 +162,14 @@ func (w *Writer) writeInterruptedTasks() error {
 	return nil
 }
 
+// activationDefinerType is the last number on an activation line, for queued
+// forks and suspended frames alike. Toast's write_activ_as_pi (execute.cc)
+// passes the 16-byte Var a.vloc to one integer conversion, so its final %d
+// prints that Var's type code and a.debug is never printed; read_activ_as_pi
+// then reads the number as the activation's debug flag. Barn writes the
+// definer as an object, so the number is that type's code.
+const activationDefinerType = TypeObj
+
 // writeActivationAsPI writes activation in Program Info format
 // Format:
 //
@@ -166,7 +177,7 @@ func (w *Writer) writeInterruptedTasks() error {
 //	temp_this (typed)
 //	temp_vloc (typed)
 //	threaded (raw int)
-//	Header: "{this} {unused1} {unused2} {player} {unused3} {programmer} {vloc} {unused4} {debug}"
+//	Header: "{this} {unused1} {unused2} {player} {unused3} {programmer} {vloc} {unused4} {vloc type}"
 //	"No"
 //	"More"
 //	"Parse"
@@ -219,10 +230,9 @@ func (w *Writer) writeActivationAsPI(t task.Snapshot) error {
 		return err
 	}
 
-	// Header: {this} {unused1} {unused2} {player} {unused3} {programmer} {vloc} {unused4} {debug}
-	debug := 0
+	// Header: {this} {unused1} {unused2} {player} {unused3} {programmer} {vloc} {unused4} {vloc type}
 	if _, err := fmt.Fprintf(w.w, "%d -7 -8 %d -9 %d %d -10 %d\n",
-		thisObj, player, programmer, vloc, debug); err != nil {
+		thisObj, player, programmer, vloc, activationDefinerType); err != nil {
 		return err
 	}
 

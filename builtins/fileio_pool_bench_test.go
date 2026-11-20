@@ -27,7 +27,7 @@ func poolReadFixture(t testing.TB, size int, binary bool) (*Execution, *mooFileH
 	ctx.Session.runtime.files.handles[1] = h
 	want := filterTextMode(data)
 	if binary {
-		want = encodeBinaryBytes(data)
+		want = EncodeRawToBinary(data)
 	}
 	return ctx, h, types.NewInt(1), want
 }

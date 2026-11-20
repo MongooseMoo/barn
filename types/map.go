@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"cmp"
 	"fmt"
 	"hash/maphash"
@@ -56,9 +57,8 @@ type goMap struct {
 	root     *toastLookupNode
 	// finalizable caches whether any key or value (transitively) is an
 	// anonymous object or WAIF; see finalizableUnknown/None/Maybe.
-	finalizable         int8
-	finalizableOnce     sync.Once
-	finalizableResolved int8
+	finalizable         int8 // immutable constructor-supplied proof
+	finalizableResolved atomic.Int32
 	// byteSize caches ValueBytes(map) (always > 0 when known; 0 = not
 	// computed). set/delete derive the new map's size from the old one, so
 	// the per-write quota check is O(1) instead of a walk of every pair —
@@ -78,6 +78,16 @@ func (m *goMap) mapBytes() int {
 		size += ValueBytes(e.key) + ValueBytes(e.val)
 	}
 	return size
+}
+
+// MapKeysEqual reports whether a and b address the same map entry, under the
+// same rule a map lookup uses (strings compare without ASCII case).
+func MapKeysEqual(a, b Value) bool { return mapKeyMatches(a, b) }
+
+// SameMapValue reports whether a and b are the same map payload, not merely
+// equal ones. Maps are immutable, so the same payload means the same contents.
+func SameMapValue(a, b Value) bool {
+	return a.Type() == TYPE_MAP && b.Type() == TYPE_MAP && a.ref == b.ref
 }
 
 // mapKeyMatches reports whether a and b are the same map key: exactly when
@@ -114,6 +124,65 @@ func mapKeyMatches(a, b Value) bool {
 type flatEntry struct {
 	hash uint64
 	mapEntry
+}
+
+// Each small update owns a new header and entry array. Keeping both in one
+// typed allocation halves their object count without sharing mutable storage.
+// Exact-sized arrays avoid retaining unused entries in long-lived values.
+type flatMapEntries interface {
+	[1]flatEntry | [2]flatEntry | [3]flatEntry | [4]flatEntry |
+		[5]flatEntry | [6]flatEntry | [7]flatEntry | [8]flatEntry |
+		[9]flatEntry | [10]flatEntry | [11]flatEntry | [12]flatEntry |
+		[13]flatEntry | [14]flatEntry | [15]flatEntry | [16]flatEntry
+}
+
+func allocateFlatMap[E flatMapEntries]() *goMap {
+	storage := new(struct {
+		header  goMap
+		entries E
+	})
+	storage.header.flat = unsafe.Slice(&storage.entries[0], len(storage.entries))
+	storage.header.count = len(storage.entries)
+	return &storage.header
+}
+
+func newFlatMap(size int) *goMap {
+	switch size {
+	case 1:
+		return allocateFlatMap[[1]flatEntry]()
+	case 2:
+		return allocateFlatMap[[2]flatEntry]()
+	case 3:
+		return allocateFlatMap[[3]flatEntry]()
+	case 4:
+		return allocateFlatMap[[4]flatEntry]()
+	case 5:
+		return allocateFlatMap[[5]flatEntry]()
+	case 6:
+		return allocateFlatMap[[6]flatEntry]()
+	case 7:
+		return allocateFlatMap[[7]flatEntry]()
+	case 8:
+		return allocateFlatMap[[8]flatEntry]()
+	case 9:
+		return allocateFlatMap[[9]flatEntry]()
+	case 10:
+		return allocateFlatMap[[10]flatEntry]()
+	case 11:
+		return allocateFlatMap[[11]flatEntry]()
+	case 12:
+		return allocateFlatMap[[12]flatEntry]()
+	case 13:
+		return allocateFlatMap[[13]flatEntry]()
+	case 14:
+		return allocateFlatMap[[14]flatEntry]()
+	case 15:
+		return allocateFlatMap[[15]flatEntry]()
+	case 16:
+		return allocateFlatMap[[16]flatEntry]()
+	default:
+		panic("flat map allocation outside 1..16 entries")
+	}
 }
 
 func newFlatEntry(k, v Value) flatEntry {
@@ -244,44 +313,62 @@ func (m *goMap) indexed() *goMap {
 		}
 		// Racing writers may each build it; the forms are equal and either
 		// may be kept.
-		p := m.buildIndexed()
+		p := m.buildIndexed(nil)
 		m.bulk.indexed.Store(p)
 		return p
 	}
-	return m.buildIndexed()
+	return m.buildIndexed(nil)
 }
 
-func (m *goMap) buildIndexed() *goMap {
+// added, when non-nil, is a missing key that triggers promotion. Build its
+// final map privately instead of immediately path-copying the new trie.
+func (m *goMap) buildIndexed(added *mapEntry) *goMap {
 	p := &goMap{count: m.count, finalizable: m.finalizableState(), byteSize: m.mapBytes()}
-	builder := mapBuilder{blockSize: min(32, len(m.flat))}
-	for _, e := range m.flat {
-		hash := keyHash(e.key)
-		builder.put(&p.index, hash, e.mapEntry, maphash.Comparable(mapIndexSeed, hash))
+	if added != nil {
+		p.count++
+		p.byteSize += ValueBytes(added.key) + ValueBytes(added.val)
+		p.finalizable = finalizableAfterAdd(finalizableAfterAdd(p.finalizable, added.key), added.val)
+	}
+	builder := mapBuilder{blockSize: min(32, p.count)}
+	for i := 0; i < p.count; i++ {
+		var entry mapEntry
+		if i < len(m.flat) {
+			entry = m.flat[i].mapEntry
+		} else {
+			entry = *added
+		}
+		hash := keyHash(entry.key)
+		builder.put(&p.index, hash, entry, maphash.Comparable(mapIndexSeed, hash))
 		p.order = builder.order(hash, p.order)
 	}
 	return p
 }
 
 // finalizableState returns the cached tri-state, resolving finalizableUnknown
-// with a single scan. Derived maps (set/delete) start from this resolved state
+// with an immutable scan. Derived maps (set/delete) start from this resolved state
 // so a clean proof propagates along a chain of updates; see
 // (*sliceList).finalizableState for why the raw field is not enough.
 func (m *goMap) finalizableState() int8 {
-	if m.finalizable == finalizableUnknown {
-		m.finalizableOnce.Do(func() {
-			m.finalizableResolved = finalizableNone
-			if mapIndexFinalizable(m.index) {
-				m.finalizableResolved = finalizableMaybe
-			}
-			for _, e := range m.flat {
-				if e.key.MayHoldFinalizable() || e.val.MayHoldFinalizable() {
-					m.finalizableResolved = finalizableMaybe
-				}
-			}
-		})
-		return m.finalizableResolved
+	if m.finalizable != finalizableUnknown {
+		return m.finalizable
 	}
-	return m.finalizable
+	if state := m.finalizableResolved.Load(); state != int32(finalizableUnknown) {
+		return int8(state)
+	}
+	state := finalizableNone
+	if mapIndexFinalizable(m.index) {
+		state = finalizableMaybe
+	}
+	for _, e := range m.flat {
+		if e.key.MayHoldFinalizable() || e.val.MayHoldFinalizable() {
+			state = finalizableMaybe
+			break
+		}
+	}
+	// As with lists, concurrent cold readers may duplicate this immutable
+	// scan and publish the same result. No reader mutates the constructor proof.
+	m.finalizableResolved.Store(int32(state))
+	return state
 }
 
 func (m *goMap) mayHoldFinalizable() bool {
@@ -326,27 +413,23 @@ func toastTypeOrdinal(t TypeCode) int {
 	}
 }
 
+// boolOrdinal ranks false before true, as Toast's compare() does.
+func boolOrdinal(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func toastMapCompare(a, b Value, caseSensitive bool) int {
 	if a.Type() != b.Type() {
 		return toastTypeOrdinal(a.Type()) - toastTypeOrdinal(b.Type())
 	}
 	switch a.Type() {
 	case TYPE_INT:
-		if a.Int() < b.Int() {
-			return -1
-		}
-		if a.Int() > b.Int() {
-			return 1
-		}
-		return 0
+		return cmp.Compare(a.Int(), b.Int())
 	case TYPE_OBJ:
-		if a.Obj() < b.Obj() {
-			return -1
-		}
-		if a.Obj() > b.Obj() {
-			return 1
-		}
-		return 0
+		return cmp.Compare(a.Obj(), b.Obj())
 	case TYPE_ERR:
 		return int(a.ErrCode()) - int(b.ErrCode())
 	case TYPE_STR:
@@ -361,21 +444,17 @@ func toastMapCompare(a, b Value, caseSensitive bool) int {
 			return 1
 		}
 		return 0
+	// Toast 2.8 (c0966e5) orders waifs and anonymous objects by address and
+	// bools as false < true. Barn has no stable addresses; a waif's identity
+	// token and an anonymous object's id are fixed for the value's lifetime,
+	// so they give the same kind of arbitrary but total order.
 	case TYPE_WAIF:
-		if a.WaifIdentity() == b.WaifIdentity() {
-			return 0
-		}
-		return 1
+		ai, bi := a.WaifIdentity(), b.WaifIdentity()
+		return bytes.Compare(ai.swiss[:], bi.swiss[:])
 	case TYPE_ANON:
-		if a.ID() == b.ID() {
-			return 0
-		}
-		return 1
+		return cmp.Compare(a.ID(), b.ID())
 	case TYPE_BOOL:
-		if a.Bool() == b.Bool() {
-			return 0
-		}
-		return 1
+		return boolOrdinal(a.Bool()) - boolOrdinal(b.Bool())
 	default:
 		return 0
 	}
@@ -516,21 +595,25 @@ func (m *goMap) set(k, v Value) *goMap {
 		}
 		i := m.flatFind(k)
 		if i < 0 && len(m.flat) >= mapFlatLimit {
-			return m.indexed().set(k, v)
+			return m.buildIndexed(&mapEntry{key: k, val: v})
 		}
 		fin := finalizableAfterAdd(finalizableAfterAdd(finalizableAfterRemove(m.finalizableState()), k), v)
 		bytes := m.mapBytes() + ValueBytes(k) + ValueBytes(v)
-		var flat []flatEntry
+		size := len(m.flat)
+		var hash uint64
 		if i >= 0 {
 			bytes -= ValueBytes(m.flat[i].key) + ValueBytes(m.flat[i].val)
-			flat = append([]flatEntry(nil), m.flat...)
-			flat[i] = flatEntry{hash: m.flat[i].hash, mapEntry: mapEntry{key: k, val: v}}
+			hash = m.flat[i].hash
 		} else {
-			flat = make([]flatEntry, len(m.flat)+1)
-			copy(flat, m.flat)
-			flat[len(m.flat)] = newFlatEntry(k, v)
+			size++
+			i = len(m.flat)
+			hash = flatKeyHash(k)
 		}
-		return &goMap{flat: flat, count: len(flat), finalizable: fin, byteSize: bytes}
+		result := newFlatMap(size)
+		copy(result.flat, m.flat)
+		result.flat[i] = flatEntry{hash: hash, mapEntry: mapEntry{key: k, val: v}}
+		result.finalizable, result.byteSize = fin, bytes
+		return result
 	}
 	hash := keyHash(k)
 	bits := maphash.Comparable(mapIndexSeed, hash)
@@ -591,11 +674,17 @@ func (m *goMap) delete(k Value) *goMap {
 }
 
 func (m *goMap) keys() []Value {
-	pairs := m.pairsList()
-	keys := make([]Value, len(pairs))
-	for i := range pairs {
-		keys[i] = pairs[i][0]
+	keys := make([]Value, 0, m.count)
+	var visit func(*toastLookupNode)
+	visit = func(node *toastLookupNode) {
+		if node == nil {
+			return
+		}
+		visit(node.link[0])
+		keys = append(keys, node.entry.key)
+		visit(node.link[1])
 	}
+	visit(m.toastRoot())
 	return keys
 }
 
@@ -749,11 +838,8 @@ func (v Value) MapColumns() (values, keys []Value) {
 
 // PairsInInsertionOrder returns all key-value pairs in raw insertion order,
 // NOT tree-traversal order. Feeding these to NewMap reproduces the source
-// map's topology exactly. In-memory rebuilds (e.g. the snapshot anon-id
-// rewrite) must use this: Pairs() traversal order is REVERSED insertion order
-// for non-totally-ordered key types (waif/anon/bool), so a Pairs()->NewMap
-// round trip would flip those keys and cancel the Toast-pinned reversal that
-// dump/reload itself performs.
+// map's insertion order exactly. Key order (Pairs, Keys) comes from the
+// total order of toastMapCompare and does not depend on insertion order.
 func (v Value) PairsInInsertionOrder() [][2]Value {
 	m := v.goMap()
 	pairs := make([][2]Value, m.count)
@@ -804,14 +890,9 @@ func (v Value) KeyPosition(key Value) int64 {
 	return 0
 }
 
-// IsValidMapKey reports whether a value type is valid as a map key.
+// IsValidMapKey reports whether a value type is valid as a map key, both in
+// the VM and as the key argument to mapdelete() and maphaskey().
 func IsValidMapKey(v Value) bool {
 	t := v.Type()
 	return t == TYPE_INT || t == TYPE_FLOAT || t == TYPE_STR || t == TYPE_OBJ || t == TYPE_ANON || t == TYPE_ERR || t == TYPE_WAIF || t == TYPE_BOOL
-}
-
-// IsValidBuiltinMapKey reports whether a value is valid as a key argument to map
-// builtins. Anonymous object keys are rejected (E_TYPE).
-func IsValidBuiltinMapKey(v Value) bool {
-	return IsValidMapKey(v) && v.Type() != TYPE_ANON
 }
