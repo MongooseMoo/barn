@@ -100,7 +100,7 @@ func TestTryExceptFinallyIsSyntaxError(t *testing.T) {
 }
 
 func TestForFormsLowerToDistinctSemanticStatements(t *testing.T) {
-	collectionProgram, err := NewParser("for items value, key in (source)\nreturn value;\nendfor").ParseProgram()
+	collectionProgram, err := NewParser("for value, key in (source)\nreturn value;\nendfor").ParseProgram()
 	if err != nil {
 		t.Fatalf("collection ParseProgram() error = %v", err)
 	}
@@ -108,11 +108,11 @@ func TestForFormsLowerToDistinctSemanticStatements(t *testing.T) {
 	if !ok {
 		t.Fatalf("collection statement = %T, want *verb.CollectionLoopStmt", collectionProgram.Statements[0])
 	}
-	if collection.Label != "items" || collection.Value != "value" || collection.Index != "key" {
-		t.Fatalf("collection bindings = (%q, %q, %q), want (items, value, key)", collection.Label, collection.Value, collection.Index)
+	if collection.Label != "" || collection.Value != "value" || collection.Index != "key" {
+		t.Fatalf("collection bindings = (%q, %q, %q), want (\"\", value, key)", collection.Label, collection.Value, collection.Index)
 	}
 
-	rangeProgram, err := NewParser("for numbers value in [start..finish]\nreturn value;\nendfor").ParseProgram()
+	rangeProgram, err := NewParser("for value in [start..finish]\nreturn value;\nendfor").ParseProgram()
 	if err != nil {
 		t.Fatalf("range ParseProgram() error = %v", err)
 	}
@@ -120,8 +120,24 @@ func TestForFormsLowerToDistinctSemanticStatements(t *testing.T) {
 	if !ok {
 		t.Fatalf("range statement = %T, want *verb.RangeLoopStmt", rangeProgram.Statements[0])
 	}
-	if rangeLoop.Label != "numbers" || rangeLoop.Value != "value" {
-		t.Fatalf("range bindings = (%q, %q), want (numbers, value)", rangeLoop.Label, rangeLoop.Value)
+	if rangeLoop.Label != "" || rangeLoop.Value != "value" {
+		t.Fatalf("range bindings = (%q, %q), want (\"\", value)", rangeLoop.Label, rangeLoop.Value)
+	}
+}
+
+// Toast's for loop takes no label: "for acc z in [1..3]" and "for acc z in
+// ({1})" are syntax errors there (issue #959), where Barn once read the first
+// name as a label.
+func TestForLoopRejectsLabelLikeToast(t *testing.T) {
+	for _, source := range []string{
+		"for acc z in [1..3]\nendfor",
+		"for acc z in ({1})\nendfor",
+		"for acc z, k in ({1})\nendfor",
+		"n = 64;\ns = \"$    a\";\nfor acc z in [s:foo(3):look():(n)()..n]\nendfor\nn;",
+	} {
+		if _, err := NewParser(source).ParseProgram(); err == nil {
+			t.Errorf("ParseProgram(%q) succeeded, want syntax error for a labeled for loop", source)
+		}
 	}
 }
 
