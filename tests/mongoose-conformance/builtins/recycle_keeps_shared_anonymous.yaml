@@ -1,0 +1,73 @@
+name: recycle_keeps_shared_anonymous
+description: >
+  Recycling an object releases the references its property values hold; it does
+  not recycle the anonymous objects those values point to. An anonymous object
+  that another property, a list or map inside one, or a local variable still
+  references stays valid, as in ToastStunt's bf_recycle and
+  db_destroy_object.
+requires:
+  builtins:
+  - create
+  - recycle
+  - valid
+tests:
+  - name: anonymous_held_by_another_property_survives
+    permission: wizard
+    statement: |
+      h = create($nothing);
+      k = create($nothing);
+      a = create($nothing, 1);
+      add_property(h, "ref", a, {player, "rw"});
+      add_property(k, "ref", a, {player, "rw"});
+      recycle(h);
+      result = {valid(a), valid(k.ref)};
+      recycle(k);
+      return result;
+    expect:
+      value: [1, 1]
+
+  - name: anonymous_in_map_value_held_elsewhere_survives
+    permission: wizard
+    statement: |
+      h = create($nothing);
+      k = create($nothing);
+      a = create($nothing, 1);
+      add_property(h, "chans", ["x" -> a], {player, "rw"});
+      add_property(k, "chans", ["x" -> a], {player, "rw"});
+      recycle(h);
+      result = {valid(a), valid(k.chans["x"])};
+      recycle(k);
+      return result;
+    expect:
+      value: [1, 1]
+
+  - name: anonymous_held_only_by_recycled_object_is_destroyed
+    permission: wizard
+    statement: |
+      k = create($nothing);
+      add_property(k, "hits", 0, {player, "rw"});
+      p = create($nothing);
+      add_property(p, "keeper", k, {player, "r"});
+      add_verb(p, {player, "rxd", "recycle"}, {"this", "none", "this"});
+      set_verb_code(p, "recycle", {"this.keeper.hits = this.keeper.hits + 1;"});
+      h = create($nothing);
+      add_property(h, "ref", create(p, 1), {player, "rw"});
+      recycle(h);
+      suspend(0);
+      result = k.hits;
+      recycle(p);
+      recycle(k);
+      return result;
+    expect:
+      value: 1
+
+  - name: anonymous_held_by_local_survives
+    permission: wizard
+    statement: |
+      h = create($nothing);
+      a = create($nothing, 1);
+      add_property(h, "ref", {a}, {player, "rw"});
+      recycle(h);
+      return valid(a);
+    expect:
+      value: 1
