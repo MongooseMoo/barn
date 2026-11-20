@@ -13,7 +13,7 @@ func (s *Store) createAnonymous(parents []types.ObjID, owner types.ObjID) (types
 	defer s.mu.Unlock()
 
 	ts := s.bumpClockLocked()
-	newID := s.allocateID()
+	newID := s.allocateAnonymousID()
 	if owner == types.ObjNothing {
 		owner = newID
 	}
@@ -45,9 +45,8 @@ func (s *Store) createAnonymous(parents []types.ObjID, owner types.ObjID) (types
 	// scan, and serializer over a single set of anonymous objects, so a
 	// runtime-created anon survives a checkpoint just like a loaded one.
 	//
-	// allocateID already bumped ids.highWater so the identity id (newID) is never
-	// handed out again; we do NOT touch ids.max (anonymous objects must not affect
-	// max_object()).
+	// The identity comes from the anonymous counter (AnonymousIdentityBase), so
+	// neither max_object() nor the next numbered create() moves.
 	s.anonObjects[newID] = obj
 	s.attachChildToParentsLocked(newID, obj.parents, true, false)
 	for _, parentID := range obj.parents {
@@ -56,8 +55,8 @@ func (s *Store) createAnonymous(parents []types.ObjID, owner types.ObjID) (types
 	return newID, types.E_NONE
 }
 
-// NextID returns the next id the allocator will hand out: one past the highest
-// id ever allocated, anonymous objects included. Recycled ids are not reused.
+// NextID returns the next numbered id the allocator will hand out: one past the
+// highest numbered id ever allocated. Recycled ids are not reused.
 func (s *Store) NextID() types.ObjID {
 	return s.highWater() + 1
 }

@@ -195,25 +195,27 @@ func TestStorePendingFinalizationsSnapshot(t *testing.T) {
 	if err := store.Add(NewObject(9, 9)); err != nil {
 		t.Fatalf("add numbered object: %v", err)
 	}
-	for _, id := range []types.ObjID{10, 12} {
+	for _, id := range []types.ObjID{LoadedAnonymousIdentity(10), LoadedAnonymousIdentity(12)} {
 		builder := NewObjectBuilder(id)
 		builder.SetAnonymous(true)
 		store.AddAnonymous(builder.Build())
 	}
 
-	loaded := []types.Value{types.NewAnon(10)}
+	loaded := []types.Value{types.NewAnon(LoadedAnonymousIdentity(10))}
 	store.SetPendingFinalizations(loaded)
-	loaded[0] = types.NewAnon(11)
+	loaded[0] = types.NewAnon(LoadedAnonymousIdentity(11))
 
 	store.AppendPendingFinalizations([]types.Value{
-		types.NewAnon(10),
-		types.NewAnon(12),
+		types.NewAnon(LoadedAnonymousIdentity(10)),
+		types.NewAnon(LoadedAnonymousIdentity(12)),
 	})
 
 	snapshot := store.Snapshot()
 	if got, want := len(snapshot.PendingFinalizations), 2; got != want {
 		t.Fatalf("len(PendingFinalizations) = %d, want %d", got, want)
 	}
+	// The snapshot names the anonymous objects by their serialization ids,
+	// numbered above max_object() (#9).
 	if got, want := snapshot.PendingFinalizations[0].String(), types.NewAnon(10).String(); got != want {
 		t.Errorf("PendingFinalizations[0] = %s, want %s", got, want)
 	}
@@ -221,7 +223,7 @@ func TestStorePendingFinalizationsSnapshot(t *testing.T) {
 		t.Errorf("PendingFinalizations[1] = %s, want %s", got, want)
 	}
 
-	snapshot.PendingFinalizations[0] = types.NewAnon(99)
+	snapshot.PendingFinalizations[0] = types.NewAnon(LoadedAnonymousIdentity(99))
 	nextSnapshot := store.Snapshot()
 	if got, want := nextSnapshot.PendingFinalizations[0].String(), types.NewAnon(10).String(); got != want {
 		t.Errorf("mutating snapshot changed store: got %s, want %s", got, want)

@@ -32,7 +32,7 @@ func TestLastMoveOnlyAnonymousSurvivesTaskCollectorAndCheckpoint(t *testing.T) {
 		t.Fatalf("create class: %v", errCode)
 	}
 
-	const anonID types.ObjID = 100
+	const anonID = dbstore.AnonymousIdentityBase + 100
 	anon := dbstore.NewObjectBuilder(anonID)
 	anon.SetAnonymous(true)
 	anon.SetName("last_move_anon")

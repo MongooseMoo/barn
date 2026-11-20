@@ -196,7 +196,7 @@ func TestDirectRefIndexMatchesFullScan(t *testing.T) {
 	step("load numbered")
 	requireNoError(t, "load anonymous in directory", s.Add(loaded(s.NextID(), true, types.NewWaif(spare, 0))))
 	step("load anonymous in directory")
-	s.AddAnonymous(loaded(s.NextID(), true, types.NewWaif(spare, 0)))
+	s.AddAnonymous(loaded(s.NextAnonymousID(), true, types.NewWaif(spare, 0)))
 	step("load anonymous")
 
 	if !cov.anons || !cov.waifs {
@@ -235,7 +235,7 @@ func TestLastMoveAnonymousRefsArePersistentRoots(t *testing.T) {
 
 	loadAnonymous := func(lastMove types.Value) types.ObjID {
 		t.Helper()
-		builder := NewObjectBuilder(s.NextID())
+		builder := NewObjectBuilder(s.NextAnonymousID())
 		builder.SetAnonymous(true)
 		builder.SetLastMove(lastMove)
 		s.AddAnonymous(builder.Build())

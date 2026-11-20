@@ -44,6 +44,14 @@ func (b *ObjectBuilder) SetLastMove(value types.Value) {
 	b.obj.lastMove = value
 }
 func (b *ObjectBuilder) SetAnonymous(anonymous bool) { b.obj.anonymous = anonymous }
+
+// SetLoadedAnonymousIdentity marks the object anonymous and moves it from the
+// serialization id it was read under to its identity,
+// LoadedAnonymousIdentity(id).
+func (b *ObjectBuilder) SetLoadedAnonymousIdentity() {
+	b.obj.anonymous = true
+	b.obj.id = LoadedAnonymousIdentity(b.obj.id)
+}
 func (b *ObjectBuilder) SetPropDefsCount(count int)  { b.obj.propDefsCount = count }
 func (b *ObjectBuilder) SetParents(p []types.ObjID)  { b.obj.parents = p }
 func (b *ObjectBuilder) SetChildren(c []types.ObjID) { b.obj.children = c }

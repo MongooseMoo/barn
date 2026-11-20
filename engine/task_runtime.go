@@ -484,7 +484,7 @@ retryAttempt:
 	}
 
 	var result types.Result
-	anonGCFloor := s.store.NextID()
+	anonGCFloor := s.store.NextAnonymousID()
 	// Sample the global anon-creation counter at the SAME point as anonGCFloor so
 	// the two are consistent. If it is unchanged at task end, no anonymous object
 	// was created since the floor and the orphan-anon GC sweep can be skipped.

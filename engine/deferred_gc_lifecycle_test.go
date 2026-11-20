@@ -27,7 +27,7 @@ func TestRunTaskSettlesDeferredAnonymousGCAfterExecutionLeaseRelease(t *testing.
 	defer removeTasksForOwner(rt, 0)
 	program := compileTestProgram(t, rt.registry, "create(#0, 1); return 1;")
 	taskID := rt.CreateBackgroundTask(0, program, 0)
-	orphanID := store.NextID()
+	orphanID := store.NextAnonymousID()
 
 	if err := rt.runTask(rt.GetTask(taskID)); err != nil {
 		t.Fatalf("runTask failed: %v", err)
@@ -58,7 +58,7 @@ func TestRunTaskPanicAfterGCDeferralStillSettlesAfterLeaseRelease(t *testing.T) 
 	defer removeTasksForOwner(rt, 0)
 	program := compileTestProgram(t, rt.registry, "create(#0, 1); return 1;")
 	taskID := rt.CreateBackgroundTask(0, program, 0)
-	orphanID := store.NextID()
+	orphanID := store.NextAnonymousID()
 	taskWithPanic := rt.GetTask(taskID)
 	taskWithPanic.OnComplete = func(types.Result) { panic("completion barrier") }
 

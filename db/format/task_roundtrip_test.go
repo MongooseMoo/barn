@@ -30,7 +30,7 @@ func taskRoundTripRaw(t testing.TB) []byte {
 	if err := s.Add(root.Build()); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []types.ObjID{37, 38} {
+	for _, id := range []types.ObjID{store.LoadedAnonymousIdentity(37), store.LoadedAnonymousIdentity(38)} {
 		anon := store.NewObjectBuilder(id)
 		anon.SetAnonymous(true)
 		anon.SetName("Task-only anonymous")
@@ -56,7 +56,7 @@ func taskRoundTripRaw(t testing.TB) []byte {
 			// Case-distinct spellings stay distinct: persistence does not
 			// apply engine's case-folded local matching.
 			Variables: map[string]types.Value{
-				"a": types.NewAnon(37), "w": shared, "N": types.NewInt(1), "n": types.NewStr("x"),
+				"a": types.NewAnon(store.LoadedAnonymousIdentity(37)), "w": shared, "N": types.NewInt(1), "n": types.NewStr("x"),
 			},
 			VariableNames: []string{"n", "a", "w", "N"},
 			SourceLines:   []string{"return a;"},
@@ -67,7 +67,7 @@ func taskRoundTripRaw(t testing.TB) []byte {
 		ID: 6, State: task.TaskSuspended, StartTime: time.Unix(100, 0), ReadingPlayer: types.ObjNothing,
 		WakeValue: types.NewInt(0), TaskLocal: types.NewStr("local"),
 		VM: &task.VMSnapshot{MaxStackDepth: 50, Frames: []task.VMFrameSnapshot{
-			frame("return 1;", types.NewAnon(38), shared),
+			frame("return 1;", types.NewAnon(store.LoadedAnonymousIdentity(38)), shared),
 		}},
 	}, {
 		ID: 7, State: task.TaskSuspended, StartTime: time.Unix(200, 0), ReadingPlayer: 0,

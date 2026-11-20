@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 	"strconv"
 	"strings"
@@ -155,12 +156,12 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		return types.NewMap(pairs), nil
 
 	case 12: // ANON (anonymous object)
-		// Just read the object ID
+		// The saved id is the object's serialization id in this file only.
 		objID, err := readInt(r)
 		if err != nil {
 			return types.None, err
 		}
-		return types.NewAnon(types.ObjID(objID)), nil
+		return types.NewAnon(store.LoadedAnonymousIdentity(types.ObjID(objID))), nil
 
 	case 13: // WAIF
 		// WAIFs are saved as references ('r') or creations ('c').

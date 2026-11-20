@@ -192,7 +192,7 @@ func TestDeferredGCMaintenancePreservesSuspendedAnonymousRoot(t *testing.T) {
 	}
 	program := compileTestProgram(t, rt.registry, "held = create(#0, 1); suspend(); return held;")
 	id := rt.CreateBackgroundTask(0, program, 0)
-	held := store.NextID()
+	held := store.NextAnonymousID()
 	if err := rt.runTask(rt.GetTask(id)); err != nil {
 		t.Fatal(err)
 	}
