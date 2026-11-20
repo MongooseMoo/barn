@@ -43,9 +43,12 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 	}
 	origin := frame.Program.Origin
 	languageVersion, vector, fork := 17, -1, 0
-	switch {
-	case origin.Native:
+	if origin.Native {
 		languageVersion, vector = origin.LanguageVersion, origin.NativeVector
+	}
+	// A fork body of a program restored from Toast's form is numbered among
+	// the forks of the vector that program was compiled from.
+	switch {
 	case origin.Fork > 0:
 		fork = origin.Fork
 	case origin.Fork < 0:
@@ -96,7 +99,7 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 			}
 		}
 	}
-	if site == nil || (origin.Native && site.Vector != vector) || (fork != 0 && site.Vector < 0) {
+	if site == nil || (origin.Native && fork == 0 && site.Vector != vector) || (fork != 0 && site.Vector < 0) {
 		return frame, 0, fmt.Errorf("call has no Toast continuation in the frame's vector")
 	}
 	if site.ClearUnknown {
