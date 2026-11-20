@@ -45,12 +45,12 @@ func (tx *StoreTxn) AdoptLiveObject(objID types.ObjID) types.ErrorCode {
 		return types.E_INVIND
 	}
 	tx.objects[objID] = cloneObjectForReadTxn(live)
-	// Anonymous objects do not participate in max_object() (CreateObject /
-	// insertObjectLocked bump only ids.highWater for anon); mirror that here.
+	// An anonymous identity is not a numbered id, so it moves neither
+	// max_object() nor the numbered high-water mark; mirror that here.
 	if !live.anonymous && objID > tx.maxObjID {
 		tx.maxObjID = objID
 	}
-	if objID > tx.highWaterID {
+	if !live.anonymous && objID > tx.highWaterID {
 		tx.highWaterID = objID
 	}
 	return types.E_NONE

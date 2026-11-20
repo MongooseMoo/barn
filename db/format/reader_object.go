@@ -352,12 +352,16 @@ func (database *Database) readAnonymousObjects(r *bufio.Reader) error {
 				return err
 			}
 			if obj != nil {
-				obj.SetAnonymous(true)
+				// The verb code section names the object by the id it was
+				// saved under; everything else by its identity, as the
+				// _TYPE_ANON values read for it do (readValue).
+				saved := obj.ID()
+				obj.SetLoadedAnonymousIdentity()
 				database.AnonymousObjs = append(database.AnonymousObjs, obj)
 				if database.loadedAnonymous == nil {
 					database.loadedAnonymous = make(map[types.ObjID]*store.ObjectBuilder)
 				}
-				database.loadedAnonymous[obj.ID()] = obj
+				database.loadedAnonymous[saved] = obj
 			}
 		}
 	}

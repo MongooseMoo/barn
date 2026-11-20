@@ -37,7 +37,7 @@ func semanticRoundTripFixture(t *testing.T) *store.Store {
 	payload := types.NewList([]types.Value{
 		types.NewEmptyMap().MapSet(types.NewStr("Key"), types.NewList([]types.Value{types.NewInt(1), types.NewStr("Last")})),
 		types.NewBool(true), types.NewFloat(math.Copysign(0, -1)), types.NewFloat(math.NaN()),
-		types.None, types.Unbound, types.NewAnon(37), types.NewAnon(37), types.NewAnon(99), w,
+		types.None, types.Unbound, types.NewAnon(store.LoadedAnonymousIdentity(37)), types.NewAnon(store.LoadedAnonymousIdentity(37)), types.NewAnon(store.LoadedAnonymousIdentity(99)), w,
 	})
 	for i, name := range names {
 		value := types.NewInt(int64(i))
@@ -69,7 +69,7 @@ func semanticRoundTripFixture(t *testing.T) *store.Store {
 			t.Fatal(err)
 		}
 	}
-	for _, id := range []types.ObjID{37, 99} {
+	for _, id := range []types.ObjID{store.LoadedAnonymousIdentity(37), store.LoadedAnonymousIdentity(99)} {
 		anon := store.NewObjectBuilder(id)
 		anon.SetAnonymous(true)
 		anon.SetName("Anonymous")
@@ -149,28 +149,28 @@ func TestCompareRoundTripStoresInvalidWaifClass(t *testing.T) {
 	class.SetPropDefsCount(1)
 	class.SetProperty(":ref", store.NewProperty(types.NewInt(0), 0, 1, false, true))
 	waif := types.NewWaif(0, 0)
-	waif.SetProperty("ref", types.NewAnon(37))
+	waif.SetProperty("ref", types.NewAnon(store.LoadedAnonymousIdentity(37)))
 	holder := store.NewObjectBuilder(1)
 	holder.SetName("Holder")
 	holder.SetLocation(types.ObjNothing)
 	holder.SetPropOrder([]string{"payload", "visible"})
 	holder.SetPropDefsCount(2)
 	holder.SetProperty("payload", store.NewProperty(waif, 0, 1, false, true))
-	holder.SetProperty("visible", store.NewProperty(types.NewAnon(99), 0, 1, false, true))
+	holder.SetProperty("visible", store.NewProperty(types.NewAnon(store.LoadedAnonymousIdentity(99)), 0, 1, false, true))
 	for _, obj := range []*store.ObjectBuilder{class, holder} {
 		if err := s.Add(obj.Build()); err != nil {
 			t.Fatal(err)
 		}
 	}
-	anon := store.NewObjectBuilder(37)
+	anon := store.NewObjectBuilder(store.LoadedAnonymousIdentity(37))
 	anon.SetAnonymous(true)
 	anon.SetName("Anonymous")
 	anon.SetLocation(types.ObjNothing)
 	anon.SetPropOrder([]string{"self"})
 	anon.SetPropDefsCount(1)
-	anon.SetProperty("self", store.NewProperty(types.NewAnon(37), 0, 1, false, true))
+	anon.SetProperty("self", store.NewProperty(types.NewAnon(store.LoadedAnonymousIdentity(37)), 0, 1, false, true))
 	s.AddAnonymous(anon.Build())
-	visible := store.NewObjectBuilder(99)
+	visible := store.NewObjectBuilder(store.LoadedAnonymousIdentity(99))
 	visible.SetAnonymous(true)
 	visible.SetName("Visible anonymous")
 	visible.SetLocation(types.ObjNothing)

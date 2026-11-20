@@ -44,17 +44,41 @@ type readTSShard struct {
 	_      [32]byte // pad: Mutex(8) + map ptr(8) + oldest(8) + pad(32) = 56
 }
 
+// AnonymousIdentityBase is the first identity id an anonymous object can
+// have. Anonymous identities count up from it, apart from numbered ids, which
+// count up from 0 and only ever move by one past the highest live numbered
+// object (create(), recreate(), renumber(), reset_max_object()), so the two
+// never meet. A Toast anonymous object has no number at all (its id is NOTHING
+// and its identity is its pointer; objects.cc bf_create, db_make_anonymous),
+// so creating one takes no number from create(). An anonymous object loaded
+// from a database file under serialization id n gets identity
+// AnonymousIdentityBase + n (LoadedAnonymousIdentity).
+const AnonymousIdentityBase types.ObjID = 1 << 62
+
+// LoadedAnonymousIdentity returns the identity of the anonymous object a
+// database file names by serialization id serial. NOTHING and other negative
+// ids, which name no object, are kept.
+func LoadedAnonymousIdentity(serial types.ObjID) types.ObjID {
+	if serial < 0 {
+		return serial
+	}
+	return AnonymousIdentityBase + serial
+}
+
 // idAllocator is the store's object id allocator.
 type idAllocator struct {
 	// max (highest non-anon id, for max_object()) and highWater (highest
-	// allocated id incl. anon, for NextID()) are atomic so a decentralized
+	// allocated numbered id, for NextID()) are atomic so a decentralized
 	// committer (holding only store.mu.RLock) can allocate an id and CAS-max them
 	// without the exclusive lock. After NewStore, allocateID(), casMaxID() and
 	// ResetMaxObject() are the only mutators (AddRecycledSlot uses casMaxID).
-	max        atomic.Int64
-	highWater  atomic.Int64
-	recycledMu sync.Mutex    // guards recycled against concurrent decentralized recyclers
-	recycled   []types.ObjID // recycled numbered ids, offered again by LowestFreeID
+	// anonHighWater is the highest anonymous identity handed out, at or above
+	// AnonymousIdentityBase-1; allocateAnonymousID and AddAnonymous move it.
+	max           atomic.Int64
+	highWater     atomic.Int64
+	anonHighWater atomic.Int64
+	recycledMu    sync.Mutex    // guards recycled against concurrent decentralized recyclers
+	recycled      []types.ObjID // recycled numbered ids, offered again by LowestFreeID
 }
 
 // waifVersions holds the domain WAIF images are published in, and the
@@ -297,6 +321,7 @@ func NewStore() *Store {
 	s.directTxn.readTS = math.MaxUint64
 	s.ids.max.Store(-1)
 	s.ids.highWater.Store(-1)
+	s.ids.anonHighWater.Store(int64(AnonymousIdentityBase) - 1)
 	return s
 }
 
@@ -313,13 +338,25 @@ func (s *Store) DirectTxn() *StoreTxn {
 // maxObjectID returns the highest non-anonymous object id, or -1 if none. Lock-free.
 func (s *Store) maxObjectID() types.ObjID { return types.ObjID(s.ids.max.Load()) }
 
-// highWater returns the highest allocated id (including anonymous), or -1. Lock-free.
+// highWater returns the highest allocated numbered id, or -1. Lock-free.
 func (s *Store) highWater() types.ObjID { return types.ObjID(s.ids.highWater.Load()) }
 
-// allocateID atomically allocates the next unique object id (bumping ids.highWater). It
-// is the SINGLE id allocator for numbered, anonymous, and decentralized creates, so
-// no two allocations ever collide even without the store lock.
+// allocateID atomically allocates the next numbered object id (bumping
+// ids.highWater). It is the single allocator for numbered and decentralized
+// creates, so no two allocations collide even without the store lock.
 func (s *Store) allocateID() types.ObjID { return types.ObjID(s.ids.highWater.Add(1)) }
+
+// allocateAnonymousID atomically allocates the next anonymous identity, which
+// no numbered id can equal (AnonymousIdentityBase).
+func (s *Store) allocateAnonymousID() types.ObjID {
+	return types.ObjID(s.ids.anonHighWater.Add(1))
+}
+
+// NextAnonymousID returns the identity the next anonymous object will get, so
+// every anonymous object created from now on has an identity at or above it.
+func (s *Store) NextAnonymousID() types.ObjID {
+	return types.ObjID(s.ids.anonHighWater.Load() + 1)
+}
 
 // appendRecycledID records id as recycled, guarded by ids.recycledMu so a decentralized
 // recycle committer (holding only store.mu.RLock) does not race LowestFreeID's read.
@@ -734,17 +771,15 @@ func (s *Store) Add(obj *Object) error {
 }
 
 // AddAnonymous ingests an anonymous object loaded from the database into the
-// store's out-of-band anonymous collection. The object is keyed by the
-// above-max serialization id it was loaded with; this id never enters the
-// directory or ids.max (max_object() excludes anons). It MUST raise
-// ids.highWater, though: a Barn anon's identity id is permanent (values are
-// NewAnon(id), unlike Toast's pointer identity), so if allocateID later handed
-// the same id to a regular object, every loaded _TYPE_ANON reference would
-// silently resolve to that object — recycle(loaded_anon) then recycles (and
-// boots!) an unrelated player. Conformance map_dump_persistence caught exactly
-// that: Test.db's per-connect login create() took the first anon's serial id
-// after restart.
+// store's out-of-band anonymous collection, keyed by its identity: the reader
+// gives an object saved under serialization id n, and every _TYPE_ANON value
+// naming it, the identity LoadedAnonymousIdentity(n). The identity never
+// enters the directory, ids.max or ids.highWater, so a numbered create() can
+// never take it. An object with a numbered id is refused.
 func (s *Store) AddAnonymous(obj *Object) {
+	if obj.id < AnonymousIdentityBase {
+		panic(fmt.Sprintf("store: anonymous object added with numbered id #%d; anonymous identities start at AnonymousIdentityBase", obj.id))
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -755,7 +790,7 @@ func (s *Store) AddAnonymous(obj *Object) {
 	s.noteWaifRootsChanged()
 	stampObjectAll(obj, ts)
 	s.anonObjects[obj.id] = obj
-	casMaxID(&s.ids.highWater, obj.id)
+	casMaxID(&s.ids.anonHighWater, obj.id)
 }
 
 // AddRecycledSlot counts a numbered slot loaded as recycled. The slot holds no
