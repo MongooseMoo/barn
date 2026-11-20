@@ -2,42 +2,47 @@
 
 ## Overview
 
-MOO has 18 operator precedence levels. This document specifies the exact semantics of each operator.
+MOO has 11 operator precedence levels. This document specifies the exact semantics of each operator.
 
 ---
 
 ## 1. Precedence Table (Low to High)
 
+This is ToastStunt's `parser.y` precedence declaration block (lines 104-113).
+
 | Level | Operator | Associativity | Name |
 |-------|----------|---------------|------|
-| 1 | `=` | Right | Assignment |
-| 2 | `? \|` | Right | Ternary |
-| 3 | `` ` ! => ' `` | N/A | Catch |
-| 4 | `@` | Right | Splice |
-| 5 | `{ } =` | Right | Scatter |
-| 6 | `\|\|` | Left | Logical OR |
-| 7 | `&&` | Left | Logical AND |
-| 8 | `\|.` | Left | Bitwise OR |
-| 9 | `^.` | Left | Bitwise XOR |
-| 10 | `&.` | Left | Bitwise AND |
-| 11 | `== != < <= > >= in` | Left | Comparison |
-| 12 | `<< >>` | Left | Shift |
-| 13 | `+ -` | Left | Additive |
-| 14 | `* / %` | Left | Multiplicative |
-| 15 | `^` | Right | Power |
-| 16 | `! ~ -` | Right | Unary |
-| 17 | `. : [ ]` | Left | Postfix |
+| 1 | `=` | Right | Assignment (and scatter assignment) |
+| 2 | `? \|` | Non-associative | Ternary |
+| 3 | `\|\| &&` | Left | Logical OR and AND (one level) |
+| 4 | `== != < <= > >= in` | Left | Comparison |
+| 5 | `\|. &. ^.` | Left | Bitwise OR, AND, XOR (one level) |
+| 6 | `<< >>` | Left | Shift |
+| 7 | `+ -` | Left | Additive |
+| 8 | `* / %` | Left | Multiplicative |
+| 9 | `^` | Right | Power |
+| 10 | `! ~ -` | Right | Unary |
+| 11 | `. : [ ]` | Left | Postfix |
+
+The catch expression `` `expr ! codes => default' `` is bracketed and is an
+atom, not a precedence level. `@` is not an operator: it only prefixes an
+entry of a list literal or argument list (Section 5).
 
 ### Precedence Examples
 
 ```moo
-// Boolean operator chains
+// Boolean operator chains: || and && share one left-associative level
 a && b || c           // Equivalent to: (a && b) || c
-a || b && c           // Equivalent to: a || (b && c)
+a || b && c           // Equivalent to: (a || b) && c
+1 || 0 && 0           // => 0
+
+// Bitwise binds tighter than comparison
+x == y |. z           // Equivalent to: x == (y |. z)
+a |. b &. c           // Equivalent to: (a |. b) &. c
 
 // Mixed arithmetic/power
 2 + 3 * 4 ^ 5         // Equivalent to: 2 + (3 * (4 ^ 5))
-                      // Power (15) > Multiply (14) > Add (13)
+                      // Power (9) > Multiply (8) > Add (7)
 
 // Right-associative chains
 2 ^ 3 ^ 2             // Equivalent to: 2 ^ (3 ^ 2) = 2 ^ 9 = 512
@@ -98,8 +103,22 @@ map[key] = value
 - For maps: sets or adds key-value pair
 - For strings: replaces character (returns new string)
 
+**Maps:** assigning to a key that is not in the map adds it; it is not an
+error. `t = ["a" -> 1]; t["b"] = 2;` gives `["a" -> 1, "b" -> 2]`. A key that
+matches an existing key case-insensitively replaces that entry and the new
+spelling is kept: after `u = ["First" -> 1]; u["fIRST"] = 2;`, `mapkeys(u)` is
+`{"fIRST"}` (Toast `execute.cc` `OP_INDEXSET` calls `mapinsert`; conformance
+`language/index_and_range.yaml` `caret_map_assign_computed_key`,
+`language/equality.yaml` `map_equal_key_replacement_preserves_new_key`).
+
 **Errors:**
-- `E_RANGE`: Index out of bounds (lists), or key not found (maps)
+- `E_RANGE`: Index outside `1..length` (lists and strings). Maps never raise
+  E_RANGE here.
+- `E_TYPE`: Base is not a LIST, STR or MAP; a list or string index is not an
+  INT; a map key is a LIST or MAP; or a string element is assigned a non-STR
+- `E_INVARG`: A string element is assigned a string whose length is not 1
+- `E_QUOTA`: The resulting list or map exceeds `max_list_value_bytes` /
+  `max_map_value_bytes`
 
 ### 2.3 Range Assignment
 
@@ -110,8 +129,35 @@ list[start..end] = replacement_list
 **Semantics:**
 - Replaces elements from `start` to `end` (inclusive)
 - Replacement can be different length (list grows/shrinks)
-- **Replacement must be a LIST** - if replacement is not a list, raises E_TYPE
+- **Replacement must have the base's type**: a list range takes a LIST, a
+  string range a STR, a map range a MAP; otherwise E_TYPE
 - Assigning empty list deletes the range
+
+**Bounds (lists and strings).** Range assignment bounds are looser than range
+reads. With `len` the length of the base, E_RANGE is raised only when
+`start > len + 1` or `end < 0`. Otherwise a start below 1 is treated as 1
+(nothing before the range is kept) and an end above `len` is treated as `len`
+(nothing after it is kept); the result is the elements before `start`, then the
+replacement, then the elements after `end`. This holds for every start below 1,
+including the most negative integer (Toast `execute.cc` `EOP_RANGESET`;
+conformance `language/range_assign_bounds.yaml`,
+`language/range_assign_min_int_start.yaml`). `start > end` inserts the
+replacement before position `start`.
+
+```moo
+l = {1, 2};
+l[0..1] = {9};        // {9, 2}
+l[-1..0] = {9};       // {9, 1, 2}
+l[0..5] = {9};        // {9}
+l[3..2] = {9};        // {1, 2, 9}
+l[4..3] = {9};        // E_RANGE (start > len + 1)
+l[1..-1] = {9};       // E_RANGE (end < 0)
+s = "abcdef";
+s[-9223372036854775807 - 1..2] = "X";   // "Xcdef"
+```
+
+**Bounds (maps).** Both endpoints must be keys present in the map, otherwise
+E_RANGE.
 
 **Examples:**
 ```moo
@@ -123,8 +169,9 @@ list[2..2] = 5;             // E_TYPE (not a list)
 ```
 
 **Errors:**
-- `E_TYPE`: Replacement is not a LIST
-- `E_RANGE`: Invalid range bounds (see Range Indexing in types.md)
+- `E_TYPE`: Replacement type differs from the base, base is not a LIST, STR or
+  MAP, or a list/string bound is not an INT
+- `E_RANGE`: Bounds as above
 
 ### 2.4 Semantic Assignment Targets
 
@@ -201,9 +248,16 @@ flag ? x = 1 | y = 2              // Assigns to x OR y based on flag
 4. If error doesn't match, propagate error
 
 **Error code forms:**
-- `ANY` - Catch all errors
+- `ANY` - Catch all errors (keyword in any letter case; must be the only code)
 - `E_TYPE, E_RANGE` - Specific errors (comma = OR, not AND)
 - `@list_expr` - Dynamic error list
+- Any other expression - matched against the raised value, so
+  `` `raise(1) ! 1 => "caught"' `` returns `"caught"`
+
+The codes are the same argument list as `except` codes (statements.md Section
+9.3). The default after `=>` is any expression, including an assignment:
+`` `1 / 0 ! ANY => x = 5' `` assigns 5 to `x` and returns 5 (conformance
+`language/expression_codes_and_defaults.yaml`).
 
 **Examples:**
 ```moo
@@ -229,8 +283,14 @@ flag ? x = 1 | y = 2              // Assigns to x OR y based on flag
 
 **Contexts:**
 1. **In list literals:** Flattens list into containing list
-2. **In function arguments:** Spreads list as arguments
-3. **In scatter assignment:** Collects remaining elements
+2. **In function and verb arguments:** Spreads list as arguments
+3. **In except and catch codes:** Splices a list of codes
+4. **In scatter assignment:** Marks the rest target (`@var`)
+
+`@` is only legal as the prefix of one entry of such a list. It is not a
+general operator: `{1/@{}}` is a syntax error (conformance
+`language/parser_splice_operand.yaml`). The spliced operand is any expression,
+including an assignment: `{@ret = {1, 2}}` assigns `ret` and yields `{1, 2}`.
 
 **Type requirement:** The `@` operator requires a LIST operand. Splicing a non-list raises E_TYPE.
 
@@ -272,9 +332,14 @@ model or a parallel assignment path.
 
 **Semantics:**
 1. Evaluate right side (must be list)
-2. Bind elements left-to-right
+2. Bind elements left-to-right; spare elements fill optional targets from the left
 3. Required targets must have values
 4. Rest target collects remaining
+5. Then evaluate the defaults of unfilled optional targets, left to right; an
+   unfilled optional target without a default is left unchanged
+6. The value of the whole expression is the right-side list
+
+See statements.md Section 11 for the full binding order and error messages.
 
 **Examples:**
 ```moo
@@ -284,11 +349,15 @@ model or a parallel assignment path.
 // Optional targets
 {a, ?b = 0} = {1}                  // a=1, b=0 (default)
 {a, ?b = 0} = {1, 2}               // a=1, b=2 (value provided)
+{a, ?b} = {1}                      // a=1, b unchanged
 
 // Rest target
 {a, @rest} = {1, 2, 3, 4}          // a=1, rest={2,3,4}
 {a, @rest} = {1}                   // a=1, rest={} (empty)
-{a, ?b, @rest} = {1}               // a=1, b=0, rest={}
+{a, ?b = 0, @rest} = {1}           // a=1, b=0, rest={}
+
+// Scatter is an expression
+v = ({a, @b} = {1, 2, 3})          // v={1, 2, 3}, a=1, b={2, 3}
 
 // Errors
 {a, b} = {1, 2, 3}                 => E_ARGS  // Too many values, no rest target
@@ -296,8 +365,11 @@ model or a parallel assignment path.
 ```
 
 **Errors:**
+- `E_TYPE`: Right side is not a list
 - `E_ARGS`: Not enough values for required targets
 - `E_ARGS`: Too many values without rest target
+
+On any of these errors no target is assigned.
 
 ---
 
@@ -496,6 +568,13 @@ left != right
 
 **Type strictness:** Equality requires **exact type match**. INT and FLOAT are never equal.
 
+**String case:** `==` and `!=` compare strings case-insensitively, including
+strings nested in lists and maps: `"a" == "A"` is 1 and `{"a"} == {"A"}` is 1.
+Toast's `OP_EQ`/`OP_NE` call `equality(lhs, rhs, 0)` (`execute.cc`), and
+conformance `language/string_comparison_case.yaml`
+(`equality_operator_is_also_case_insensitive`) pins it. Use `equal()` or
+`strcmp()` for a case-sensitive test.
+
 **List equality:** List equality is **recursive structural comparison**. Two lists are equal if they have the same length and all corresponding elements are equal (using `==` recursively). **Comparison is O(n)** in total element count including nested lists. This is not reference equality - two separately created lists with the same values are equal.
 
 **Map equality:** Two maps are equal if they have the **same set of (key, value) pairs**:
@@ -544,9 +623,9 @@ left >= right
 **Type strictness:** Both operands must be the **same type**. No INT/FLOAT coercion.
 
 **String comparison:** Lexicographic after ASCII case folding. The relational
-operators therefore compare strings case-insensitively; `==`, `!=`, `equal()`,
-and `strcmp()` remain case-sensitive. This distinction is verified against
-Toast by
+operators therefore compare strings case-insensitively, as `==` and `!=` do;
+`equal()` and `strcmp()` are case-sensitive. This distinction is verified
+against Toast by
 `../moo-conformance-tests/src/moo_conformance/_tests/language/string_comparison_case.yaml`.
 
 **WAIF comparison:** Relational comparison of two WAIFs uses the default zero
@@ -658,6 +737,9 @@ left + right
 
 **Errors:**
 - `E_TYPE`: Incompatible types
+- `E_QUOTA`: List concatenation whose result is larger than
+  `$server_options.max_list_value_bytes` (strictly greater raises; Toast
+  `execute.cc` `OP_ADD`)
 
 ### 11.2 Subtraction (`-`)
 
@@ -718,8 +800,15 @@ left / right
 7 / -2          => -3      // Mixed signs: truncate toward zero
 ```
 
+**Division by -1:** Integer division by `-1` is negation with two's-complement
+wrap, so the most negative integer divided by `-1` is itself
+(`-9223372036854775808 / -1 => -9223372036854775808`) and
+`9223372036854775807 / -1 => -9223372036854775807` (Toast `numbers.cc`
+`do_divide`; conformance `builtins/math.yaml`, `minint_*`).
+
 **Errors:**
 - `E_DIV`: Division by zero (int or float)
+- `E_FLOAT`: Float quotient not finite
 
 ### 11.5 Modulo (`%`)
 
@@ -727,23 +816,31 @@ left / right
 left % right
 ```
 
-**Semantics:** Remainder after integer division
+**Operands:** INT % INT gives INT; FLOAT % FLOAT gives FLOAT; mixed types raise E_TYPE.
 
-**Sign:** Result has same sign as dividend (left) - C modulo semantics
+**Semantics:** Floored modulus: a nonzero result has the sign of the divisor
+(right operand). Modulus by `-1` is `0` for every dividend, and divisors near
+the integer limits do not overflow (Toast `numbers.cc` `do_modulus`;
+conformance `builtins/math.yaml`, `int_modulus_*`, `float_modulus_*`,
+`modulus_*_64bit`).
 
 **Examples:**
 ```moo
-7 % 3           => 1       // Positive dividend: positive result
--7 % 3          => -1      // Negative dividend: negative result
-7 % -3          => 1       // Positive dividend: positive result
--7 % -3         => -1      // Negative dividend: negative result
-
-// Invariant: (a / b) * b + (a % b) == a
+15 % 4          => 3
+-15 % 4         => 1       // Takes the divisor's sign
+15 % -4         => -1
+-15 % -4        => -3
+-15.0 % 4.0     => 1.0     // Floats are floored the same way
+5 % -9223372036854775808   => -9223372036854775803
+-9223372036854775808 % -1  => 0
 ```
 
+Because `/` truncates toward zero while `%` floors, `(a / b) * b + (a % b) == a`
+does not hold when the operands have different signs.
+
 **Errors:**
-- `E_DIV`: Modulo by zero
-- `E_TYPE`: Non-integer operand
+- `E_DIV`: Modulo by zero (int or float)
+- `E_TYPE`: Operands of different types, or not numbers
 
 ---
 
@@ -775,8 +872,13 @@ base ^ exponent
 2 ^ 0           => 1       // Any base to power 0 is 1
 0 ^ 0           => 1       // By convention
 
-// Negative exponent (INT base)
-2 ^ (-1)        => E_TYPE  // Would require FLOAT result
+// Negative exponent (INT base): the result stays INT
+1 ^ -5          => 1
+(-1) ^ -1       => -1      // Odd exponent
+(-1) ^ -2       => 1       // Even exponent (parity exact for every 64-bit exponent)
+2 ^ (-1)        => 0       // Any other nonzero base truncates to 0
+(-2) ^ -1       => 0
+0 ^ -1          => E_DIV
 2.0 ^ (-1)      => 0.5     // FLOAT base supports negative exponents
 
 // Type mixing
@@ -785,7 +887,24 @@ base ^ exponent
 
 // Domain errors
 (-1.0) ^ 0.5    => E_FLOAT // Imaginary result
+
+// Underflow
+2.0 ^ -2000     => E_FLOAT // Nonzero base underflowing to zero
+0.5 ^ 2000      => E_FLOAT
+2.0 ^ -1074     // Returns the smallest subnormal double; subnormal results are not errors
+0.0 ^ 2.0       => 0.0     // A zero base is an exact zero
 ```
+
+**Integer exponentiation** with a non-negative exponent is repeated
+multiplication in 64-bit integers. With a negative exponent
+the result is `1` for base `1`, `-1` or `1` for base `-1` (odd or even
+exponent), E_DIV for base `0`, and `0` for every other base (Toast
+`numbers.cc` `do_power`; conformance `basic/types.yaml`, `power_*`).
+
+**Float exponentiation** calls C `pow()` and raises E_FLOAT when `pow()` sets
+`errno` or the result is not finite. glibc sets `ERANGE` when a finite nonzero
+base underflows to zero, so such results raise E_FLOAT; subnormal results and a
+zero base do not (conformance `language/float_pow_underflow.yaml`).
 
 ---
 
@@ -879,10 +998,16 @@ lowers them directly to language-neutral **first** and **last** semantic
 boundary expressions. Parser tokens and source marker spelling do not cross
 into verb IR or bytecode compilation.
 
-First resolves to one. Last resolves to the current collection length at the
-point the index or range is evaluated. Single indexing remains one-based,
-ranges remain inclusive, and all bounds and error behavior remain as specified
-here and in `types.md`.
+For a list or string, first resolves to one when the value is non-empty and to
+zero when it is empty, and last resolves to the current length at the point the
+index or range is evaluated. So `""[^..$]` and `{}[^..$]` are `[0..0]` and
+raise E_RANGE, while `""[1..$]` is `""` (Toast `execute.cc` `EOP_FIRST`;
+conformance `language/caret_empty_sequence.yaml`). For a map, first and last
+resolve to the map's first and last keys in key order, in index and range
+position alike (`EOP_FIRST`/`EOP_LAST`; conformance `builtins/map.yaml`,
+`first_last_index`). `^` and `$` are legal only inside index or range brackets.
+Single indexing remains one-based, ranges remain inclusive, and all bounds and
+error behavior remain as specified here and in `types.md`.
 
 **Errors:**
 - `E_RANGE`: Index out of bounds
@@ -935,9 +1060,9 @@ $verb(args)
 ### 15.2 Index Markers
 
 ```moo
-list[^]     // First element (same as list[1])
+list[^]     // First element (same as list[1] when list is non-empty)
 list[$]     // Last element (same as list[length(list)])
-list[^..$]  // Entire list
+list[^..$]  // Entire list; E_RANGE when list is empty
 ```
 
 These are MOO spellings for the semantic first and last boundary operations
@@ -951,8 +1076,8 @@ defined in Section 14.3, not bytecode or VM token values.
 
 | Operator | Result |
 |----------|--------|
-| `+ - * / %` | INT (div truncates) |
-| `^` | FLOAT |
+| `+ - * / %` | INT (`/` truncates, `%` floors) |
+| `^` | INT |
 | `< <= > >= == !=` | BOOL |
 | `\|. &. ^. ~ << >>` | INT |
 
@@ -960,7 +1085,7 @@ defined in Section 14.3, not bytecode or VM token values.
 
 | Operator | Result |
 |----------|--------|
-| `+ - * / ^` | FLOAT |
+| `+ - * / % ^` | FLOAT |
 | `< <= > >= == !=` | BOOL |
 
 ### 16.3 STR Operations

@@ -2,32 +2,48 @@
 
 ## Overview
 
-MOO has 18 standard error codes. Each error has a numeric value, a symbolic name, and specific conditions that trigger it.
+ToastStunt has 19 error codes (`structures.h` `enum error`). Each error has a numeric value, a symbolic name, a default message, and specific conditions that trigger it.
 
 ---
 
 ## 1. Error Code Table
 
-| Code | Name | Value | Category |
-|------|------|-------|----------|
-| E_NONE | No error | 0 | Success |
-| E_TYPE | Type mismatch | 1 | Type |
-| E_DIV | Division by zero | 2 | Arithmetic |
-| E_PERM | Permission denied | 3 | Security |
-| E_PROPNF | Property not found | 4 | Object |
-| E_VERBNF | Verb not found | 5 | Object |
-| E_VARNF | Variable not found | 6 | Runtime |
-| E_INVIND | Invalid index | 7 | Object |
-| E_RECMOVE | Recursive move | 8 | Object |
-| E_MAXREC | Max recursion | 9 | Runtime |
-| E_RANGE | Range error | 10 | Collection |
-| E_ARGS | Wrong argument count | 11 | Call |
-| E_NACC | Not accessible | 12 | Security |
-| E_INVARG | Invalid argument | 13 | Call |
-| E_QUOTA | Quota exceeded | 14 | Resource |
-| E_FLOAT | Float error | 15 | Arithmetic |
-| E_FILE | File error | 16 | I/O |
-| E_EXEC | Exec error | 17 | I/O |
+The default message is the text Toast's `unparse_error()` (`unparse.cc`) gives
+the error; it is the second element of a caught error when no more specific
+message was supplied (for example, scatter E_ARGS reports `Incorrect number of
+arguments`; conformance `language/scatter_error_messages.yaml`).
+
+| Code | Name | Value | Category | Default message |
+|------|------|-------|----------|-----------------|
+| E_NONE | No error | 0 | Success | `No error` |
+| E_TYPE | Type mismatch | 1 | Type | `Type mismatch` |
+| E_DIV | Division by zero | 2 | Arithmetic | `Division by zero` |
+| E_PERM | Permission denied | 3 | Security | `Permission denied` |
+| E_PROPNF | Property not found | 4 | Object | `Property not found` |
+| E_VERBNF | Verb not found | 5 | Object | `Verb not found` |
+| E_VARNF | Variable not found | 6 | Runtime | `Variable not found` |
+| E_INVIND | Invalid index | 7 | Object | `Invalid indirection` |
+| E_RECMOVE | Recursive move | 8 | Object | `Recursive move` |
+| E_MAXREC | Max recursion | 9 | Runtime | `Too many verb calls` |
+| E_RANGE | Range error | 10 | Collection | `Range error` |
+| E_ARGS | Wrong argument count | 11 | Call | `Incorrect number of arguments` |
+| E_NACC | Not accessible | 12 | Security | `Move refused by destination` |
+| E_INVARG | Invalid argument | 13 | Call | `Invalid argument` |
+| E_QUOTA | Quota exceeded | 14 | Resource | `Resource limit exceeded` |
+| E_FLOAT | Float error | 15 | Arithmetic | `Floating-point arithmetic error` |
+| E_FILE | File error | 16 | I/O | `File error` |
+| E_EXEC | Exec error | 17 | I/O | `Exec error` |
+| E_INTRPT | Interrupted | 18 | Task | `Interrupted` |
+
+A type error raised by the VM for a wrong operand type usually carries a more
+specific message naming the expected and actual types, for example `Type
+mismatch (expected list; got string)` for a scatter assignment from a string
+(`execute.cc` `PUSH_TYPE_MISMATCH`).
+
+**Error names in source** are keywords matched in any letter case, as whole
+identifiers only: `e_type` and `E_Type` are `E_TYPE`, while `E_TYPEx` and
+`E_IN3ARG` are ordinary variables (grammar.md Section 9.1; conformance
+`language/error_name_case.yaml`).
 
 ---
 
@@ -520,7 +536,37 @@ MOO has 18 standard error codes. Each error has a numeric value, a symbolic name
 
 ---
 
+### 2.19 E_INTRPT (18) - Interrupted
+
+**Description:** An operation was interrupted by the server.
+
+**Trigger conditions (Toast source):**
+
+| Context | Behavior |
+|---------|----------|
+| Interrupted task restored from a database | The task resumes as a suspended task and the suspending call returns `E_INTRPT` (`tasks.cc` interrupted-task loading) |
+| `curl()` aborted by server shutdown | Returns an `E_INTRPT` error map, "Transfer aborted: server is shutting down" (`curl.cc`) |
+
+---
+
 ## 3. Error Handling
+
+### 3.0 Raising Versus Returning
+
+Whether an error raised by an operation unwinds the task depends on the
+running verb's `d` (debug) flag. In a verb with the flag, the error is raised:
+it propagates to the nearest matching handler or aborts the task. In a verb
+without the flag, the error code is pushed as the value of the failing
+operation and execution continues with the next operation (Toast
+`execute.cc` `PUSH_ERROR` / `RAISE_ERROR`, gated on the activation's `debug`
+field set from `VF_DEBUG`).
+
+Only the failing operation is replaced; the surrounding expression is intact.
+In a non-debug verb, `return {99, this.no_such_prop["k"], 77};` returns
+`{99, E_TYPE, 77}`: the missing property yields `E_PROPNF` as a value, indexing
+that error value yields `E_TYPE`, and the list is still built. A caller of that
+verb receives the list as an ordinary return value (conformance
+`language/nondebug_keyed_property_error.yaml`).
 
 ### 3.1 Try/Except
 

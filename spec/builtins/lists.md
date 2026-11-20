@@ -172,6 +172,22 @@ setremove({{1, 2}, {3}}, {1, 2})  => {{3}}  (deep equality)
 
 **Errors:**
 - E_TYPE: First arg not a list
+- E_QUOTA: Result exceeds `max_list_value_bytes` (see 1.8), even when `value` was not found
+
+---
+
+### 1.8 Value Size Limits
+
+`setadd`, `setremove`, `listappend`, `listinsert`, `listdelete` and `listset`
+check the size (`value_bytes`) of the list they return against the cached
+`$server_options.max_list_value_bytes`. The check applies to the result
+whether or not it changed: `setremove` and `listdelete` of a list that is
+already over the limit fail. The limit in force is the one most recently
+loaded by `load_server_options()`, including a reload earlier in the same
+task.
+
+An over-limit result raises `E_QUOTA` when `$server_options.max_concat_catchable`
+is true; otherwise the task is aborted as if it had run out of seconds.
 
 ---
 
@@ -209,6 +225,8 @@ list[index] = val   // Set element (statement)
 ### 2.2 is_member / `in` operator
 
 **Signature:** `is_member(value, list [, case_matters]) → INT`
+
+**Flag arguments:** `case_matters` accept an INT or a BOOL and are read by truth value (`function_info()` reports the position as -3); any other type raises `E_TYPE`.
 **Operator:** `value in list → INT`
 
 **Description:** Returns 1-based index if found, 0 otherwise.
@@ -240,6 +258,13 @@ is_member(4, {1, 2, 3})      => 0
 **Description:** Returns list of all indices where value appears. Unlike is_member which returns only the first match, all_members returns all matching positions.
 
 **Note:** This is a builtin in ToastStunt implemented as a background thread operation.
+
+**Threading:** While the calling activation's thread mode is on (the
+default), every call, even on an empty list, suspends the task and runs the
+work in a background thread; other tasks (including zero-delay forks of the
+caller) run meanwhile, and the task resumes as a background task with a fresh
+`bg_ticks`/`bg_seconds` budget. With `set_thread_mode(0)` the call runs inline:
+the task does not suspend and its tick budget carries on.
 
 **Examples:**
 ```moo
@@ -279,6 +304,8 @@ indexc({"Hello", "World"}, "WORLD")   => 2
 
 **Signature:** `sort(list [, keys] [, natural] [, reverse]) → LIST`
 
+**Flag arguments:** `natural` and `reverse` accept an INT or a BOOL and are read by truth value (`function_info()` reports the position as -3); any other type raises `E_TYPE`.
+
 **Description:** Returns a list sorted by its own values or by a parallel list of keys.
 
 **Parameters:**
@@ -286,6 +313,13 @@ indexc({"Hello", "World"}, "WORLD")   => 2
 - `keys`: Optional list of sort keys. If provided and non-empty, it must be the same length as `list`. Ordering is based on `keys` but the returned list is from `list`.
 - `natural`: Natural string ordering (default: false). Comparisons are case-insensitive in both modes.
 - `reverse`: Reverse order (default: false)
+
+**Threading:** While the calling activation's thread mode is on (the
+default), every call, even on an empty list, suspends the task and runs the
+work in a background thread; other tasks (including zero-delay forks of the
+caller) run meanwhile, and the task resumes as a background task with a fresh
+`bg_ticks`/`bg_seconds` budget. With `set_thread_mode(0)` the call runs inline:
+the task does not suspend and its tick budget carries on.
 
 **Type constraints:**
 - The list used for comparisons (`keys` if non-empty, otherwise `list`) must contain only one scalar type: INT, FLOAT, OBJ, ERR, or STR.

@@ -4,7 +4,9 @@
 
 This document defines the formal grammar of the MOO programming language as implemented in ToastStunt. The grammar is presented in Extended Backus-Naur Form (EBNF).
 
-**Source:** Derived from `moo_interp/parser.lark` with ToastStunt extensions.
+**Source:** ToastStunt `src/parser.y` (grammar, precedence declarations, and the
+hand-written lexer `yylex`) and `src/keywords.gperf`. Line references below are
+to upstream `lisdude/toaststunt` master.
 
 ---
 
@@ -28,14 +30,16 @@ This document defines the formal grammar of the MOO programming language as impl
 ```ebnf
 program         ::= { statement }
 
-statement       ::= single_statement
-                  | if_statement
+statement       ::= if_statement
                   | for_statement
                   | while_statement
                   | fork_statement
                   | try_statement
-
-single_statement ::= [ expression | return_statement | break_statement | continue_statement ] ";"
+                  | expression ";"
+                  | "break" [ identifier ] ";"
+                  | "continue" [ identifier ] ";"
+                  | "return" [ expression ] ";"
+                  | ";"
 
 body            ::= { statement }
 ```
@@ -64,9 +68,7 @@ does not create an `elseif` semantic type.
 for_statement   ::= for_clause body "endfor"
 
 for_clause      ::= "for" identifier [ "," identifier ] "in" "(" expression ")"
-                  | "for" identifier "in" "[" expression ".." range_end "]"
-
-range_end       ::= expression | "$"
+                  | "for" identifier "in" "[" expression ".." expression "]"
 ```
 
 **Semantics:**
@@ -74,6 +76,8 @@ range_end       ::= expression | "$"
 - Second form: iterate over numeric range (inclusive)
 - The optional second identifier belongs only to collection iteration and
   captures a list index or map key
+- The range bounds are ordinary expressions; `^` and `$` are not legal there
+  (see Section 7)
 
 **Semantic lowering:** The collection and range productions lower to distinct
 semantic loop variants. No semantic loop selects its form through nullable
@@ -93,7 +97,7 @@ while_clause    ::= "while" [ identifier ] "(" expression ")"
 ### 2.4 Fork Statement
 
 ```ebnf
-fork_statement  ::= fork_clause { statement } "endfork"
+fork_statement  ::= fork_clause body "endfork"
 
 fork_clause     ::= "fork" [ identifier ] "(" expression ")"
 ```
@@ -102,17 +106,15 @@ fork_clause     ::= "fork" [ identifier ] "(" expression ")"
 - Expression is delay in seconds (int or float)
 - Optional identifier receives task ID
 - Body executes asynchronously after delay
+- Loops enclosing the fork are not visible inside its body: `break` or
+  `continue` there that would target them is a compile error
 
 ### 2.5 Return/Break/Continue
 
-```ebnf
-return_statement   ::= "return" [ expression ]
-break_statement    ::= "break" [ identifier ]
-continue_statement ::= "continue" [ identifier ]
-```
-
 **Semantics:**
-- Optional identifier targets named loop
+- The optional identifier on `break`/`continue` names an enclosing loop. For a
+  `for` loop the loop variable (and the index variable, if present) names the
+  loop; a `while` loop is named by its optional identifier.
 
 ---
 
@@ -121,59 +123,72 @@ continue_statement ::= "continue" [ identifier ]
 ### 3.1 Try Statement
 
 ```ebnf
-try_statement   ::= "try" { statement }
-                    ( except_clause { except_clause } [ finally_clause ]
-                    | finally_clause )
-                    "endtry"
+try_statement   ::= "try" body except_clause { except_clause } "endtry"
+                  | "try" body "finally" body "endtry"
 
-except_clause   ::= "except" [ identifier ] "(" exception_codes ")"
-                    { statement }
-finally_clause  ::= "finally" { statement }
+except_clause   ::= "except" [ identifier ] "(" codes ")" body
 
-exception_codes ::= "any"
-                  | "@" expression
-                  | exception_code { "," exception_code }
-
-exception_code  ::= identifier          /* E_TYPE, E_RANGE, etc. */
-                  | "error"             /* literal keyword */
-                  | string_literal
+codes           ::= "ANY"
+                  | arg_list
 ```
 
+There is no form that combines `except` clauses with a `finally` clause:
+`try ... except (...) ... finally ... endtry` is a syntax error. To get both,
+nest a try/except inside a try/finally (`parser.y` try productions; conformance
+`language/parser_try_except_finally.yaml`).
+
 **Semantics:**
-- `any` catches all errors
-- `@expr` evaluates to a list of error codes
+- `ANY` catches every error. It must stand alone: `ANY` is a keyword, not an
+  expression, so `(E_INVARG, ANY)` or `@ANY` is a syntax error.
+- Otherwise the codes are an ordinary argument list (Section 6): any
+  expressions, with `@` splices. They are evaluated when the `try` statement is
+  entered and the raised value is matched against the resulting list. Error
+  literals are the usual codes, but any value is a valid code: `except
+  ("E_CUSTOM")` catches `raise("E_CUSTOM")`, and `` `raise(1) ! 1 => 2' ``
+  returns 2 (conformance `language/expression_codes_and_defaults.yaml`).
 - An optional identifier binds the caught error
+- A clause after an `ANY` clause is a compile error ("Unreachable EXCEPT
+  clause"); more than 255 clauses is a compile error ("Too many EXCEPT clauses
+  (max. 255)").
 - A finally block always executes on normal exit, error, or return
 
-**Semantic lowering:** All three concrete combinations lower to one semantic
-try statement containing an ordered handler list and an optional finalizer. At
-least one handler or finalizer is required.
+**Semantic lowering:** Both concrete forms lower to one semantic try statement
+containing an ordered handler list and an optional finalizer. At least one
+handler or finalizer is required.
 
 ---
 
 ## 4. Expression Precedence
 
-Expressions are listed from **lowest to highest** precedence:
+Expressions are listed from **lowest to highest** precedence. This is the
+`%right`/`%nonassoc`/`%left` declaration block of `parser.y` (lines 104-113):
 
 | Level | Operator(s) | Associativity | Description |
 |-------|-------------|---------------|-------------|
-| 1 | `=` | Right | Assignment |
-| 2 | `? \|` | Right | Ternary conditional |
-| 3 | `` ` ! ' `` | N/A | Catch expression |
-| 4 | `@` | Right | Splice |
-| 5 | `{ } =` | Right | Scatter assignment |
-| 6 | `\|\|` | Left | Logical OR |
-| 7 | `&&` | Left | Logical AND |
-| 8 | `\|.` | Left | Bitwise OR |
-| 9 | `^.` | Left | Bitwise XOR |
-| 10 | `&.` | Left | Bitwise AND |
-| 11 | `== != < <= > >= in` | Left | Comparison |
-| 12 | `<< >>` | Left | Bit shift |
-| 13 | `+ -` | Left | Addition/Subtraction |
-| 14 | `* / %` | Left | Multiplication/Division/Modulo |
-| 15 | `^` | Right | Exponentiation |
-| 16 | `! ~ -` | Right | Unary (not, bitwise not, negate) |
-| 17 | `. : [ ]` | Left | Postfix (property, verb, index) |
+| 1 | `=` | Right | Assignment (including scatter assignment) |
+| 2 | `? \|` | Non-associative | Ternary conditional |
+| 3 | `\|\| &&` | Left | Logical OR and AND (one shared level) |
+| 4 | `== != < <= > >= in` | Left | Comparison |
+| 5 | `\|. &. ^.` | Left | Bitwise OR, AND, XOR (one shared level) |
+| 6 | `<< >>` | Left | Bit shift |
+| 7 | `+ -` | Left | Addition/Subtraction |
+| 8 | `* / %` | Left | Multiplication/Division/Modulo |
+| 9 | `^` | Right | Exponentiation |
+| 10 | `! ~ -` | Right (prefix) | Unary (not, bitwise not, negate) |
+| 11 | `. : [ ]` | Left | Postfix (property, verb, index, range) |
+
+Consequences:
+- `||` and `&&` share one left-associative level, so `a || b && c` is
+  `(a || b) && c` and `1 || 0 && 0` is `0` (conformance
+  `language/moocode_parsing.yaml`, `precedence_or_and_share_one_left_associative_level`).
+- Bitwise operators bind tighter than comparisons: `x == y |. z` is
+  `x == (y |. z)`. The three bitwise operators share one level, so
+  `a |. b &. c` is `(a |. b) &. c`.
+- Unary operators bind tighter than `^`: `-2 ^ 2` is `(-2) ^ 2`.
+
+The catch expression and the splice prefix are not precedence levels. A catch
+expression is delimited by its backquote and quote and is an atom. `@` is only
+a prefix on an argument-list entry (Section 6).
 
 ---
 
@@ -181,86 +196,75 @@ Expressions are listed from **lowest to highest** precedence:
 
 ```ebnf
 expression      ::= assignment
-                  | ternary
-                  | catch_expr
-                  | splicer
-                  | scatter
-                  | logical_or
+                  | scatter_assignment
+                  | conditional
+                  | binary
+                  | unary
+                  | postfix
 
-/* Level 1: Assignment (right-associative) */
-assignment      ::= postfix "=" expression
+assignment      ::= lvalue "=" expression
+lvalue          ::= identifier
+                  | postfix "." property_name
+                  | lvalue "[" expression "]"
+                  | lvalue "[" expression ".." expression "]"
 
-/* Level 2: Ternary (right-associative) */
-ternary         ::= logical_or "?" expression "|" expression
+scatter_assignment ::= "{" arg_list "}" "=" expression        /* each entry an identifier or @identifier */
+                     | "{" scatter "}" "=" expression          /* contains at least one ?target */
 
-/* Level 3: Catch expression */
-catch_expr      ::= "`" expression "!" exception_codes [ "=>" expression ] "'"
-
-/* Level 4: Splice */
-splicer         ::= "@" expression
-
-/* Level 5: Scatter assignment */
-scatter         ::= "{" scattering_target "}" "=" expression
-
-scattering_target ::= scatter_item { "," scatter_item }
+scatter         ::= scatter_item { "," scatter_item }
 scatter_item    ::= identifier
                   | "?" identifier [ "=" expression ]
                   | "@" identifier
 
-/* Semantic lowering: every assignment form constructs one sealed target.
-   Scatter constructs the destructuring target rather than a second statement
-   or target family. */
+conditional     ::= expression "?" expression "|" expression
 
-/* Level 6: Logical OR (left-associative, short-circuit) */
-logical_or      ::= logical_and { "||" logical_and }
+binary          ::= expression binary_op expression
+binary_op       ::= "||" | "&&"
+                  | "==" | "!=" | "<" | "<=" | ">" | ">=" | "in"
+                  | "|." | "&." | "^."
+                  | "<<" | ">>"
+                  | "+" | "-" | "*" | "/" | "%" | "^"
 
-/* Level 7: Logical AND (left-associative, short-circuit) */
-logical_and     ::= bitwise_or { "&&" bitwise_or }
+unary           ::= ( "!" | "~" | "-" ) expression
 
-/* Level 8: Bitwise OR (left-associative) */
-bitwise_or      ::= bitwise_xor { "|." bitwise_xor }
-
-/* Level 9: Bitwise XOR (left-associative) */
-bitwise_xor     ::= bitwise_and { "^." bitwise_and }
-
-/* Level 10: Bitwise AND (left-associative) */
-bitwise_and     ::= comparison { "&." comparison }
-
-/* Level 11: Comparison (left-associative) */
-comparison      ::= shift { comparison_op shift }
-comparison_op   ::= "==" | "!=" | "<" | "<=" | ">" | ">=" | "in"
-
-/* Level 12: Shift (left-associative) */
-shift           ::= additive { shift_op additive }
-shift_op        ::= "<<" | ">>"
-
-/* Level 13: Additive (left-associative) */
-additive        ::= multiplicative { add_op multiplicative }
-add_op          ::= "+" | "-"
-
-/* Level 14: Multiplicative (left-associative) */
-multiplicative  ::= power { mul_op power }
-mul_op          ::= "*" | "/" | "%"
-
-/* Level 15: Power (right-associative) */
-power           ::= unary [ "^" power ]
-
-/* Level 16: Unary (right-associative) */
-unary           ::= unary_op unary
-                  | postfix
-unary_op        ::= "!" | "~" | "-"
-
-/* Level 17: Postfix (left-associative) */
-postfix         ::= atom { postfix_op }
-postfix_op      ::= "." property_name                           /* property access */
-                  | ".:" identifier                              /* waif property */
-                  | "[" index_expr "]"                           /* indexing */
-                  | "[" range_start ".." range_end "]"           /* range */
-                  | ":" verb_name "(" [ arguments ] ")"          /* verb call */
+postfix         ::= atom
+                  | postfix "." property_name                     /* property access */
+                  | postfix "." ":" identifier                    /* waif property, same as .(":name") */
+                  | postfix "[" expression "]"                    /* indexing */
+                  | postfix "[" expression ".." expression "]"    /* range */
+                  | postfix ":" verb_name "(" arg_list ")"        /* verb call */
 
 property_name   ::= identifier | "(" expression ")"
 verb_name       ::= identifier | "(" expression ")"
 ```
+
+The operator productions are disambiguated by Section 4.
+
+**Assignment targets.** The left side of `=` must be a variable, a property
+reference, or an index/range chain ending in one of those. Anything else is a
+compile error ("Illegal expression on left side of assignment."), for example
+`1 = 2` or `{}[1] = 2`.
+
+**Scatter assignment** is an expression, like ordinary assignment; its value is
+the right-hand side. It can be parenthesized and used as an operand or a loop
+condition: `v = ({a, @b} = {1, 2, 3})` sets `v` to `{1, 2, 3}`, and
+`while ({?x, @todo} = todo)` drains a list (conformance
+`language/scatter.yaml`, `scatter_expression_*`). A brace list followed by `=`
+is a scatter only when every entry is a plain identifier or `@identifier`;
+otherwise it is a compile error ("Scattering assignment targets must be simple
+variables."). More than one `@` target ("More than one `@' target in
+scattering assignment.") and `{} = ...` ("Empty list in scattering
+assignment.") are compile errors.
+
+Because the `{...}` form with only required and rest targets is parsed as a
+list expression before the `=` is seen, `0 || {a, b} = x` groups as
+`(0 || {a, b}) = x` (an illegal assignment), while a target list containing a
+`?` target is its own production, so `0 || {?a, b} = {2}` is
+`0 || ({?a, b} = {2})` and yields `{2}`.
+
+**Semantic lowering:** every assignment form constructs one sealed target.
+Scatter constructs the destructuring target rather than a second statement or
+target family.
 
 ---
 
@@ -270,44 +274,74 @@ verb_name       ::= identifier | "(" expression ")"
 atom            ::= "(" expression ")"
                   | catch_expr
                   | literal
+                  | list_literal
+                  | map_literal
                   | function_call
-                  | dollar_property
-                  | dollar_verb_call
-                  | dollar
+                  | "$" identifier                                 /* #0.identifier */
+                  | "$" identifier "(" arg_list ")"               /* #0:identifier(...) */
+                  | "^"                                           /* first, index context only */
+                  | "$"                                           /* last, index context only */
                   | identifier
 
-function_call   ::= identifier "(" [ arguments ] ")"
+catch_expr      ::= "`" expression "!" codes [ "=>" expression ] "'"
 
-dollar_property ::= "$" identifier                    /* equivalent to #0.identifier */
+function_call   ::= identifier "(" arg_list ")"
 
-dollar_verb_call ::= "$" verb_name "(" [ arguments ] ")"  /* equivalent to #0:verb() */
+arg_list        ::= [ arg { "," arg } ]
+arg             ::= expression
+                  | "@" expression
 
-dollar          ::= "$"                               /* last index marker in ranges */
+list_literal    ::= "{" arg_list "}"
 
-arguments       ::= expression { "," expression }
+map_literal     ::= "[" "]"
+                  | "[" map_entry { "," map_entry } "]"
+map_entry       ::= expression "->" expression
 ```
+
+**Argument lists** are the only place `@` may appear. `arg_list` is shared by
+list literals, builtin and verb call arguments, and except/catch codes. The
+spliced operand is any expression, including an assignment: `{@ret = {1, 2}}`
+sets `ret` and evaluates to `{1, 2}`. A splice is never an operand of a binary
+operator: `{1/@{}}` is a syntax error (conformance
+`language/parser_splice_operand.yaml`).
+
+**No trailing commas.** A list literal, map literal, argument list, or scatter
+target list cannot end with a comma: `{1, 2,}`, `{@a,}`, `["a" -> 1,]`, and
+`{a, b,} = ...` are syntax errors (conformance
+`language/parser_trailing_comma.yaml`).
+
+**No ranges in list literals.** A list entry is an expression, not a range:
+`{0..0}` is a syntax error. `{0, 1}[1..2]` is an ordinary range on a list
+literal (conformance `language/parser_list_range.yaml`).
+
+**Catch expression.** The codes follow the same rules as `except` codes
+(Section 3.1), including lower-case or mixed-case `any`. The default after
+`=>` is any expression, including an assignment: `` `1 / 0 ! ANY => x = 5' ``
+assigns 5 to `x` and evaluates to 5.
+
+**Builtin calls.** `name(args)` where `name` is not a builtin function is a
+compile error in `set_verb_code()` and `eval()` ("Unknown built-in function:
+name"). When the server loads a database it compiles such a call instead as
+`call_function("name", @args)` and logs a warning (`parser.y`, the
+`tID '(' arglist ')'` production; database.md covers loading).
 
 ---
 
 ## 7. Indexing and Ranges
 
-```ebnf
-index_expr      ::= "^"                               /* first element (index 1) */
-                  | "$"                               /* last element */
-                  | expression
-
-range_start     ::= "^"                               /* first element */
-                  | expression
-
-range_end       ::= "$"                               /* last element */
-                  | expression
-```
+`^` and `$` are legal only inside the brackets of an index or range expression,
+at any depth within the bracketed expressions (`x[^ + 1..$]`). Anywhere else,
+including a `for` range, they are a compile error ("Illegal context for `^'
+expression." / "Illegal context for `$' expression.").
 
 **Semantics:**
-- `^` represents index 1 (first element)
-- `$` represents `length(collection)` (last element)
+- `^` is the first index of the indexed value: `1` for a non-empty list or
+  string, `0` for an empty one, and the first key of a map
+- `$` is the last index: the length of a list or string, the last key of a map
 - Ranges are inclusive on both ends
 - 1-based indexing throughout
+
+See types.md Section 5 for range bounds.
 
 **Semantic lowering:** `^` and `$` lower to language-neutral first and last
 boundary expressions. The concrete token spelling remains parser-owned.
@@ -321,74 +355,117 @@ literal         ::= integer_literal
                   | float_literal
                   | string_literal
                   | object_literal
-                  | boolean_literal
-                  | list_literal
-                  | map_literal
                   | error_literal
 
-integer_literal ::= [ "-" ] digit { digit }
+integer_literal ::= digit { digit }
 
-float_literal   ::= [ "-" ] { digit } "." { digit } [ exponent ]
-                  | [ "-" ] digit { digit } exponent
+float_literal   ::= digit { digit } "." { digit } [ exponent ]   /* "1." only when not followed by "." */
+                  | "." digit { digit } [ exponent ]
+                  | digit { digit } exponent
 exponent        ::= ( "e" | "E" ) [ "+" | "-" ] digit { digit }
 
 string_literal  ::= '"' { string_char } '"'
-string_char     ::= any_char_except_quote_or_backslash
-                  | escape_sequence
-escape_sequence ::= "\\" | '\"' | "\n" | "\t" | "\r"
-                  | "\x" hex_digit hex_digit
+string_char     ::= any_char_except_quote_backslash_newline
+                  | "\" any_char_except_newline
 
-object_literal  ::= "#" integer_literal
+object_literal  ::= "#" [ "-" ] digit { digit }
 
-boolean_literal ::= "true" | "false"
-
-list_literal    ::= "{" [ expression { "," expression } ] "}"
-
-map_literal     ::= "[" [ map_entry { "," map_entry } ] "]"
-map_entry       ::= expression "->" expression
-
-error_literal   ::= "error"                           /* raw error keyword */
+error_literal   ::= error_name                    /* E_NONE ... E_INTRPT, any letter case */
 ```
+
+**Numbers.** Literals carry no sign; `-` is the unary operator. Negation of a
+numeric literal is folded into the literal at compile time. An exponent with no
+digits is a compile error ("Malformed floating-point literal"), as is a float
+literal outside the finite double range ("Floating-point literal out of
+range"; for example `1e400`).
+
+**Float precision.** A float literal is compiled to the full double that
+`strtod` reads from its spelling. Decompiled code (`verb_code()`) prints floats
+with 15 significant digits, but the stored program keeps the exact value:
+after `set_verb_code(o, "v", {"return 18.46744073709553614;"})`,
+`o:v() == 18.46744073709553614` is true while `verb_code(o, "v")` shows
+`return 18.4674407370955;` (conformance
+`builtins/set_verb_code_float_literal_precision.yaml`).
+
+**Strings.** A backslash makes the next character literal; there are no other
+escape sequences (`"\n"` is the one-character string `"n"`). A string cannot
+contain a newline: a literal that reaches the end of its source line, including
+one whose line ends in a backslash, is a compile error ("Missing quote")
+(`parser.y` yylex; conformance `language/parser_string_lines.yaml`).
+
+**Objects.** `#` must be followed by digits, optionally after `-`; otherwise
+the compile error is "Malformed object number".
+
+**Booleans.** `true` and `false` are not literals or keywords. They are
+predefined variables (see types.md Section 6.2) initialized to the Boolean
+values, so `x = true = {}` compiles and assigns `{}` to both.
 
 ---
 
 ## 9. Lexical Elements
 
-### 9.1 Identifiers
+### 9.1 Identifiers and Keywords
 
 ```ebnf
 identifier      ::= ( letter | "_" ) { letter | digit | "_" }
 letter          ::= "a".."z" | "A".."Z"
 digit           ::= "0".."9"
-hex_digit       ::= digit | "a".."f" | "A".."F"
 ```
 
-**Reserved words:**
+The lexer reads the whole identifier and then looks it up in the keyword table
+(`keywords.gperf`), **ignoring letter case** (it is generated with
+`gperf --ignore-case`). A match is a keyword; anything else is an identifier.
+
+**Keywords (any letter case):**
 ```
-if elseif else endif
-for endfor in
-while endwhile
+if else elseif endif
+for in endfor
 fork endfork
+return
+while endwhile
 try except finally endtry
-return break continue
-any error true false
+ANY
+break continue
+E_NONE E_TYPE E_DIV E_PERM E_PROPNF E_VERBNF E_VARNF E_INVIND E_RECMOVE
+E_MAXREC E_RANGE E_ARGS E_NACC E_INVARG E_QUOTA E_FLOAT E_FILE E_EXEC E_INTRPT
 ```
+
+Consequences (conformance `language/keyword_case.yaml`,
+`language/error_name_case.yaml`):
+- `RETURN 5;`, `IF (1) ... ENDIF`, `For x In (...)` and `EXCEPT (Any)` compile.
+- A keyword in any case cannot be a variable, property name, or verb name:
+  `ANY = 3`, `x.IN`, and `x:ANY()` are syntax errors. `["ANY" -> 1]` is an
+  ordinary string key.
+- Error names match only as whole identifiers: `e_type` and `E_Type` are the
+  error value `E_TYPE` and cannot be assigned, while `E_IN3ARG`, `E_TYPEx`,
+  `E_TYPE3`, and `E_TYPE_` are ordinary variables.
+
+Variable names are also case-insensitive: `Foo` and `foo` name the same
+variable (`sym_table.cc` `find_name` uses `strcasecmp`).
 
 ### 9.2 Comments
 
 ```ebnf
-comment         ::= block_comment | line_comment
-block_comment   ::= "/*" { any_char } "*/"
-line_comment    ::= "//" { any_char_except_newline } newline
+comment         ::= "/*" { any_char } "*/"
 ```
+
+MOO has only block comments, and they are whitespace between tokens:
+- The first `*/` ends the comment; comments do not nest. `/* outer /* inner */
+  return 7;` is a comment followed by `return 7;`, while `/* a /* b */ c */`
+  leaves `c */` as code.
+- Comments may span lines and appear between any two tokens
+  (`18 /* x */ / /* y */ 3` is `18 / 3`).
+- `/*` and `//` inside a string literal are string text.
+- There is no `//` line comment; `// one` is a syntax error.
+- A comment still open at end of program is a compile error reported on the
+  line where the program ended: "Line N:  End of program while in a comment".
+
+(`parser.y` yylex lines 889-907; conformance
+`language/parser_comment_contract.yaml`.)
 
 ### 9.3 Whitespace
 
-```ebnf
-whitespace      ::= " " | "\t" | "\n" | "\r" | "\f"
-```
-
-Whitespace is ignored except as token separator.
+Whitespace (`isspace`) is ignored except as a token separator.
 
 ---
 
@@ -397,13 +474,13 @@ Whitespace is ignored except as token separator.
 | Token | Name | Category |
 |-------|------|----------|
 | `=` | Assign | Assignment |
-| `?` | Question | Ternary |
+| `?` | Question | Ternary / optional scatter target |
 | `\|` | Pipe | Ternary |
 | `` ` `` | Backtick | Catch open |
 | `'` | Quote | Catch close |
 | `!` | Bang | Catch/Unary |
 | `=>` | Arrow | Catch default |
-| `@` | At | Splice/Scatter |
+| `@` | At | Splice/Scatter rest |
 | `\|\|` | Or | Logical |
 | `&&` | And | Logical |
 | `\|.` | BitOr | Bitwise |
@@ -426,10 +503,9 @@ Whitespace is ignored except as token separator.
 | `^` | Caret | Power/First |
 | `~` | Tilde | Unary |
 | `.` | Dot | Property |
-| `.:` | DotColon | Waif property |
 | `:` | Colon | Verb call |
-| `[` | LBracket | Index/Range |
-| `]` | RBracket | Index/Range |
+| `[` | LBracket | Index/Range/Map |
+| `]` | RBracket | Index/Range/Map |
 | `..` | DotDot | Range |
 | `{` | LBrace | List/Scatter |
 | `}` | RBrace | List/Scatter |
@@ -440,6 +516,13 @@ Whitespace is ignored except as token separator.
 | `->` | MapArrow | Map entry |
 | `#` | Hash | Object |
 | `$` | Dollar | System/Last |
+
+**Lexing `^`:** `^` followed by `..` is the caret token; `^` followed by any
+other `.` is the `^.` XOR token. So `x[^.y]` lexes as `x[` `^.` `y` `]` (a syntax
+error); write `(^).y` or `^ .y`. Likewise `|.` and `&.` are taken whenever `|`
+or `&` is followed by `.` (`parser.y` yylex operator switch).
+
+**Waif property:** `.:` is two tokens; `obj.:name` is `obj.(":name")`.
 
 ---
 
@@ -452,7 +535,7 @@ Whitespace is ignored except as token separator.
 
 ### 11.2 Catch Expression
 
-The catch expression `` `expr ! codes => default' `` evaluates `expr`. If it raises an error matching `codes`, returns `default` (or the error if no default). Otherwise returns `expr` result.
+The catch expression `` `expr ! codes => default' `` evaluates `expr`. If it raises an error matching `codes`, returns `default` (or the error code if no default). Otherwise returns `expr` result.
 
 ### 11.3 Scatter Assignment
 
@@ -462,18 +545,70 @@ The catch expression `` `expr ! codes => default' `` evaluates `expr`. If it rai
 ```
 
 - Required: `a` must have a value
-- Optional: `?b` uses default if missing
+- Optional: `?b` takes a spare value if there is one; otherwise its default is
+  evaluated, and without a default the variable is left unchanged
 - Rest: `@rest` collects remaining elements
+
+See statements.md Section 11 for binding order and errors.
 
 ### 11.4 Dollar Notation
 
-- `$prop` is equivalent to `#0.prop`
-- `$verb(args)` is equivalent to `#0:verb(args)`
-- `$` in index context means "last element"
+- `$prop` is equivalent to `#0.("prop")`
+- `$verb(args)` is equivalent to `#0:("verb")(args)`
+- `$` in index context means "last index"
 
 ---
 
-## 12. Grammar Validation
+## 12. Compilation Limits and Diagnostics
+
+**Depth.** Programs nest at least 256 constructs deep: 256 nested unary
+operators, parentheses, list literals, map values, `^` chains, assignments,
+postfix indexes, `if`/`while`/`try` statements, and combinations of these all
+compile (conformance `language/parser_depth_boundary.yaml`). Parentheses around
+an operand do not add a separate level: `1 + (1 + (... (1 + 1)))` with 255
+parenthesized operands compiles.
+
+**Literals.** There is no limit on the number of distinct literals in one
+program; programs with 257 and 600 distinct string and float literals compile
+and each literal keeps its value (conformance
+`language/literal_count_boundary.yaml`).
+
+**Diagnostics.** Compile errors are strings of the form `Line N:  message` (two
+spaces after the colon), returned by `set_verb_code()` and as the second
+element of a failed `eval()`. A failed `set_verb_code()` leaves the verb's
+previous program in place. A syntax error stops compilation and is the last
+message: `{"a = ;", "break;"}` reports only `Line 1:  syntax error`. Semantic
+errors found while parsing do not stop it, so several can be reported in source
+order, and a syntax error after them is reported too (`{"break;", "a = ;"}`
+reports the `break` error and then `Line 2:  syntax error`). Messages include:
+
+| Message | Cause |
+|---------|-------|
+| `syntax error` | Grammar violation |
+| ``No enclosing loop for `break' statement`` | `break` outside a loop |
+| ``No enclosing loop for `continue' statement`` | `continue` outside a loop |
+| ``Invalid loop name in `break' statement: NAME`` | Named `break` with no such loop |
+| ``Invalid loop name in `continue' statement: NAME`` | Named `continue` with no such loop |
+| `Unknown built-in function: NAME` | Call of a nonexistent builtin |
+| `Floating-point literal out of range` | Float literal not finite |
+| `Malformed floating-point literal` | Exponent without digits |
+| `Malformed object number` | `#` not followed by digits |
+| `Missing quote` | String literal reaches end of line |
+| `End of program while in a comment` | Unterminated `/*` |
+| ``Illegal context for `^' expression.`` | `^` outside index brackets |
+| ``Illegal context for `$' expression.`` | `$` outside index brackets |
+| `Illegal expression on left side of assignment.` | Bad assignment target |
+| `Scattering assignment targets must be simple variables.` | Non-variable scatter target |
+| ``More than one `@' target in scattering assignment.`` | Two rest targets |
+| `Empty list in scattering assignment.` | `{} = ...` |
+| `Unreachable EXCEPT clause` | Clause after an `ANY` clause |
+
+(Conformance `language/parser_independent_diagnostics.yaml`,
+`language/parser_comment_contract.yaml`, `language/parser_string_lines.yaml`.)
+
+---
+
+## 13. Grammar Validation
 
 This grammar should parse all valid MOO code in the conformance test suite. Validation checkpoint:
 

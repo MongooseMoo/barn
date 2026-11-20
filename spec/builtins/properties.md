@@ -25,6 +25,27 @@ propname = "score";
 player.(propname)         => 100
 ```
 
+### 1.2 Name Resolution
+
+Property names are compared case-insensitively everywhere (reads, writes and
+every property builtin). A name is resolved in this order (Toast
+`db_properties.cc` `db_find_property()`):
+
+1. The built-in property names `name`, `owner`, `programmer`, `wizard`, `r`,
+   `w`, `f`, `a`, `location`, `last_move`, `contents`, in any case.
+2. The object's own property definitions, in definition order.
+3. Each ancestor's definitions, in ancestor order.
+
+The first matching slot wins. A loaded database can give an object a
+definition whose name an ancestor also defines; the object's own definition
+is then found first (conformance
+`server/startup_repeated_ancestor_propname.yaml`).
+
+A property definition name read from a database keeps every character but
+the line's terminating newline, so a trailing carriage return is part of the
+name and survives later checkpoints (conformance
+`server/startup_propdef_trailing_cr.yaml`).
+
 ---
 
 ## 2. Property Listing
@@ -33,7 +54,11 @@ player.(propname)         => 100
 
 **Signature:** `properties(object) → LIST`
 
-**Description:** Returns list of property names defined on object (not inherited).
+**Description:** Returns the names of the properties defined on the object
+(not inherited), in definition order. Deleting a definition removes its name
+(matched case-insensitively) and a later `add_property()` appends at the end,
+so deleting and re-adding a name moves it to the end. Anonymous objects are
+accepted.
 
 **Examples:**
 ```moo
@@ -41,7 +66,8 @@ properties($thing)   => {"name", "description", ...}
 ```
 
 **Errors:**
-- E_INVIND: Invalid object
+- E_TYPE: Argument is not an object
+- E_INVARG: Invalid object
 - E_PERM: Object not readable
 
 ---
@@ -58,61 +84,98 @@ properties($thing)   => {"name", "description", ...}
 - `owner`: Object that owns the property
 - `perms`: Permission string (see valid formats below)
 
-**Permission string format:**
-
-Valid permission strings (order matters):
-- `""` (empty) - no permissions
-- `"r"` - read only
-- `"w"` - write only
-- `"rw"` - read and write
-- `"rwc"` - read, write, and chown
-
-**Invalid combinations** (all return E_INVARG):
-- `"c"` alone - chown requires write permission
-- `"rc"` - chown requires write permission
-- `"wc"` - incorrect ordering (must be "rwc")
-- Any out-of-order strings: `"wrc"`, `"crw"`, `"cwr"`, `"rcw"`, etc.
-
 **Permission characters:**
 | Char | Meaning |
 |------|---------|
 | r | Readable |
 | w | Writable |
-| c | Change owner allowed (requires 'w') |
+| c | Each descendant's slot is owned by that descendant's owner (§8.3) |
+
+The returned `perms` string is lowercase in the order `r`, `w`, `c`.
 
 **Examples:**
 ```moo
 property_info($thing, "name")   => {#wizard, "rw"}
 ```
 
-**Errors:**
-- E_INVIND: Invalid object
-- E_PROPNF: Property not found
+**Errors (in the order checked):**
+- E_TYPE: `object` is not an object
+- E_INVARG: Invalid object
+- E_PROPNF: Property not found, or a built-in property (name, owner,
+  location, contents, etc.); built-in properties have no owner or perms
+- E_PERM: Property not readable
 
-**Note on built-in properties:** Calling `property_info()` on built-in properties (name, owner, location, contents, etc.) returns E_PROPNF. Built-in properties are not tracked in the property system.
+Anonymous objects are accepted.
 
 ---
 
 ### 3.2 set_property_info
 
-**Signature:** `set_property_info(object, name, info) → none`
+**Signature:** `set_property_info(object, name, info) → 0`
 
-**Description:** Changes property metadata.
+**Description:** Changes property metadata, and optionally renames the
+property. Returns 0.
 
 **Parameters:**
-- `object`: Target object
+- `object`: Target object (numbered; an anonymous object or a WAIF is
+  `E_TYPE`)
 - `name`: Property name
-- `info`: `{owner, perms}` or just `perms` string
+- `info`: `{owner, perms}` or `{owner, perms, new_name}`, validated as in
+  §3.3
+
+**Rename** (three-element `info`, Toast `db_properties.cc`
+`db_rename_propdef()`):
+- Only the object that defines the property can rename it. For a name the
+  object merely inherits, the call is `E_INVARG` and nothing changes (not
+  even the owner or perms).
+- If `new_name` differs from the old name other than by case, it must not
+  name a built-in property (in any case) or a property defined on the
+  object, any ancestor or any descendant; otherwise `E_INVARG` and nothing
+  changes. A change of case alone, or the same name, is allowed.
+- The definition keeps its place in `properties()`. Every descendant's slot
+  (anonymous descendants included) follows the new name with its value,
+  owner, perms and clear state. The old name is then free to define again.
+- WAIF values of the class and its descendant classes keep their value for a
+  renamed `:` property under the new name (see `spec/objects.md` §10.3).
+- The new owner and perms from the same call are applied after the rename.
 
 **Examples:**
 ```moo
 set_property_info(obj, "secret", {player, "r"});
-set_property_info(obj, "public", "rw");
+set_property_info(obj, "old", {player, "rw", "new"});   // rename
 ```
 
-**Errors:**
-- E_PERM: Not owner/wizard
-- E_PROPNF: Property not found
+**Errors (in the order checked):**
+- E_TYPE: `object` is not a numbered object
+- E_INVARG: Invalid object
+- E_TYPE / E_INVARG: Bad `info` (§3.3), checked before the property is
+  looked up
+- E_PROPNF: Property not found, or built-in
+- E_PERM: Property not writable (not the property owner, not a wizard, and
+  no `w` flag), or a non-wizard names an owner different from the
+  property's current owner. The `w` flag lets a non-owner change the perms
+  while keeping the owner.
+- E_INVARG: Rename refused (above)
+
+(Toast `property.cc` `set_prop_info()`; conformance
+`builtins/verb_prop_builtin_precedence.yaml`,
+`builtins/owner_change_permission.yaml`,
+`builtins/property_rename_and_numbered_object_checks.yaml`.)
+
+---
+
+### 3.3 Property Info Validation
+
+`add_property()` and `set_property_info()` validate `info` the same way
+(Toast `property.cc` `validate_prop_info()`):
+
+1. It must be a list of two or three elements, `{OBJ, STR}` or
+   `{OBJ, STR, STR}`; any other shape or element type (including an
+   anonymous object as owner, or a bare perms string) is `E_TYPE`.
+2. The owner must be valid, else `E_INVARG`.
+3. Each perms character must be `r`, `w` or `c`, in either case and in any
+   order and combination (`""`, `"c"`, `"rc"`, `"cwr"` are all valid); any
+   other character is `E_INVARG`.
 
 ---
 
@@ -120,56 +183,84 @@ set_property_info(obj, "public", "rw");
 
 ### 4.1 add_property
 
-**Signature:** `add_property(object, name, value, info) → none`
+**Signature:** `add_property(object, name, value, info) → 0`
 
-**Description:** Adds a new property to object.
+**Description:** Adds a new property definition to the object. Returns 0.
 
 **Parameters:**
-- `object`: Target object
+- `object`: Target object (numbered; anonymous is `E_TYPE`)
 - `name`: Property name
 - `value`: Initial value
-- `info`: `{owner, perms}` or just `perms` string
+- `info`: `{owner, perms}`, validated as in §3.3. A three-element info list
+  is `E_TYPE`.
+
+**Behavior** (Toast `db_properties.cc` `db_add_propdef()`):
+- The name must not already resolve on the object (a built-in name, or a
+  definition on the object or any ancestor) and must not be defined on any
+  descendant; otherwise `E_INVARG`.
+- The definition is appended to the object's `properties()`.
+- The object's own slot holds `value`. Every existing descendant, permanent
+  or anonymous (including anonymous children of permanent descendants),
+  gets a clear slot that reads through to the inherited value.
+- Slot owner: without `c`, every slot is owned by `owner`. With `c`, each
+  slot is owned by the owner of the object holding it, including the
+  defining object's own slot (§8.3).
+- WAIF values of the class keep the values they already hold.
 
 **Examples:**
 ```moo
-add_property(obj, "score", 0, "rw");
 add_property(obj, "secret", "", {player, "r"});
 ```
 
-**Errors:**
-- E_PERM: Not owner/wizard
-- E_INVARG: Property already exists
-- E_INVARG: Invalid property name
+**Errors (in the order checked):**
+- E_TYPE / E_INVARG: Bad `info` (§3.3)
+- E_TYPE: `info` has a third element, or `object` is not a numbered object
+- E_INVARG: Invalid object
+- E_PERM: Object not writable by the caller, or a non-wizard names an owner
+  other than itself (checked before the name clash)
+- E_INVARG: Name already defined (above)
 
 ---
 
 ### 4.2 delete_property
 
-**Signature:** `delete_property(object, name) → none`
+**Signature:** `delete_property(object, name) → 0`
 
-**Description:** Removes property from object.
+**Description:** Removes a property definition from the object that defines
+it. Returns 0.
 
-**Behavior details:**
-- If property is defined on this object: removes the property definition
-- If property is inherited (no local value): succeeds as a no-op
-- If property has a local override of inherited property: removes the override, reverts to inherited value
-- E_PROPNF only if property doesn't exist anywhere in inheritance chain
+**Behavior details** (Toast `db_properties.cc` `db_delete_propdef()`):
+- Only a definition on the object itself is deleted, found by a
+  case-insensitive name match. A name the object only inherits is
+  `E_PROPNF`; deleting cannot remove a child's override of an inherited
+  property.
+- The slot is removed from the object and from every descendant, permanent
+  or anonymous, including descendants that had written their own value in
+  this or an earlier task. Afterwards reading the name on any of them is
+  `E_PROPNF` (unless another definition of it is inherited).
+- WAIF values of the class lose their value for a deleted `:` property;
+  re-adding the property gives them the class value.
 
 **Examples:**
 ```moo
 delete_property(obj, "temporary");  // Remove defined property
 
-// Inherited property handling
-parent.x = 10;
-child.x = 99;  // Local override
-delete_property(child, "x");  // Removes override, child.x reverts to 10
-
-delete_property(child, "x");  // No-op (now inheriting), still succeeds
+parent.x = 10;            // parent defines x
+child.x = 99;             // child's override
+delete_property(child, "x");    // E_PROPNF: child does not define x
+delete_property(parent, "x");   // removes x from parent and child
 ```
 
-**Errors:**
-- E_PERM: Not owner/wizard
-- E_PROPNF: Property not found in object or inheritance chain
+**Errors (in the order checked):**
+- E_TYPE: `object` is not a numbered object
+- E_INVARG: Invalid object
+- E_PERM: Object not writable by the caller (checked before the lookup, so a
+  missing property on an unwritable object is `E_PERM`)
+- E_PROPNF: Property not defined on the object
+
+(Conformance `builtins/delete_property_descendants.yaml`,
+`builtins/property_definition_anonymous_descendants.yaml`,
+`builtins/properties.yaml:delete_property_missing_on_unwritable_object_checks_permission_first`.)
 
 ---
 
@@ -188,8 +279,8 @@ delete_property(child, "x");  // No-op (now inheriting), still succeeds
 
 **Multi-level inheritance:**
 - If parent's property is also clear, search continues to grandparent
-- Continues recursively until a non-clear value is found
-- If all ancestors have clear properties, raises E_PROPNF
+- Continues recursively until a non-clear value is found (the definer's slot
+  is never clear, so the search always ends there at the latest)
 
 **Writing to clear properties:**
 - Writing to a clear property sets a local value (un-clears it)
@@ -198,34 +289,40 @@ delete_property(child, "x");  // No-op (now inheriting), still succeeds
 
 **Idempotency:**
 - Calling `clear_property()` on an already-clear property succeeds silently (no-op)
-- Only raises E_PROPNF if property doesn't exist anywhere in inheritance chain
+
+**Definer:** The object that defines the property cannot clear it: its slot
+always holds a value, and `clear_property()` there is `E_INVARG`.
+
+Clearing changes only the value; the slot keeps its owner and perms.
+Anonymous objects are accepted.
 
 **Examples:**
 ```moo
-// Simple clear
+// Simple clear (description defined on an ancestor of obj)
 obj.description = "Custom";
 clear_property(obj, "description");
 // obj.description now returns parent's value
 
-// Multi-level clear
+// Multi-level clear (x defined on grandparent)
 grandparent.x = 99;
 clear_property(parent, "x");    // parent.x inherits from grandparent
 clear_property(child, "x");     // child.x inherits through parent to grandparent
 child.x  => 99
 
 // Writing to clear property
-clear_property(obj, "name");
-obj.name = "New";  // Un-clears, sets local value
-// obj.name is now "New", not inherited
+obj.description = "New";  // Un-clears, sets local value
 
 // Idempotent
 clear_property(obj, "prop");
 clear_property(obj, "prop");  // Succeeds, no error
 ```
 
-**Errors:**
-- E_PERM: Not owner/wizard
-- E_PROPNF: Property not found in object or any ancestor
+**Errors (in the order checked, Toast `property.cc` `bf_clear_prop()`):**
+- E_TYPE: `object` is not an object
+- E_INVARG: Invalid object
+- E_PROPNF: Property not found (looked up before any permission check)
+- E_PERM: A built-in property, or the slot is not writable by the caller
+- E_INVARG: The object defines the property
 
 ---
 
@@ -233,7 +330,10 @@ clear_property(obj, "prop");  // Succeeds, no error
 
 **Signature:** `is_clear_property(object, name) → BOOL`
 
-**Description:** Tests if property is cleared (inheriting).
+**Description:** Tests if property is cleared (inheriting). A built-in
+property is never clear (returns 0). A slot an object has never written is
+clear, including the slot every existing descendant gets from
+`add_property()` on an ancestor.
 
 **Examples:**
 ```moo
@@ -241,8 +341,10 @@ is_clear_property(obj, "name")   => false (has own value)
 is_clear_property(obj, "desc")   => true  (inheriting)
 ```
 
-**Errors:**
+**Errors (in the order checked):**
+- E_INVARG: `object` is not an object, or is invalid
 - E_PROPNF: Property not found
+- E_PERM: Property (not built-in) not readable
 
 ---
 
@@ -261,6 +363,12 @@ Every object has these read-only or system-managed properties:
 | `.r` | BOOL | Read flag |
 | `.w` | BOOL | Write flag |
 | `.f` | BOOL | Fertile flag |
+| `.a` | BOOL | Anonymous flag (children of this object may be anonymous) |
+| `.last_move` | MAP | Last move record (0 under the `clear_last_move` server option) |
+
+Built-in names are matched in any case and take precedence over any defined
+property (§1.2). They cannot be defined, renamed to, cleared (`E_PERM`), or
+queried with `property_info()` (`E_PROPNF`).
 
 ---
 
@@ -268,42 +376,57 @@ Every object has these read-only or system-managed properties:
 
 | Error | Condition |
 |-------|-----------|
-| E_INVIND | Invalid object |
+| E_TYPE | Object argument of the wrong type (an anonymous object where a numbered one is required), or a malformed info list |
+| E_INVARG | Invalid object; bad perms character or invalid owner; name clash |
 | E_PROPNF | Property not found |
 | E_PERM | Permission denied |
-| E_TYPE | Invalid name type |
-| E_INVARG | Invalid argument |
+
+The property builtins report an invalid object as `E_INVARG`, not
+`E_INVIND`.
 
 ---
 
 ## 8. Permission Model
 
+Every object carries its own slot for each property it defines or inherits,
+and each slot has its own owner and perms. Permission checks use the slot on
+the object being accessed (Toast `db_properties.cc` `db_property_allows()`),
+not the definer's slot and not the object's owner.
+
 ### 8.1 Read Permission
 
 Property readable if:
-- Caller owns the object
+- Caller owns the slot (the property owner shown by `property_info()` on
+  this object)
 - Caller is wizard
-- Property has 'r' permission
-
-**Inherited property permissions:**
-When accessing an inherited property (e.g., `child.prop` where `prop` is defined on `parent`):
-- Permission checks use the property definition from the ancestor where it's defined
-- The object owner's permissions are NOT checked
-- Example: If `parent.prop` has no 'r' flag, reading `child.prop` requires owning parent or being wizard, even if you own child
+- The slot has 'r' permission
 
 ### 8.2 Write Permission
 
 Property writable if:
-- Caller owns the object
+- Caller owns the slot
 - Caller is wizard
-- Property has 'w' permission
+- The slot has 'w' permission
 
-### 8.3 Chown Permission
+`set_property_info()` needs write permission on the slot; a non-wizard may
+not change the owner (§3.2).
 
-Property owner changeable if:
-- Caller owns the object
-- Caller is wizard
-- Property has 'c' permission
+### 8.3 The `c` Flag
+
+`c` decides who owns the slots a definition creates on objects other than
+the one named in `info`: with `c`, a slot is owned by the owner of the
+object that holds it; without `c`, by the property owner. The rule is
+applied whenever a slot is created (Toast `db_properties.cc`
+`insert_prop2()`):
+
+- by `add_property()`, for the defining object's own slot and for every
+  existing descendant, permanent or anonymous;
+- by `create()`, for each slot the new object inherits;
+- by `chparent()`/`chparents()`, for each new slot of the moved object and
+  of its descendants.
+
+(Conformance `builtins/properties.yaml:chown_flag_*`,
+`builtins/property_definition_anonymous_slot_owner.yaml`.)
 
 ---
 

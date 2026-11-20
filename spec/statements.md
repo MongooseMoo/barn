@@ -194,7 +194,7 @@ endfor
 - **Two variables:** first receives value, second receives key (value, key order)
 - Same snapshot and mutation isolation as list iteration
 - **Map mutation:** The map expression is evaluated once before iteration begins. Modifications to the map during iteration (adding, removing, or changing entries) do not affect the current iteration sequence.
-- **Iteration order:** Implementation-defined but stable within a single iteration of an unmodified map
+- **Iteration order:** Key order, as defined in [types.md](types.md) Section 2.7 (not insertion order)
 
 **Post-loop variable state:**
 - Loop variables retain values from last iteration
@@ -243,8 +243,9 @@ endfor
 - If either start or end is not INT, E_TYPE is raised before the loop body executes
 
 **Special markers:**
-- `$` as end: iterate to list length (requires list indexing context like `mylist[1..$]`)
-- Using `$` in a for-range without list context (e.g., `for i in [1..$]`) is a syntax error
+- `^` and `$` are not legal in a for-range: `for i in [1..$]` is a compile error
+  ("Illegal context for `$' expression."). They are legal only inside index or
+  range brackets, such as `for x in (mylist[2..$])`.
 
 **Example:**
 ```moo
@@ -358,8 +359,11 @@ break loop_name;
 **Semantics:**
 - Without name: exits innermost loop
 - With name: exits the named loop
-- Invalid outside loop
-- Referencing a non-existent loop label is a compile-time error
+- Invalid outside loop: compile error ``No enclosing loop for `break' statement``
+- Referencing a non-existent loop label is a compile-time error:
+  ``Invalid loop name in `break' statement: NAME``
+- A `for` loop is named by its loop variable (or its index variable); a
+  `while` loop by its optional name
 
 **Context restrictions:**
 - Break is valid inside try/except/finally blocks when enclosed by a loop
@@ -376,8 +380,9 @@ continue loop_name;
 **Semantics:**
 - Without name: skips to next iteration of innermost loop
 - With name: skips to next iteration of named loop
-- Invalid outside loop
-- Referencing a non-existent loop label is a compile-time error
+- Invalid outside loop: compile error ``No enclosing loop for `continue' statement``
+- Referencing a non-existent loop label is a compile-time error:
+  ``Invalid loop name in `continue' statement: NAME``
 
 **Context restrictions:**
 - Continue is valid inside try/except/finally blocks when enclosed by a loop
@@ -519,7 +524,8 @@ endtry
 
 **Matching order:**
 - First matching clause handles the error
-- Maximum 255 except clauses
+- Maximum 255 except clauses (more is a compile error, "Too many EXCEPT clauses (max. 255)")
+- A clause after an `ANY` clause can never match and is a compile error ("Unreachable EXCEPT clause")
 
 ### 9.3 Error Codes
 
@@ -527,8 +533,18 @@ endtry
 |------|---------|
 | `E_TYPE` | Specific error |
 | `E_TYPE, E_RANGE` | Multiple specific errors |
-| `ANY` | All errors |
+| `ANY` | All errors (keyword, any letter case; must be the only code) |
 | `@list_var` | Dynamic list of errors |
+| `"E_CUSTOM"`, `x + 1`, ... | Any expression; matched against the raised value |
+
+The codes other than `ANY` are an ordinary argument list: any expressions,
+mixed with `@` splices. They are evaluated when the `try` statement is entered,
+and a raised value matches a clause when it is a member of the clause's list.
+So `except ("E_CUSTOM")` catches `raise("E_CUSTOM")` (conformance
+`language/expression_codes_and_defaults.yaml`; Toast `execute.cc`
+`find_handler_activ` uses `ismember`). `ANY` combined with other codes, such as
+`except (E_INVARG, ANY)`, is a syntax error (conformance
+`language/keyword_case.yaml`).
 
 ### 9.4 Error Variable
 
@@ -589,19 +605,27 @@ finally
 endtry
 ```
 
-### 10.1 Try/Except/Finally
+### 10.1 No Combined Try/Except/Finally
+
+A single `try` statement has either except clauses or a finally clause, never
+both. `try ... except (...) ... finally ... endtry` is a syntax error (Toast
+`parser.y` has only `tTRY statements excepts tENDTRY` and
+`tTRY statements tFINALLY statements tENDTRY`; conformance
+`language/parser_try_except_finally.yaml`). Nest the statements instead:
 
 ```moo
 try
-  statements
-except (codes)
-  handler
+  try
+    statements
+  except (codes)
+    handler
+  endtry
 finally
   cleanup
 endtry
 ```
 
-**Execution order:**
+**Execution order of the nested form:**
 1. Try block
 2. If error, matching except handler
 3. Finally block (always)
@@ -622,9 +646,14 @@ endtry
 | Syntax | Type | Behavior |
 |--------|------|----------|
 | `var` | Required | Must have value |
-| `?var` | Optional | Uses `0` if missing |
-| `?var = expr` | Optional with default | Uses `expr` if missing |
+| `?var` | Optional | Left unchanged if no value is left for it |
+| `?var = expr` | Optional with default | Assigned `expr` if no value is left for it |
 | `@var` | Rest | Collects remaining elements |
+
+Targets must be plain variable names. At most one `@` target is allowed, and
+`{} = ...` is not a scatter; these are compile errors (see grammar.md Section
+5). A scatter assignment is an expression whose value is the right-hand list,
+so it can be a loop condition: `while ({?x, @todo} = todo) ... endwhile`.
 
 ### 11.3 Examples
 
@@ -632,8 +661,9 @@ endtry
 {a, b, c} = {1, 2, 3};
 // a=1, b=2, c=3
 
+b = "old";
 {a, ?b} = {1};
-// a=1, b=0
+// a=1, b="old" (unchanged)
 
 {a, ?b = "default"} = {1};
 // a=1, b="default"
@@ -641,16 +671,47 @@ endtry
 {first, @rest} = {1, 2, 3, 4};
 // first=1, rest={2, 3, 4}
 
-{a, ?b, @rest} = {1};
+{a, ?b = 0, @rest} = {1};
 // a=1, b=0, rest={}
 ```
 
-### 11.4 Errors
+### 11.4 Binding Order
 
-| Condition | Error |
-|-----------|-------|
-| Not enough values for required targets | E_ARGS |
-| Right side not a list | E_TYPE |
+Toast's `EOP_SCATTER` (`execute.cc`) and its code generator (`code_gen.cc`,
+`EXPR_SCATTER`) give this order (conformance
+`language/scatter_binding_order.yaml`):
+
+1. The right side is evaluated once. If it is not a list, or has fewer elements
+   than there are required targets, or has more elements than there are targets
+   and there is no rest target, the error is raised and **no** target is
+   assigned and no default runs.
+2. One left-to-right pass binds every target that receives an element. The
+   spare elements (length minus the number of required targets) go to the
+   optional targets from the left, wherever they sit relative to the required
+   and rest targets; the rest target takes whatever is left after that, possibly
+   `{}`. So `{?a, @r, ?b} = {1, 2}` gives `a = 1`, `r = {}`, `b = 2`.
+3. Only then are the defaults of the optional targets that received nothing
+   evaluated, left to right, each assigned as soon as it is computed. A default
+   therefore sees every target bound in step 2, including targets to its right,
+   and the defaults already assigned to its left. The default of an optional
+   that received a value is not evaluated. If a default raises, the targets
+   bound in step 2 and the defaults already assigned keep their values and the
+   later defaults do not run.
+
+A name may appear more than once; later bindings in step 2 overwrite earlier
+ones, and step 3 defaults overwrite step 2 bindings: after `{?a = 7, a} = {1}`,
+`a` is 7.
+
+### 11.5 Errors
+
+| Condition | Error | Message |
+|-----------|-------|---------|
+| Right side not a list | E_TYPE | `Type mismatch (expected list; got string)` (names the actual type) |
+| Fewer elements than required targets | E_ARGS | `Incorrect number of arguments` |
+| More elements than targets, no rest target | E_ARGS | `Incorrect number of arguments` |
+
+The messages are the errors' default messages, not scatter-specific text
+(conformance `language/scatter_error_messages.yaml`).
 
 ---
 

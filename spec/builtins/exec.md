@@ -202,6 +202,7 @@ When exec() is called:
 
 **Key points:**
 - The suspension is mandatory - exec() cannot return synchronously
+- There is no time limit: no timer is set, and the task stays suspended until the child exits or the task is killed, however long the child runs
 - Multiple tasks can have exec() calls running concurrently (up to server limit)
 - Task can be killed with kill_task() while process is running
 - resume() cannot force an exec task to resume early (raises E_INVARG)

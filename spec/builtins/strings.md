@@ -47,8 +47,13 @@ strsub("aaa", "a", "bb")             => "bbbbbb"
 ```
 
 **Errors:**
-- E_TYPE: Non-string string/delimiter or non-integer `adjacent_delim`
+- E_TYPE: `subject`, `old` or `new` is not a string
 - E_INVARG: Empty `old` string
+- E_QUOTA: The result would exceed the string size limit (`max_string_concat`).
+  The result is built incrementally and refused as soon as it passes the limit,
+  so an over-limit result is never materialized; a result exactly at the limit
+  is returned. Raised only when `$server_options.max_concat_catchable` is true;
+  otherwise the task is aborted as if it had run out of seconds.
 
 ---
 
@@ -159,6 +164,8 @@ str[start..$]     // To end of string
 ### 2.2 explode (ToastStunt)
 
 **Signature:** `explode(string [, delimiter [, adjacent_delim]]) → LIST`
+
+**Flag arguments:** `adjacent_delim` accept an INT or a BOOL and are read by truth value (`function_info()` reports the position as -3); any other type raises `E_TYPE`.
 
 **Description:** Splits a string on a single-character delimiter.
 
