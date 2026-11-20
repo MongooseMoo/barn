@@ -101,7 +101,7 @@ func (s *scheduler) Enqueue(t *Task) {
 	defer s.mu.Unlock()
 	s.queueSeq++
 	t.SetQueueSeq(s.queueSeq)
-	heap.Push(&s.waiting, t)
+	s.pushWaitingLocked(t)
 }
 
 // RequeueYield places a suspend(0) task behind work that was already ready.
@@ -111,7 +111,7 @@ func (s *scheduler) RequeueYield(t *Task, now time.Time) {
 	s.queueSeq++
 	t.PrepareYieldRequeue(s.queueSeq, now)
 	s.yieldBarriers[t] = s.flightSeq
-	heap.Push(&s.waiting, t)
+	s.pushWaitingLocked(t)
 }
 
 // yieldHeldLocked reports whether a slice of t's fork family that was running
@@ -141,7 +141,84 @@ func (s *scheduler) ResumeAtRow(t *Task, version uint64, value types.Value, read
 		return
 	}
 	s.queueSeq++
+	s.pushWaitingLocked(t)
+}
+
+// waitingMark records the keys a task had when it entered a scheduler's
+// ready-time heap. The heap relies on those keys not changing while the task
+// is in it, so a scan may read them here instead of locking the task.
+type waitingMark struct {
+	owner *scheduler
+	// order is the heap's ordering key: the wake time when there is one,
+	// otherwise the start time.
+	order time.Time
+	// due is the later of the start and wake times. A queued task cannot be
+	// selected, and holds no readier back, before it.
+	due time.Time
+}
+
+func (s *scheduler) pushWaitingLocked(t *Task) {
+	start, wake, _ := t.SchedulingSnapshot()
+	mark := &waitingMark{owner: s, order: start, due: start}
+	if !wake.IsZero() {
+		mark.order = wake
+	}
+	if wake.After(start) {
+		mark.due = wake
+	}
+	t.waiting.Store(mark)
 	heap.Push(&s.waiting, t)
+}
+
+// inWaitingLocked reports whether t is in this scheduler's heap.
+func (s *scheduler) inWaitingLocked(t *Task) bool {
+	mark := t.waiting.Load()
+	return mark != nil && mark.owner == s
+}
+
+// notDueInWaitingLocked reports whether t is in this scheduler's heap and
+// cannot be selected at now. Such a task has never been dispatched from the
+// heap, is not ready, and holds no readier back, so the catalog scans skip it.
+// A world can hold hundreds of delayed forks; visiting each one on every scan
+// kept s.mu held for most of the wall clock.
+func (s *scheduler) notDueInWaitingLocked(t *Task, now time.Time) bool {
+	mark := t.waiting.Load()
+	return mark != nil && mark.owner == s && mark.due.After(now)
+}
+
+// waitingOrderLocked returns the key the heap orders t by.
+func (s *scheduler) waitingOrderLocked(t *Task) time.Time {
+	if mark := t.waiting.Load(); mark != nil && mark.owner == s {
+		return mark.order
+	}
+	start, wake, _ := t.SchedulingSnapshot()
+	if !wake.IsZero() {
+		return wake
+	}
+	return start
+}
+
+// eachWaitingLocked visits heap entries from the earliest ordering key on.
+// prune receives an entry's key before the entry is visited; when it returns
+// true the entry and everything below it in the heap, whose keys are no
+// earlier, are left unvisited.
+func (s *scheduler) eachWaitingLocked(prune func(order time.Time) bool, visit func(*Task)) {
+	if len(s.waiting) == 0 {
+		return
+	}
+	stack := []int{0}
+	for len(stack) > 0 {
+		i := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		t := s.waiting[i]
+		if prune(s.waitingOrderLocked(t)) {
+			continue
+		}
+		visit(t)
+		for child := 2*i + 1; child <= 2*i+2 && child < len(s.waiting); child++ {
+			stack = append(stack, child)
+		}
+	}
 }
 
 // Ready selects tasks ready at now, including resumed catalog tasks. Selection
@@ -288,6 +365,9 @@ func (s *scheduler) readyLocked(now time.Time, catalog []*Task) []*Task {
 			break
 		}
 		heap.Pop(&s.waiting)
+		if s.inWaitingLocked(t) {
+			t.waiting.Store(nil)
+		}
 		if t.GetState() == task.TaskQueued && !seen[t.ID] {
 			if blocked[&t.State] || t.ReadyDeadline(now).IsZero() {
 				s.pending = append(s.pending, t)
@@ -298,7 +378,7 @@ func (s *scheduler) readyLocked(now time.Time, catalog []*Task) []*Task {
 		}
 	}
 	for _, t := range catalog {
-		if t == nil || seen[t.ID] || blocked[&t.State] {
+		if t == nil || seen[t.ID] || blocked[&t.State] || s.notDueInWaitingLocked(t, now) {
 			continue
 		}
 		if deadline := t.ReadyDeadline(now); deadline.IsZero() || deadline.After(now) {
@@ -358,8 +438,14 @@ func (s *scheduler) blockedReadiersLocked(now time.Time, catalog []*Task) map[*t
 			blocked[readier] = true
 		}
 	}
-	for _, tasks := range [][]*Task{s.pending, s.waiting, catalog} {
-		for _, t := range tasks {
+	for _, t := range s.pending {
+		visit(t)
+	}
+	// A heap entry that is not due holds no readier back, and neither does
+	// anything ordered after it.
+	s.eachWaitingLocked(func(order time.Time) bool { return order.After(now) }, visit)
+	for _, t := range catalog {
+		if t != nil && !s.notDueInWaitingLocked(t, now) {
 			visit(t)
 		}
 	}
@@ -371,6 +457,11 @@ func (s *scheduler) blockedReadiersLocked(now time.Time, catalog []*Task) map[*t
 func (s *scheduler) NextWake(now time.Time, catalog []*Task) time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.inFlight >= s.workers {
+		// Every task is held behind the work in flight, and that work's
+		// completion requests the next scan.
+		return time.Time{}
+	}
 	blocked := s.blockedReadiersLocked(now, catalog)
 	var next time.Time
 	visit := func(t *Task) {
@@ -392,16 +483,18 @@ func (s *scheduler) NextWake(now time.Time, catalog []*Task) time.Time {
 			next = at
 		}
 	}
-	for _, t := range s.waiting {
-		visit(t)
-	}
+	// A task's deadline is never earlier than its ordering key, so an entry
+	// keyed at or after the earliest wake found, and everything below it,
+	// cannot bring the wake forward.
+	s.eachWaitingLocked(func(order time.Time) bool { return !next.IsZero() && !order.Before(next) }, visit)
 	for _, t := range s.pending {
 		visit(t)
 	}
 	for _, t := range catalog {
 		// Fresh direct foreground tasks live in the catalog but are dispatched
-		// by their caller. Only saved continuations use catalog admission.
-		if t != nil && (t.GetState() == task.TaskSuspended || t.VM() != nil || t.StmtIndex > 0) {
+		// by their caller. Only saved continuations use catalog admission. A
+		// task in the heap was considered above.
+		if t != nil && !s.inWaitingLocked(t) && (t.GetState() == task.TaskSuspended || t.VM() != nil || t.StmtIndex > 0) {
 			visit(t)
 		}
 	}

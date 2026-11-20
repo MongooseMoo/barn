@@ -18,6 +18,10 @@ type Task struct {
 	// timeline is the task's slice timeline while diagnostics tracking is on
 	// (task_timeline.go). It is one pointer so a task without it stays small.
 	timeline atomic.Pointer[taskTimeline]
+	// waiting is set while the task sits in a scheduler's ready-time heap
+	// (scheduler.go, pushWaitingLocked). It lets a scheduling scan pass over a
+	// task that is not due without taking the task's lock.
+	waiting atomic.Pointer[waitingMark]
 }
 
 func NewTask(id int64, owner types.ObjID, ticks int64, seconds float64) *Task {
