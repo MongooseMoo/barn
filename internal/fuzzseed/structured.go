@@ -133,8 +133,14 @@ func coreBuiltinShapes(staples ...string) (all, staple []builtinShape) {
 // doubles itself): a running statement is not stopped by the task's tick or
 // seconds limits on either engine. The handle variable is sqliteHandleVar,
 // which is never in scope, so a program reads the handle only as a SQLite
-// builtin's argument.
-const sqliteHandleVar = "db"
+// builtin's argument. sqliteResultVar, sqliteLogVar and sqliteErrorVar are
+// never in scope either: only sqliteRecord and sqliteWrap name them.
+const (
+	sqliteHandleVar = "db"
+	sqliteResultVar = "sqlr"
+	sqliteLogVar    = "sqllog"
+	sqliteErrorVar  = "sqle"
+)
 
 // sqliteStatements is the SQL the generated calls run: each is ASCII on one
 // line, deterministic, and bounded. The preamble creates table t (a, b).
@@ -167,7 +173,11 @@ var sqliteStatements = []string{
 	"SELECT '#5', '12', ' 12', '1e3', '-0', '0x10'",
 	"SELECT 2147483648, -9223372036854775808, 9223372036854775807 + 1",
 	"SELECT abs(-9223372036854775807 - 1)",
-	"SELECT x'4142', 'a' || char(10) || 'b'",
+	// char(9), not char(10): the outcome carries this result, and a string
+	// holding a newline has no MOO literal on either engine (Toast list.cc
+	// toliteral escapes only '"' and '\'), so the vm lane's literal round
+	// trip (checkLiteralRoundTrip) cannot hold for it.
+	"SELECT x'4142', 'a' || char(9) || 'b'",
 	"SELECT 1, 2 UNION ALL SELECT 3, 4",
 	"VALUES (1, 'a'), (2, 'b')",
 	"WITH c(x) AS (VALUES (1), (2)) SELECT x FROM c",
@@ -222,9 +232,63 @@ func program(choices []byte, ascii bool) *ir.Program {
 	}
 	body := g.block(maxTopLevel, 0)
 	if g.sqlite {
-		body = sqliteWrap(body)
+		body = sqliteWrap(g.scriptGenerator(choices).sqliteScript(), body)
 	}
 	return &ir.Program{Statements: append(statements, body...)}
+}
+
+// maxSQLiteScript bounds sqliteScript's calls, and maxSQLiteScriptNodes the
+// script generator's expression budget.
+const (
+	maxSQLiteScript      = 12
+	maxSQLiteScriptNodes = 60
+)
+
+// scriptGenerator draws a SQLite program's script (sqliteScript). It reads
+// the program's choice bytes last to first: the body is drawn first-to-last
+// and usually uses them up, so the script cannot come from what the body
+// left, and drawing it before the body would change every program's body.
+// So the body is the one the choices gave before, and each choice list still
+// gives one program. It sees the variables the body bound.
+func (g *generator) scriptGenerator(choices []byte) *generator {
+	reversed := slices.Clone(choices)
+	slices.Reverse(reversed)
+	return &generator{choices: reversed, budget: maxSQLiteScriptNodes, ascii: g.ascii, scope: slices.Clone(g.scope)}
+}
+
+// sqliteScript is a run of SQLite calls that a SQLite program makes before
+// its body, each a statement of its own, recorded (sqliteRecord) and caught,
+// so a raise does not end the run. The body usually raises before most of the
+// SQLite calls drawn inside it are evaluated, so without this most programs
+// report few SQLite results; a sequence of calls also reaches what one call
+// cannot (a limit, an interrupt or a close and then a query, several handles
+// open at once). Two calls in three run SQL (sqlite_query or
+// sqlite_execute), whose results depend most on the engine. An opened handle
+// replaces sqliteHandleVar half the time, so later calls use its options.
+// No choices give no script.
+func (g *generator) sqliteScript() []ir.Stmt {
+	shapes := builtinShapes[slices.IndexFunc(builtinShapes, func(s builtinShape) bool { return s.sqlite }):]
+	var script []ir.Stmt
+	// Choices that run out mid-script would read as zeros and repeat one
+	// call, so the script ends with them.
+	for i, count := 0, g.choose(maxSQLiteScript+1); i < count && len(g.choices) > 0; i++ {
+		var name string
+		switch g.choose(3) {
+		case 0:
+			name = shapes[g.choose(len(shapes))].name
+		case 1:
+			name = "sqlite_query"
+		default:
+			name = "sqlite_execute"
+		}
+		call := &ir.CatchExpr{Expr: sqliteRecord(g.sqliteCall(name, 1)), IsAny: true}
+		if name == "sqlite_open" && g.choose(2) == 1 {
+			script = append(script, assign(sqliteHandleVar, call))
+			continue
+		}
+		script = append(script, &ir.ExprStmt{Expr: call})
+	}
+	return script
 }
 
 // sqliteWrap runs body with sqliteHandleVar holding a new ":memory:"
@@ -243,7 +307,28 @@ func program(choices []byte, ascii bool) *ir.Program {
 // Every SQLite call here is caught: a non-wizard gets E_PERM from each, and
 // the program goes on with E_PERM as its handle. Toast's sqlite_close raises
 // E_PERM for a handle a suspended statement still holds.
-func sqliteWrap(body []ir.Stmt) []ir.Stmt {
+//
+// The outcome carries every result the body's SQLite calls gave (each is a
+// sqliteRecord, logged in sqliteLogVar): the differential compares only what
+// a program returns or raises, and most generated calls sit where their value
+// is dropped. So the program returns {"return", value, sqllog} where it would
+// return value (each return is rewritten, and falling off the end returns
+// 0), and {"raise", code, sqllog} where it would raise code. The preamble's
+// own calls are not logged. script (sqliteScript) runs first, inside the
+// same try.
+func sqliteWrap(script, body []ir.Stmt) []ir.Stmt {
+	sqliteReturns(body)
+	body = []ir.Stmt{
+		&ir.TryStmt{Body: append(script, body...), Handlers: []ir.ExceptionHandler{{
+			Variable: sqliteErrorVar,
+			IsAny:    true,
+			Body: []ir.Stmt{sqliteOutcome("raise", &ir.IndexExpr{
+				Expr:  &ir.IdentifierExpr{Name: sqliteErrorVar},
+				Index: &ir.LiteralExpr{Kind: ir.LiteralInt, IntValue: 1},
+			})},
+		}}},
+		sqliteOutcome("return", &ir.LiteralExpr{Kind: ir.LiteralInt, IntValue: 0}),
+	}
 	call := func(name string, args ...ir.Expr) *ir.BuiltinCallExpr {
 		if args == nil {
 			args = []ir.Expr{}
@@ -262,6 +347,7 @@ func sqliteWrap(body []ir.Stmt) []ir.Stmt {
 	return []ir.Stmt{
 		&ir.ExprStmt{Expr: call("set_thread_mode", &ir.LiteralExpr{Kind: ir.LiteralInt, IntValue: 0})},
 		closeAll(),
+		assign(sqliteLogVar, &ir.ListExpr{}),
 		assign(sqliteHandleVar, caught(call("sqlite_open", &ir.LiteralExpr{Kind: ir.LiteralString, StringValue: ":memory:"}))),
 		&ir.ExprStmt{Expr: caught(call("sqlite_query", handle, &ir.LiteralExpr{Kind: ir.LiteralString, StringValue: "CREATE TABLE t (a, b)"}))},
 		&ir.TryStmt{Body: body, Finalizer: &ir.Finalizer{Body: []ir.Stmt{closeAll()}}},
@@ -575,7 +661,11 @@ func (g *generator) expr(depth int) ir.Expr {
 	case 10:
 		return g.builtinCall(stapleShapes, depth+1)
 	case 17:
-		return g.builtinCall(builtinShapes, depth+1)
+		call := g.builtinCall(builtinShapes, depth+1)
+		if sqliteShape(call.Name) {
+			return sqliteRecord(call)
+		}
+		return call
 	case 11:
 		catch := &ir.CatchExpr{Expr: g.expr(depth + 1)}
 		catch.IsAny, catch.Codes = g.codes()
@@ -680,6 +770,94 @@ func (g *generator) sqliteCall(name string, depth int) *ir.BuiltinCallExpr {
 		args = []ir.Expr{g.sqliteHandle(depth)}
 	}
 	return &ir.BuiltinCallExpr{Name: name, Args: args}
+}
+
+// sqliteShape reports whether name is one of the SQLite shapes, which
+// sqliteCall builds.
+func sqliteShape(name string) bool {
+	for _, shape := range builtinShapes {
+		if shape.sqlite && shape.name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// sqliteRecord is call, with what it returned or raised appended to
+// sqliteLogVar, so the outcome carries it (see sqliteWrap):
+//
+//	{sqlr = `{call} ! ANY', sqllog = {@sqllog, sqlr}, typeof(sqlr) == 4 ? sqlr[1] | raise(sqlr)}[3]
+//
+// The expression's value is the call's value, or it raises the call's error
+// code again, so the program runs as it would with the bare call. A log entry
+// is {value} for a returned value and the error code for a raised one. It
+// takes no choices, so the program the choices give is the same apart from
+// this spelling.
+func sqliteRecord(call *ir.BuiltinCallExpr) ir.Expr {
+	result := &ir.IdentifierExpr{Name: sqliteResultVar}
+	log := &ir.IdentifierExpr{Name: sqliteLogVar}
+	isList := &ir.BinaryExpr{
+		Left:     &ir.BuiltinCallExpr{Name: "typeof", Args: []ir.Expr{result}},
+		Operator: ir.BinaryEqual,
+		Right:    &ir.LiteralExpr{Kind: ir.LiteralInt, IntValue: 4},
+	}
+	return &ir.IndexExpr{
+		Expr: &ir.ListExpr{Elements: []ir.Expr{
+			&ir.AssignExpr{Target: &ir.VariableTarget{Name: sqliteResultVar},
+				Value: &ir.CatchExpr{Expr: &ir.ListExpr{Elements: []ir.Expr{call}}, IsAny: true}},
+			&ir.AssignExpr{Target: &ir.VariableTarget{Name: sqliteLogVar},
+				Value: &ir.ListExpr{Elements: []ir.Expr{&ir.SpliceExpr{Expr: log}, result}}},
+			&ir.TernaryExpr{
+				Condition: isList,
+				ThenExpr:  &ir.IndexExpr{Expr: result, Index: &ir.LiteralExpr{Kind: ir.LiteralInt, IntValue: 1}},
+				ElseExpr:  &ir.BuiltinCallExpr{Name: "raise", Args: []ir.Expr{result}},
+			},
+		}},
+		Index: &ir.LiteralExpr{Kind: ir.LiteralInt, IntValue: 3},
+	}
+}
+
+// sqliteOutcome is {tag, value, sqllog}: the outcome of a SQLite program.
+func sqliteOutcome(tag string, value ir.Expr) ir.Stmt {
+	return &ir.ReturnStmt{Value: &ir.ListExpr{Elements: []ir.Expr{
+		&ir.LiteralExpr{Kind: ir.LiteralString, StringValue: tag},
+		value,
+		&ir.IdentifierExpr{Name: sqliteLogVar},
+	}}}
+}
+
+// sqliteReturns rewrites every return in statements, at any depth, to
+// return sqliteOutcome("return", value), a bare return's value being 0.
+func sqliteReturns(statements []ir.Stmt) {
+	for i, statement := range statements {
+		switch s := statement.(type) {
+		case *ir.ReturnStmt:
+			value := s.Value
+			if value == nil {
+				value = &ir.LiteralExpr{Kind: ir.LiteralInt, IntValue: 0}
+			}
+			statements[i] = sqliteOutcome("return", value)
+		case *ir.IfStmt:
+			sqliteReturns(s.Body)
+			sqliteReturns(s.Else)
+		case *ir.WhileStmt:
+			sqliteReturns(s.Body)
+		case *ir.CollectionLoopStmt:
+			sqliteReturns(s.Body)
+		case *ir.RangeLoopStmt:
+			sqliteReturns(s.Body)
+		case *ir.ForkStmt:
+			sqliteReturns(s.Body)
+		case *ir.TryStmt:
+			sqliteReturns(s.Body)
+			for _, handler := range s.Handlers {
+				sqliteReturns(handler.Body)
+			}
+			if s.Finalizer != nil {
+				sqliteReturns(s.Finalizer.Body)
+			}
+		}
+	}
 }
 
 // sqliteHandle is the handle argument of a SQLite call.
