@@ -187,6 +187,14 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 			} else {
 				line, err = conn.ReadLine()
 			}
+		} else if binaryTransport, ok := conn.transport.(BinaryTransport); ok {
+			// The text-mode mirror of the binary wait above: interpret only
+			// bytes already read, and choose the mode again before reading more.
+			var complete bool
+			line, isOutOfBand, complete, err = binaryTransport.ReadBufferedInput()
+			if err == nil && !complete {
+				continue
+			}
 		} else if inputTransport, ok := conn.transport.(InputTransport); ok {
 			line, isOutOfBand, err = inputTransport.ReadInput()
 		} else {
