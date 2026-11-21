@@ -388,3 +388,33 @@ Mongoose workflow stays red until those are fixed.
 Tests: `scripts/test_toast_reads_barn_db.py`, `scripts/test_fuzz_compute.py`,
 `internal/dbtool` (`--run`).
 
+
+## PR 1088 Mongoose job failed in 0.1 s (2026-11-21)
+
+- Problem: the job's Compare step (runner barn-08) printed only "comparison
+  exited 1" about 0.1 s after starting, with no report. The step before it had
+  copied the dump and passed its sha256 check. Cause, reproduced as the runner
+  user with the runner's interpreter (WSL Debian `python3` 3.11.2, user
+  github-runner): `python3 scripts/toast_reads_barn_db.py --help` exits 1 with
+  `SyntaxError: f-string expression part cannot include a backslash` at the
+  `unicode worlds` line of worlds_main (an `r'[^\x00-\x7f]'` inside an f-string
+  expression, legal only from Python 3.12). Every local run used Windows
+  Python 3.13, so none caught it. The nightly worlds step runs the same file
+  with the same python3 and would have failed the same way.
+- Fix: the unicode count moved out of the f-string. `python3
+  scripts/toast_reads_barn_db.py --help` as github-runner with 3.11: exit 0.
+  Every other scripts/*.py parses under that 3.11 (ast.parse loop: only this
+  file failed). `ast.parse(..., feature_version=(3, 11))` on 3.13 accepts the
+  broken line, so the tests run under CI's uv Python 3.13 (ci.yml:136-138)
+  cannot catch this class; the workflows run the runner's python3 3.11.
+- Tooling: database mode now prints every failure on stdout as fixed text.
+  preflight() names a missing input, --barn-linux or --toast (exit 2, nothing
+  run); any exception prints failure_line(): type and message before an engine
+  reads the database, type only after. The script creates
+  `<out>/data-read-started` just before the Barn writer reads the dump, and
+  the workflow prints the script's stderr when it exits non-zero without that
+  file (a syntax or import error), and hides it otherwise. Tests FailureTest
+  (3); test_toast_reads_barn_db.py 18 OK on 3.13, and 17 of 18 as
+  github-runner on 3.11 (SeedTest needs `go` on PATH, which that login shell
+  lacks; setup-go provides it in jobs). actionlint v1.7.12 and zizmor 1.32.0
+  on the workflow: clean.

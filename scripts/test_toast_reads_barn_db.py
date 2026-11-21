@@ -1,12 +1,14 @@
 import json
 import re
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import fuzz_report
 from fuzz_differential import MAX_LINE, results
-from toast_reads_barn_db import (BARN_FORM, REPAIR_RE, RECORD_RE, SEEDS, TOAST_TASKS_RE, barn_form_tasks,
+from toast_reads_barn_db import (BARN_FORM, DATA_READ_MARKER, failure_line, REPAIR_RE, RECORD_RE, SEEDS, TOAST_TASKS_RE, barn_form_tasks,
                                  divergence_section, first_difference, go_formats, load_worlds,
                                  object_count, parse_literal, public_reason, same_record, walk_inputs)
 
@@ -92,6 +94,38 @@ class RecordTest(unittest.TestCase):
         self.assertEqual(value[0], "list")
         self.assertEqual(len(value[1]), 11)
         self.assertEqual(value[1][10], ("waif", ("atom", "#1"), ("atom", "#3")))
+
+
+class FailureTest(unittest.TestCase):
+    SCRIPT = Path(__file__).resolve().parent / "toast_reads_barn_db.py"
+
+    def test_failure_line_hides_the_message_only_after_data_is_read(self):
+        error = FileNotFoundError(2, "No such file", "/tmp/x/barn.db.new")
+        self.assertEqual(failure_line(error, False),
+                         "- harness failure before the database was read: FileNotFoundError: "
+                         "[Errno 2] No such file: '/tmp/x/barn.db.new'")
+        line = failure_line(KeyError("a player's property"), True)
+        self.assertEqual(line, "- harness failure after the engines began reading the database: "
+                               "KeyError (message not shown)")
+        self.assertNotIn("player", line)
+
+    def test_missing_inputs_print_fixed_reasons_on_stdout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            proc = subprocess.run([sys.executable, str(self.SCRIPT), "database", str(Path(tmp) / "none.db"),
+                                   "--toast", str(Path(tmp) / "moo"), "--barn-linux", str(Path(tmp) / "barn"),
+                                   "--out", str(out)], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 2)
+            self.assertIn(f"- harness failure before the database was read: input database "
+                          f"{Path(tmp) / 'none.db'} is not a file", proc.stdout)
+            self.assertIn(f"--barn-linux {Path(tmp) / 'barn'} is not a file", proc.stdout)
+            self.assertFalse((out / DATA_READ_MARKER).exists())
+
+    def test_workflow_shows_error_output_only_before_the_marker(self):
+        workflow = (self.SCRIPT.parent.parent / ".github/workflows/toast-reads-mongoose-checkpoint.yml").read_text(
+            encoding="utf-8")
+        self.assertIn(f'if [ -e "$RUNNER_TEMP/trbd/out/{DATA_READ_MARKER}" ]; then', workflow)
+        self.assertIn('--out "$RUNNER_TEMP/trbd/out"', workflow)
 
 
 class FileTest(unittest.TestCase):

@@ -48,6 +48,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -472,6 +473,32 @@ def load_worlds(dirs: list[Path]) -> list[dict]:
             for p in paths]
 
 
+# database mode creates this file in --out just before any engine reads the
+# database. Until it exists nothing has read players' data, so a failure's own
+# text is safe to print; after it, only its type is (failure_line).
+DATA_READ_MARKER = "data-read-started"
+
+
+def failure_line(error: BaseException, data_read: bool) -> str:
+    """The fixed-text line a harness failure prints on stdout."""
+    if not data_read:
+        return f"- harness failure before the database was read: {type(error).__name__}: {error}"
+    return f"- harness failure after the engines began reading the database: {type(error).__name__} (message not shown)"
+
+
+def preflight(args) -> list[str]:
+    """database mode's inputs that are missing, as fixed text with paths
+    (which the caller chose) and no contents."""
+    problems = []
+    if not args.path.is_file():
+        problems.append(f"input database {args.path} is not a file")
+    if args.barn_linux and not args.barn_linux.is_file():
+        problems.append(f"--barn-linux {args.barn_linux} is not a file")
+    if os.name != "nt" and not Path(args.toast).is_file():
+        problems.append(f"--toast {args.toast} is not a file")
+    return problems
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="mode", required=True)
@@ -486,15 +513,34 @@ def main() -> int:
         cmd.add_argument("--barn-linux", type=Path, help="prebuilt linux barn (default: cross-compile now)")
         cmd.add_argument("--out", type=Path, default=REPO / ".tmp" / "toast_reads_barn_db")
     args = ap.parse_args()
+    if args.mode != "database":
+        return run(args)
+    # Every failure is printed on stdout as fixed text: in full until an
+    # engine reads the database, by type only after.
+    problems = preflight(args)
+    for problem in problems:
+        print(f"- harness failure before the database was read: {problem}")
+    if problems:
+        return 2
+    try:
+        return run(args)
+    except Exception as error:  # noqa: BLE001 -- every failure gets a printed reason
+        print(failure_line(error, (args.out / DATA_READ_MARKER).exists()))
+        return 2
 
+
+def run(args) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / DATA_READ_MARKER).unlink(missing_ok=True)
     barn_bin = args.barn_linux or (args.out / "barn_linux")
     if not args.barn_linux:
         build_barn_linux(barn_bin)
     ident = run_wsl(f"set -euo pipefail; sha256sum {args.toast} | cut -d' ' -f1; {args.toast} -v 2>&1 || true", 60)
     toast_sha, toast_version = (ident.stdout.splitlines() + ["", ""])[:2]
     if ident.returncode != 0 or not toast_version.startswith("ToastStunt version "):
-        print(f"cannot identify toast binary: {ident.stdout.strip()} {ident.stderr.strip()}", file=sys.stderr)
+        # Toast's own identification, before any database is read.
+        print(f"- harness failure before the database was read: cannot identify toast binary: "
+              f"{ident.stdout.strip()} {ident.stderr.strip()}")
         return 2
     header = [f"- toast binary: `{args.toast}` sha256 `{toast_sha}` version `{toast_version}`",
               f"- barn binary sha256 `{sha256(barn_bin)}`"]
@@ -520,12 +566,15 @@ def worlds_main(args, barn_bin: Path, header: list[str]) -> int:
         elif case["findings"]:
             failed.append(case)
     compared = sum(1 for c in cases if not c.get("error"))
+    # Outside the f-string: Python before 3.12 (the runners' python3 is 3.11)
+    # rejects a backslash in an f-string expression.
+    unicode_worlds = sum(1 for c in cases if re.search(r"[^\x00-\x7f]", c["source"]))
     status = 1 if failed else 2 if errors or not compared else 0
     outcome = {0: "success", 1: "divergence", 2: "inconclusive"}[status]
     report = ["# Toast reads Barn-written databases", "",
               f"- outcome: {outcome}", f"- worlds: {len(worlds)}; compared: {compared}; failed: {len(failed)}",
               f"- harness errors: {json.dumps(errors)}",
-              f"- unicode worlds (a string above 127): {sum(1 for c in cases if re.search(r'[^\x00-\x7f]', c['source']))}",
+              f"- unicode worlds (a string above 127): {unicode_worlds}",
               f"- base database: `{args.db}` sha256 `{sha256(args.db)}`", *header, ""]
     text = "\n".join(report + divergence_section(failed))
     (args.out / "report.md").write_text(text, encoding="utf-8")
@@ -542,6 +591,7 @@ def database_main(args, barn_bin: Path, header: list[str]) -> int:
     """Counts only: nothing from the database's contents is printed or kept
     outside args.out's case directory."""
     formats = go_formats()  # before the long run, so a failure here costs nothing
+    (args.out / DATA_READ_MARKER).touch()
     case = run_case("database", args.path, args.out / "case", barn_bin, args.toast, None)
     lines = ["# Toast reads the Barn-written checkpoint of one database", "",
              f"- input: {args.path.stat().st_size} bytes, sha256 `{sha256(args.path)}`"]

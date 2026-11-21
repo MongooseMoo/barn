@@ -86,8 +86,16 @@ jobs:
           python3 scripts/toast_reads_barn_db.py database "$RUNNER_TEMP/trbd/mongoose.db" \
             --toast "$PWD/toaststunt/build/moo" --barn-linux bin/barn --out "$RUNNER_TEMP/trbd/out" \
             2> "$RUNNER_TEMP/trbd/stderr.txt" || status=$?
+          # The script prints every failure's reason on stdout. Its error
+          # output is shown too until an engine has read the database (it then
+          # creates data-read-started), e.g. a Python syntax or import error.
           if [ "$status" -ne 0 ]; then
-            echo "comparison exited $status. Its error output is not shown because it can name players' objects."
+            if [ -e "$RUNNER_TEMP/trbd/out/data-read-started" ]; then
+              echo "comparison exited $status. Its error output is not shown because it can name players' objects."
+            else
+              echo "comparison exited $status before reading the database; its error output:"
+              cat "$RUNNER_TEMP/trbd/stderr.txt"
+            fi
           fi
           exit "$status"
 
