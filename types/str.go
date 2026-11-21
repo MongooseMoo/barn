@@ -81,7 +81,7 @@ func equalFoldedASCII(a, b string) bool {
 }
 
 func compareFoldedASCII(a, b string) int {
-	if utf8.ValidString(a) && utf8.ValidString(b) && strings.EqualFold(a, b) {
+	if strings.EqualFold(a, b) && utf8.ValidString(a) && utf8.ValidString(b) {
 		return 0
 	}
 
