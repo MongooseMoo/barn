@@ -11,9 +11,12 @@ PR 1034, in its own commit.
 
 ## State
 
-(1): one site fixed (output suffix), one found but not fixed (task-finished
-diagnostics), the rest shown unable to see a resumed value. Committed locally,
-not pushed. (2), the network_matrix failure, moved to its own branch
+(1): two sites fixed (output suffix; task timeline finished twice), the rest
+shown unable to see a resumed value. Rebased onto origin/master after PR 1037
+merged, so the branch stands alone. Suite coverage for the suffix order on
+`test/suffix-before-resumed-output` (worktree
+`C:/Users/Q/code/moo-conformance-tests-suffix-order`). Committed locally, not
+pushed. (2), the network_matrix failure, moved to its own branch
 `fix/booted-connection-queries` (note `agent-notes/fix-booted-connection-queries.md`
 there); it is not on this branch.
 
@@ -51,9 +54,21 @@ Reads after release, by site:
   idempotent; `finishTimeline` (engine/task_timeline.go) is not: it calls
   `store.NoteTaskRetries` and `slowTimelines.add` and may log "slow task
   timeline" a second time. Only with `CONFLICT_CENSUS` tracking on (timelines are
-  nil otherwise, task_timeline.go `timelineFor`). Not fixed: there is no point
-  after the release and before this defer where a test can run the scheduler, so
-  a forced-interleaving test needs a new seam. Left for the lead.
+  nil otherwise, task_timeline.go `timelineFor`). Fixed by construction, see
+  below.
+
+### Task timeline finished twice: the second fixed site
+
+- Fix: `finishTimeline` (engine/task_timeline.go) returns at once when the
+  timeline is already `Finished` (checked and set under `tl.mu`), so the census
+  count, the slow-timeline add and its log happen once per task whichever
+  invocation gets there first. `Finished` is never reset. No seam was needed.
+- Test: `engine/finish_timeline_once_test.go` `TestFinishTimelineCountsTaskOnce`:
+  census tracking on, a task run to completion by `runTask`, then a second
+  `finishTimeline` call, as the other invocation's defer makes it. Without the
+  fix the census row counts the task twice (`Tasks = 2`); with it once. The test
+  calls the function directly rather than forcing the scheduler interleaving:
+  the fix makes the function idempotent, which is the property under test.
 
 ### Output suffix: the fixed site
 
@@ -78,6 +93,22 @@ Reads after release, by site:
   expected two flusher calls `[end, ""]`; the hand-off now adds one, so it
   expects `[end, "", ""]`. The suffix is still sent exactly once, first.
 
+### Suite coverage (Toast-first)
+
+- `server/input_task_completion.yaml`
+  `native_command_suffix_precedes_output_after_suspend`: logged-in connection,
+  `OUTPUTPREFIX ==START==`, `OUTPUTSUFFIX ==END==`, then a command verb
+  `notify(player, "before"); suspend(0); notify(player, "after");`; expects
+  output exactly `["==START==", before, "==END==", after]`.
+- Managed runs with the file selector and `-k "capability_admission or
+  (input_task_completion)"`: stock WSL Toast 4 passed (load 12.00); Barn without
+  the suffix fix (origin/master `engine/task_runtime.go`) 4 passed in 3 runs
+  (load 13.89, 12.68, 12.10); fixed Barn 4 passed in 2 runs (load 11.91, 12.78).
+- The harness does not hit the window on unfixed Barn: the resumed slice would
+  have to run between the lease release and the input goroutine's settle, a few
+  microseconds. The test is kept as Toast-proven coverage of the order; the Go
+  test is what forces the interleaving.
+
 ## Runs
 
 - `go test ./engine -run 'TestCommandSuffixPrecedesResumedSliceOutput$'` without
@@ -88,6 +119,8 @@ Reads after release, by site:
   worker_pool_test.go update): engine FAIL only
   `TestSuspendedCommandFlushesSuffixOnlyOnce` (`[end "" ""]`), 518 s; server ok, 58.8 s.
 - Same command after the update: engine ok (547.2 s), server ok (57.3 s), exit 0.
+- `TestFinishTimelineCountsTaskOnce` before the task_timeline.go change: FAIL
+  (`census counted the task 2 times, want 1`); after: ok.
 
 ## Decisions and why
 
@@ -98,8 +131,46 @@ Reads after release, by site:
 
 ## Surprises
 
-- `finishTimeline` is not idempotent, unlike `TaskFinished`.
+- `finishTimeline` was not idempotent, unlike `TaskFinished`.
 
 ## Next step
 
-Lead publishes. Open: the double `finishTimeline` (needs a test seam).
+Lead publishes the suite PR and the Barn PR. Nothing open.
+
+## Barn PR body
+
+Title: Send a suspended command's output suffix before it can resume
+
+Toast's do_command_task runs a command until it returns or suspends, then sends
+the connection's output suffix, before the suspended task can resume. Barn sent
+the suffix from settleTaskResult, after releasing the task's execution lease, so
+a scheduler worker could resume the task first: its later output went out ahead
+of the suffix, and both settles read and cleared the suffix unsynchronised.
+
+- handOffSuspended sends a pending suffix before the task is requeued.
+- finishTimeline acts once per task. A suspended task's first invocation can
+  reach its terminal-state check after a worker has resumed and finished the
+  task, and both then finished the timeline, counting the task twice in the
+  conflict census (and repeating the slow-timeline record) with CONFLICT_CENSUS
+  on.
+
+Tests: `TestCommandSuffixPrecedesResumedSliceOutput` (forces the resume between
+the lease release and the settle; `["after", "SUFFIX"]` before, `["SUFFIX",
+"after"]` after), `TestFinishTimelineCountsTaskOnce`, and
+`TestSuspendedCommandFlushesSuffixOnlyOnce` updated for the extra flush call
+(the suffix still goes once, first). Suite test
+`server/input_task_completion.yaml::native_command_suffix_precedes_output_after_suspend`
+(suite PR) passes on stock Toast and on Barn.
+
+## Suite PR body
+
+Title: Cover the output suffix preceding a suspended command's later output
+
+Adds `native_command_suffix_precedes_output_after_suspend` to
+`server/input_task_completion.yaml`: with OUTPUTPREFIX/OUTPUTSUFFIX set, a
+command that prints, suspends with `suspend(0)` and prints again must produce
+`==START==`, `before`, `==END==`, `after` in that order. Toast's do_command_task
+sends the suffix after the command's first run returns or suspends, before the
+task can resume. Managed runs: stock WSL Toast passes; Barn passes before and
+after the matching Barn PR, because the harness does not hit the microsecond
+window that PR closes (a Go test there forces it).
