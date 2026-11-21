@@ -14,7 +14,7 @@ Run Barn repair, conformance and alarm work using Claude or Q's Codex subscripti
 
 - Enable routing only after the WSL worker has ChatGPT sign-in and a GitHub App installation token. The public Actions runner never receives subscription credentials. The worker's GitHub App token stays in the publishing process.
 - The App needs access to `MongooseMoo/barn` and `MongooseMoo/moo-conformance-tests`, with Actions, Contents, Issues and Pull requests write plus Checks and Administration read. Store `client_id`, `installation_id`, and `key_file` in root-only `/etc/barn-repair/github-app.json`. Store the app key outside the checkout with mode 0600.
-- Run the launcher from a trusted Linux checkout, with the native Codex binary at `/usr/local/libexec/barn-codex/codex`. The launcher exposes the existing WSL Toast build to the worker and hides Windows mounts from the private worker namespace. Initialize labels with `scripts/run_repair_worker.sh --initialize-labels` before setting `BARN_CODEX_WORKER_ENABLED=true`. Run one subscription worker with `scripts/run_repair_worker.sh --interval 60`.
+- Run the launcher from a trusted Linux checkout with the Debian `bubblewrap` package and the native Codex binary at `/usr/local/libexec/barn-codex/codex`. The launcher exposes the existing WSL Toast build to the worker and hides Windows mounts from the private worker namespace. The Codex command profile allows the managed harness's loopback and dependency registries. Initialize labels with `scripts/run_repair_worker.sh --initialize-labels` before setting `BARN_CODEX_WORKER_ENABLED=true`. Run one subscription worker with `scripts/run_repair_worker.sh --interval 60`.
 
 ## Surprises
 

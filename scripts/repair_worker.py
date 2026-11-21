@@ -58,7 +58,7 @@ class PublisherToken:
         return self.token
 
 
-def run(*args, cwd=None, user=None, data=None, timeout=120):
+def run(*args, cwd=None, user=None, data=None, timeout=120, cache=None):
     options = {}
     if user:
         account = pwd.getpwnam(user)
@@ -69,6 +69,9 @@ def run(*args, cwd=None, user=None, data=None, timeout=120):
                     "PATH": "/usr/local/libexec/barn-codex:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin",
                     "GIT_TERMINAL_PROMPT": "0", "TOAST_MOO": "/usr/local/libexec/barn-codex/moo"},
         }
+        if cache:
+            options["env"].update(GOCACHE=str(cache / "go-build"), GOMODCACHE=str(cache / "go-mod"),
+                                  UV_CACHE_DIR=str(cache / "uv"))
     elif PUBLISHER_TOKEN and args[0] in {"gh", "git"}:
         options = {"env": {**os.environ, "GH_TOKEN": PUBLISHER_TOKEN.get(),
                            "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}}
@@ -99,6 +102,24 @@ def clone(directory, repository, branch, user=None):
         f"https://github.com/{repository}.git", str(directory), user=user)
 
 
+def codex_profile(home):
+    # The managed harness listens and connects on 127.0.0.1. The proxy also
+    # lets Go and uv restore build dependencies in the disposable checkout.
+    domains = ("127.0.0.1", "proxy.golang.org", "sum.golang.org", "storage.googleapis.com",
+               "pypi.org", "files.pythonhosted.org")
+    allowlist = ",".join(f'{json.dumps(domain)}="allow"' for domain in domains)
+    credentials = json.dumps(str(Path(home) / ".codex" / "auth.json"))
+    return (
+        "-c", 'forced_login_method="chatgpt"',
+        "-c", 'default_permissions="barn"',
+        "-c", 'permissions.barn.extends=":workspace"',
+        "-c", "features.network_proxy=true",
+        "-c", "permissions.barn.network.enabled=true",
+        "-c", f"permissions.barn.network.domains={{{allowlist}}}",
+        "-c", f'permissions.barn.filesystem={{{credentials}="deny"}}',
+    )
+
+
 def proposal(root, stage, number, report, user, codex):
     account = pwd.getpwnam(user)
     with tempfile.TemporaryDirectory(dir=account.pw_dir, prefix="job-") as temp:
@@ -118,11 +139,11 @@ def proposal(root, stage, number, report, user, codex):
         (work / "finding.json").write_text(json.dumps(report), encoding="utf-8")
         (work / "result-schema.json").write_text(json.dumps(RESULT), encoding="utf-8")
         try:
-            stream = run(codex, "-a", "never", "-c", 'forced_login_method="chatgpt"',
-                         "exec", "--json", "--sandbox", "workspace-write", "--add-dir", str(work),
+            stream = run(codex, "-a", "never", *codex_profile(account.pw_dir),
+                         "exec", "--json", "--add-dir", str(work),
                          "--output-schema", str(work / "result-schema.json"),
                          "--output-last-message", str(work / "result.json"), "-",
-                         cwd=barn, user=user, data=prompt, timeout=10800)
+                         cwd=barn, user=user, data=prompt, timeout=10800, cache=work / "cache")
         except subprocess.CalledProcessError as error:
             reason, reset = classify(error.stdout or "", "codex")
             return {"outcome": reason, "retry_at": reset}, "", baseline
