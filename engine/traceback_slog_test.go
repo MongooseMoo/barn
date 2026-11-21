@@ -122,6 +122,26 @@ func TestLoggedTracebackMatchesPlayerFormatting(t *testing.T) {
 	}
 }
 
+func TestLogTracebackReportsBudgetAbort(t *testing.T) {
+	s := &Runtime{}
+	stack := sampleStack()
+	tk := &Task{State: task.State{IsForked: true}}
+	result := types.Result{Error: types.E_MAXREC, Reason: types.ExceptionReasonTickBudget}
+
+	records := captureRecords(t, func() { s.logTraceback(tk, result, stack, false) })
+	if len(records) != 1 {
+		t.Fatalf("got %d traceback records, want 1", len(records))
+	}
+	rec := records[0]
+	if rec["error_reason"] != "tick_budget" || rec["error_msg"] != "Task ran out of ticks" {
+		t.Fatalf("wrong budget diagnosis: %#v", rec)
+	}
+	const firstLine = "#10:look_self (this == #10), line 3:  Task ran out of ticks"
+	if traceback, ok := rec["traceback"].(string); !ok || !strings.HasPrefix(traceback, firstLine+"\n") {
+		t.Fatalf("traceback = %q, want first line %q", rec["traceback"], firstLine)
+	}
+}
+
 // The frames array is the machine-readable half: an agent reconstructs the call
 // chain from it without parsing rendered text.
 func TestTracebackFramesCarryStructuredStack(t *testing.T) {
