@@ -39,7 +39,7 @@ Machine load before work (WSL Debian, 8 CPUs): `load average: 0.89, 1.36, 2.60`.
   `N queued tasks` / `N suspended tasks` / `N interrupted tasks` lines
   (tasks.cc 1949-1993) are Toast's count of what it loaded.
 - Mongoose dump is loaded by the Mongoose Toast build (MongooseMoo/toaststunt
-  `72e3c7f96ce7a41fdeba793aef8818dc4408072e`, PROMOTE_NUMBERS on, options.h
+  at profiles/toast/mongoose-wsl-mongoose.json's implementation_ref, PROMOTE_NUMBERS on, options.h
   sha256 `6c855f6b...` = committed file, checked in WSL) because the plan
   (lines 43-47) names it the Mongoose oracle. SUPERSEDED 2026-11-21: the
   workflow now builds 0ff6fd7 (profiles/toast/mongoose-0ff6fd7-wsl-testdb.json),
@@ -259,7 +259,7 @@ origin/master, read both commits, finish what Next step lists.
   live game runs", and toast-check.yml checks the same dump against it. Finding 3
   was seen on 72e3c7f, which lacks the AST builtins (0ff6fd7's manifest has
   `feature.ast: true`); it is rechecked on 0ff6fd7 below. WSL build present:
-  `/root/src/toaststunt-mongoose-0ff6fd7/build-release/moo`, HEAD 0ff6fd77...,
+  `/root/src/toaststunt-mongoose-0ff6fd7/build-release/moo`, HEAD = the profile's implementation_ref,
   options.h sha256 `d9739c2d...` = manifest. Load then: `6.42, 9.20, 5.85` (8 CPUs).
 - Two copies, database mode (the Mongoose workflow's command): two
   `toast_reads_barn_db.py database Test_conf.db --toast <0ff6fd7 moo>
