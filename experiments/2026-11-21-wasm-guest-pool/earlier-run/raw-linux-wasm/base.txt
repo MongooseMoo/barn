@@ -1,0 +1,120 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWASMCall/example/Full    	    2689	    127597 ns/op	   47598 B/op	     150 allocs/op
+BenchmarkWASMCall/example/InstantiateClose         	    2805	    122484 ns/op	   47545 B/op	     149 allocs/op
+BenchmarkWASMCall/example/ExecuteExisting          	  307922	      1152 ns/op	     288 B/op	       5 allocs/op
+BenchmarkWASMCall/scalar/Full                      	   10000	     30146 ns/op	   22010 B/op	     123 allocs/op
+BenchmarkWASMCall/scalar/InstantiateClose          	   13026	     22883 ns/op	   21960 B/op	     121 allocs/op
+BenchmarkWASMCall/scalar/ExecuteExisting           	  390304	       966.6 ns/op	     288 B/op	       5 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWASMCall/example/Full    	    3216	     93328 ns/op	   47598 B/op	     150 allocs/op
+BenchmarkWASMCall/example/InstantiateClose         	    3862	     87700 ns/op	   47545 B/op	     149 allocs/op
+BenchmarkWASMCall/example/ExecuteExisting          	  275192	       971.6 ns/op	     288 B/op	       5 allocs/op
+BenchmarkWASMCall/scalar/Full                      	   10000	     25300 ns/op	   22010 B/op	     123 allocs/op
+BenchmarkWASMCall/scalar/InstantiateClose          	   12846	     23435 ns/op	   21960 B/op	     121 allocs/op
+BenchmarkWASMCall/scalar/ExecuteExisting           	  388748	       999.9 ns/op	     288 B/op	       5 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWASMCall/example/Full    	    3445	     91771 ns/op	   47598 B/op	     150 allocs/op
+BenchmarkWASMCall/example/InstantiateClose         	    3799	     87109 ns/op	   47545 B/op	     149 allocs/op
+BenchmarkWASMCall/example/ExecuteExisting          	  392145	       953.0 ns/op	     288 B/op	       5 allocs/op
+BenchmarkWASMCall/scalar/Full                      	   12219	     24314 ns/op	   22010 B/op	     123 allocs/op
+BenchmarkWASMCall/scalar/InstantiateClose          	   13003	     22755 ns/op	   21960 B/op	     121 allocs/op
+BenchmarkWASMCall/scalar/ExecuteExisting           	  397710	       996.0 ns/op	     288 B/op	       5 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWASMCall/example/Full    	    3468	     90667 ns/op	   47598 B/op	     150 allocs/op
+BenchmarkWASMCall/example/InstantiateClose         	    3872	     87821 ns/op	   47545 B/op	     149 allocs/op
+BenchmarkWASMCall/example/ExecuteExisting          	  389914	       962.0 ns/op	     288 B/op	       5 allocs/op
+BenchmarkWASMCall/scalar/Full                      	   12523	     23793 ns/op	   22010 B/op	     123 allocs/op
+BenchmarkWASMCall/scalar/InstantiateClose          	   13394	     22622 ns/op	   21960 B/op	     121 allocs/op
+BenchmarkWASMCall/scalar/ExecuteExisting           	  386310	      1000 ns/op	     288 B/op	       5 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWASMCall/example/Full    	    3020	     97144 ns/op	   47598 B/op	     150 allocs/op
+BenchmarkWASMCall/example/InstantiateClose         	    3697	     91738 ns/op	   47545 B/op	     149 allocs/op
+BenchmarkWASMCall/example/ExecuteExisting          	  388603	       977.3 ns/op	     288 B/op	       5 allocs/op
+BenchmarkWASMCall/scalar/Full                      	   10000	     25458 ns/op	   22010 B/op	     123 allocs/op
+BenchmarkWASMCall/scalar/InstantiateClose          	   13281	     22680 ns/op	   21960 B/op	     121 allocs/op
+BenchmarkWASMCall/scalar/ExecuteExisting           	  391881	       977.9 ns/op	     288 B/op	       5 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWASMCall/example/Full    	    3178	     97771 ns/op	   47598 B/op	     150 allocs/op
+BenchmarkWASMCall/example/InstantiateClose         	    3574	    105053 ns/op	   47545 B/op	     149 allocs/op
+BenchmarkWASMCall/example/ExecuteExisting          	  398019	       950.5 ns/op	     288 B/op	       5 allocs/op
+BenchmarkWASMCall/scalar/Full                      	   12217	     24500 ns/op	   22010 B/op	     123 allocs/op
+BenchmarkWASMCall/scalar/InstantiateClose          	   14029	     22347 ns/op	   21960 B/op	     121 allocs/op
+BenchmarkWASMCall/scalar/ExecuteExisting           	  369745	       967.5 ns/op	     288 B/op	       5 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWASMCall/example/Full    	    3390	     92141 ns/op	   47597 B/op	     150 allocs/op
+BenchmarkWASMCall/example/InstantiateClose         	    3888	     87362 ns/op	   47545 B/op	     149 allocs/op
+BenchmarkWASMCall/example/ExecuteExisting          	  393364	       954.9 ns/op	     288 B/op	       5 allocs/op
+BenchmarkWASMCall/scalar/Full                      	   12769	     23357 ns/op	   22010 B/op	     123 allocs/op
+BenchmarkWASMCall/scalar/InstantiateClose          	   12739	     23242 ns/op	   21960 B/op	     121 allocs/op
+BenchmarkWASMCall/scalar/ExecuteExisting           	  390048	       982.4 ns/op	     288 B/op	       5 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWASMCall/example/Full    	    3184	     92294 ns/op	   47598 B/op	     150 allocs/op
+BenchmarkWASMCall/example/InstantiateClose         	    3606	     91037 ns/op	   47545 B/op	     149 allocs/op
+BenchmarkWASMCall/example/ExecuteExisting          	  368494	       981.5 ns/op	     288 B/op	       5 allocs/op
+BenchmarkWASMCall/scalar/Full                      	   10000	     25244 ns/op	   22010 B/op	     123 allocs/op
+BenchmarkWASMCall/scalar/InstantiateClose          	   13628	     22046 ns/op	   21960 B/op	     121 allocs/op
+BenchmarkWASMCall/scalar/ExecuteExisting           	  356889	       987.5 ns/op	     288 B/op	       5 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWASMCall/example/Full    	    3180	     93198 ns/op	   47598 B/op	     150 allocs/op
+BenchmarkWASMCall/example/InstantiateClose         	    3954	     89121 ns/op	   47545 B/op	     149 allocs/op
+BenchmarkWASMCall/example/ExecuteExisting          	  360986	       955.7 ns/op	     288 B/op	       5 allocs/op
+BenchmarkWASMCall/scalar/Full                      	   13089	     22983 ns/op	   22010 B/op	     123 allocs/op
+BenchmarkWASMCall/scalar/InstantiateClose          	   14362	     20817 ns/op	   21960 B/op	     121 allocs/op
+BenchmarkWASMCall/scalar/ExecuteExisting           	  400406	       974.9 ns/op	     288 B/op	       5 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWASMCall/example/Full    	    3001	    131867 ns/op	   47598 B/op	     150 allocs/op
+BenchmarkWASMCall/example/InstantiateClose         	    2947	     97323 ns/op	   47545 B/op	     149 allocs/op
+BenchmarkWASMCall/example/ExecuteExisting          	  380079	       971.4 ns/op	     288 B/op	       5 allocs/op
+BenchmarkWASMCall/scalar/Full                      	   10000	     28782 ns/op	   22010 B/op	     123 allocs/op
+BenchmarkWASMCall/scalar/InstantiateClose          	   12192	     24437 ns/op	   21960 B/op	     121 allocs/op
+BenchmarkWASMCall/scalar/ExecuteExisting           	  388242	       982.0 ns/op	     288 B/op	       5 allocs/op
+PASS
+

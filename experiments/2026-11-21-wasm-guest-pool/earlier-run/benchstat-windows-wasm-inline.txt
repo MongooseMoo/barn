@@ -1,0 +1,47 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                                       │ raw-windows-wasm/base.txt │     raw-windows-wasm/switch.txt     │
+                                       │          sec/op           │   sec/op     vs base                │
+WASMCall/example/Full                                 90.72µ ±  8%   25.89µ ± 1%  -71.47% (p=0.000 n=10)
+WASMCall/example/InstantiateClose                     89.38µ ± 16%   90.05µ ± 5%        ~ (p=0.739 n=10)
+WASMCall/example/ExecuteExisting                      950.1n ±  6%   936.0n ± 3%        ~ (p=0.529 n=10)
+WASMCall/scalar/Full                                 24.491µ ±  6%   4.314µ ± 2%  -82.39% (p=0.000 n=10)
+WASMCall/scalar/InstantiateClose                      21.60µ ± 15%   20.73µ ± 7%   -4.06% (p=0.043 n=10)
+WASMCall/scalar/ExecuteExisting                       922.2n ±  4%   904.5n ± 3%        ~ (p=0.105 n=10)
+WASMCall/example/FullBackground                                      26.66µ ± 4%
+WASMCall/example/FullBackgroundSettled                               3.454µ ± 1%
+WASMCall/scalar/FullBackground                                       4.896µ ± 3%
+WASMCall/scalar/FullBackgroundSettled                                2.413µ ± 3%
+geomean                                               12.47µ         6.734µ       -39.94%
+
+                                       │ raw-windows-wasm/base.txt │      raw-windows-wasm/switch.txt       │
+                                       │           B/op            │     B/op      vs base                  │
+WASMCall/example/Full                                 47597.0 ± 0%     329.0 ± 0%  -99.31% (p=0.000 n=10)
+WASMCall/example/InstantiateClose                     46.43Ki ± 0%   46.72Ki ± 0%   +0.62% (p=0.000 n=10)
+WASMCall/example/ExecuteExisting                        288.0 ± 0%     288.0 ± 0%        ~ (p=1.000 n=10) ¹
+WASMCall/scalar/Full                                  22010.0 ± 0%     328.0 ± 0%  -98.51% (p=0.000 n=10)
+WASMCall/scalar/InstantiateClose                      21.45Ki ± 0%   21.45Ki ± 0%   +0.04% (p=0.000 n=10)
+WASMCall/scalar/ExecuteExisting                         288.0 ± 0%     288.0 ± 0%        ~ (p=1.000 n=10) ¹
+WASMCall/example/FullBackground                                        361.0 ± 0%
+WASMCall/example/FullBackgroundSettled                                 360.0 ± 0%
+WASMCall/scalar/FullBackground                                         360.0 ± 0%
+WASMCall/scalar/FullBackgroundSettled                                  360.0 ± 0%
+geomean                                               6.546Ki          831.7       -78.33%
+¹ all samples are equal
+
+                                       │ raw-windows-wasm/base.txt │     raw-windows-wasm/switch.txt      │
+                                       │         allocs/op         │ allocs/op   vs base                  │
+WASMCall/example/Full                                 150.000 ± 0%   7.000 ± 0%  -95.33% (p=0.000 n=10)
+WASMCall/example/InstantiateClose                       149.0 ± 0%   148.0 ± 0%   -0.67% (p=0.000 n=10)
+WASMCall/example/ExecuteExisting                        5.000 ± 0%   5.000 ± 0%        ~ (p=1.000 n=10) ¹
+WASMCall/scalar/Full                                  123.000 ± 0%   7.000 ± 0%  -94.31% (p=0.000 n=10)
+WASMCall/scalar/InstantiateClose                        121.0 ± 0%   121.0 ± 0%        ~ (p=1.000 n=10) ¹
+WASMCall/scalar/ExecuteExisting                         5.000 ± 0%   5.000 ± 0%        ~ (p=1.000 n=10) ¹
+WASMCall/example/FullBackground                                      8.000 ± 0%
+WASMCall/example/FullBackgroundSettled                               8.000 ± 0%
+WASMCall/scalar/FullBackground                                       8.000 ± 0%
+WASMCall/scalar/FullBackgroundSettled                                8.000 ± 0%
+geomean                                                 45.01        12.46       -62.83%
+¹ all samples are equal

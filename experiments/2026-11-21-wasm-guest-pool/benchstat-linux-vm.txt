@@ -1,0 +1,32 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                    │ raw-linux-vm/base.txt │        raw-linux-vm/final.txt        │
+                    │        sec/op         │    sec/op     vs base                │
+VM/int_arith_1M                51.57m ± 33%   54.32m ± 57%        ~ (p=1.000 n=10)
+VM/builtin_abs_200k            33.74m ± 21%   33.23m ± 60%        ~ (p=0.631 n=10)
+VM/tostr_200k                 104.19m ± 38%   93.48m ± 57%        ~ (p=0.971 n=10)
+VM/typeof_1M                   147.9m ± 18%   131.2m ± 30%        ~ (p=0.853 n=10)
+VM/prop_defined_1M             285.8m ± 69%   224.3m ± 19%  -21.50% (p=0.043 n=10)
+geomean                        94.81m         86.94m         -8.30%
+
+                    │ raw-linux-vm/base.txt │        raw-linux-vm/final.txt         │
+                    │         B/op          │     B/op      vs base                 │
+VM/int_arith_1M                16.33Ki ± 0%   16.33Ki ± 0%       ~ (p=1.000 n=10) ¹
+VM/builtin_abs_200k            16.58Ki ± 0%   16.58Ki ± 0%       ~ (p=1.000 n=10) ¹
+VM/tostr_200k                  13.48Mi ± 0%   13.48Mi ± 0%       ~ (p=0.373 n=10)
+VM/typeof_1M                   16.58Ki ± 0%   16.58Ki ± 0%       ~ (p=1.000 n=10) ¹
+VM/prop_defined_1M             16.39Ki ± 0%   16.38Ki ± 0%       ~ (p=0.266 n=10)
+geomean                        63.29Ki        63.28Ki       -0.01%
+¹ all samples are equal
+
+                    │ raw-linux-vm/base.txt │        raw-linux-vm/final.txt        │
+                    │       allocs/op       │  allocs/op   vs base                 │
+VM/int_arith_1M                  20.00 ± 0%    20.00 ± 0%       ~ (p=1.000 n=10) ¹
+VM/builtin_abs_200k              29.00 ± 0%    29.00 ± 0%       ~ (p=1.000 n=10) ¹
+VM/tostr_200k                   399.9k ± 0%   399.9k ± 0%       ~ (p=1.000 n=10) ¹
+VM/typeof_1M                     29.00 ± 0%    29.00 ± 0%       ~ (p=1.000 n=10) ¹
+VM/prop_defined_1M               21.00 ± 0%    21.00 ± 0%       ~ (p=1.000 n=10)
+geomean                          169.8         169.8       +0.00%
+¹ all samples are equal
