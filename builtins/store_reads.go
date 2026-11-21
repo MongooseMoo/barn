@@ -185,10 +185,6 @@ func localPropertyForRead(ctx *Execution, objID types.ObjID, name string) (dbsto
 	return readTxn(ctx).LocalProperty(objID, name)
 }
 
-func propertyClearStateForRead(ctx *Execution, objID types.ObjID, name string) (bool, types.ErrorCode) {
-	return readTxn(ctx).PropertyClearState(objID, name)
-}
-
 func verbNamesForRead(ctx *Execution, objID types.ObjID) ([]string, types.ErrorCode) {
 	return readTxn(ctx).VerbNames(objID)
 }
