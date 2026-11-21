@@ -33,6 +33,23 @@ func TestStringEqualityFoldsValidUTF8Case(t *testing.T) {
 	}
 }
 
+func TestCompareFoldedMapKeys(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		want int
+	}{
+		{"#10040:apply_heat", "#10040:apply_physics", -1},
+		{"apply_heat", "APPLY_HEAT", 0},
+		{"K", "K", 0},
+		{"\xff", "\xfe", 1},
+		{"\xff", "�", 1},
+	} {
+		if got := compareFoldedASCII(tc.a, tc.b); got != tc.want {
+			t.Errorf("compareFoldedASCII(%q, %q) = %d, want %d", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
 func TestRawHighByteMapKeysRemainDistinct(t *testing.T) {
 	upper := NewStr(string([]byte{0xC0}))
 	lower := NewStr(string([]byte{0xE0}))
