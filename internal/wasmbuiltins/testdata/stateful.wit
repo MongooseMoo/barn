@@ -1,0 +1,6 @@
+package barn:stateful;
+
+world stateful {
+  export bump-global: func() -> u32;
+  export bump-memory: func() -> u32;
+}

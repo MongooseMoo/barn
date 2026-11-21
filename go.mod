@@ -34,3 +34,5 @@ require (
 	modernc.org/sqlite v1.39.1
 	pgregory.net/rapid v1.3.0
 )
+
+replace github.com/samyfodil/wazy => github.com/MongooseMoo/wazy v0.8.1-0.20261121051357-b3b0e893902e

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
@@ -50,8 +51,11 @@ func benchmarkManager(b *testing.B, module string) *Manager {
 }
 
 // BenchmarkWASMCall splits a wasm_call into its fresh-guest setup and the
-// export itself. ExecuteExisting reuses one guest and is a diagnostic floor,
-// not a supported calling mode.
+// export itself. Full is a tight loop of calls; each call's guest is reset off
+// the call path and the next call waits for that reset, so with GOMAXPROCS=1
+// every reset runs inside the timed window (except the last) and ns/op is
+// close to total CPU per call. ExecuteExisting reuses one guest without a
+// reset and is a diagnostic floor, not a supported calling mode.
 func BenchmarkWASMCall(b *testing.B) {
 	for _, fixture := range callFixtures() {
 		b.Run(fixture.module, func(b *testing.B) {
@@ -65,6 +69,28 @@ func BenchmarkWASMCall(b *testing.B) {
 					if r.IsError() || !r.Val.Equal(fixture.want) {
 						b.Fatalf("call: %+v", r)
 					}
+				}
+			})
+			// FullSettled stops the timer until the guest's reset finishes:
+			// the latency of a call that finds a clean guest pooled.
+			b.Run("FullSettled", func(b *testing.B) {
+				b.ReportAllocs()
+				for range b.N {
+					r := m.Call(context.Background(), 0, target, fixture.args)
+					if r.IsError() || !r.Val.Equal(fixture.want) {
+						b.Fatalf("call: %+v", r)
+					}
+					b.StopTimer()
+					for {
+						m.mu.Lock()
+						idle := g.resetting == 0 && len(g.pool) > 0
+						m.mu.Unlock()
+						if idle {
+							break
+						}
+						runtime.Gosched()
+					}
+					b.StartTimer()
 				}
 			})
 			b.Run("InstantiateClose", func(b *testing.B) {

@@ -29,12 +29,17 @@ const (
 	MaxComponentBytes = 16 << 20
 	MemoryPages       = 64 // Four MiB per instance; admission also bounds core instances.
 	CallTimeout       = 250 * time.Millisecond
+	// PoolGuests bounds the reset guests a generation keeps between calls. Each
+	// keeps its linear memory (at most MemoryPages) while it waits.
+	PoolGuests = 2
 )
 
 var moduleName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 
 // Manager owns a session's components. A module name selects an operator-owned
-// file, never a path supplied by MOO. Every call uses fresh guest state.
+// file, never a path supplied by MOO. Every call uses fresh guest state: a
+// guest that was instantiated for the call, or one that was reset to its
+// instantiated state after a call that fully succeeded.
 type Manager struct {
 	mu         sync.Mutex
 	root       *os.Root
@@ -57,6 +62,15 @@ type generation struct {
 	info      Info
 	refs      int // Protected by Manager.mu.
 	retired   bool
+	// resettable is set when the component instantiates under WithReset; a
+	// generation without it instantiates and closes a guest per call.
+	resettable bool
+	// pool holds clean guests, at most PoolGuests. Protected by Manager.mu.
+	pool []*component.Instance
+	// resetting counts guests being reset off the call path; ready (on
+	// Manager.mu) is broadcast as each finishes. Protected by Manager.mu.
+	resetting int
+	ready     sync.Cond
 }
 
 // Info is detached metadata, safe to retain across replacement and unloading.
@@ -180,6 +194,7 @@ func (m *Manager) Load(ctx context.Context, name string) (info Info, err error) 
 	}
 	m.next++
 	g.info.Name, g.info.Generation = name, m.next
+	g.ready.L = &m.mu
 	old := m.modules[name]
 	m.modules[name] = g
 	installed = true
@@ -326,7 +341,15 @@ func prepare(ctx context.Context, data []byte) (g *generation, err error) {
 	g.runtime = wazy.NewRuntimeWithConfig(ctx, wazy.NewRuntimeConfig().WithMemoryLimitPages(MemoryPages))
 	g.data = withGraphInstantiation(data)
 	g.cache = component.NewCompileCache()
-	inst, err := component.Instantiate(ctx, g.runtime, g.data, component.WithCompileCache(g.cache))
+	// A component WithReset accepts keeps its validation guest as the first
+	// pooled one; any other is validated as before and instantiated per call.
+	inst, err := component.Instantiate(ctx, g.runtime, g.data, component.WithCompileCache(g.cache), component.WithReset())
+	if err == nil {
+		g.resettable = true
+		g.pool = append(g.pool, inst)
+		return g, nil
+	}
+	inst, err = component.Instantiate(ctx, g.runtime, g.data, component.WithCompileCache(g.cache))
 	if err != nil {
 		g.close()
 		return nil, fmt.Errorf("validate component: %w", err)
@@ -338,7 +361,12 @@ func prepare(ctx context.Context, data []byte) (g *generation, err error) {
 	return g, nil
 }
 
+// close runs once no call holds the generation, so no guest is in use.
 func (g *generation) close() {
+	for _, inst := range g.pool {
+		closeGuest(inst)
+	}
+	g.pool = nil
 	if g.cache != nil {
 		_ = g.cache.Close(context.Background())
 	}
@@ -408,19 +436,31 @@ func (m *Manager) Call(ctx context.Context, principal int64, target string, args
 	g.refs++
 	m.active.Add(1)
 	m.mu.Unlock()
+	// guest is set once the call has a guest; clean is set only after the
+	// call fully succeeded, so a guest that trapped, failed, ran past its
+	// deadline or panicked is closed and never reused.
+	var guest *component.Instance
+	clean := false
 	defer func() {
 		m.mu.Lock()
-		g.refs--
 		m.principals[principal]--
 		if m.principals[principal] == 0 {
 			delete(m.principals, principal)
 		}
-		dispose := g.retired && g.refs == 0
-		m.mu.Unlock()
-		if dispose {
-			g.close()
+		// The guest is reset off the call path. At most PoolGuests guests are
+		// pooled or resetting; a guest with nowhere to go is closed.
+		room := clean && g.resettable && !g.retired && len(g.pool)+g.resetting < PoolGuests
+		if room {
+			g.resetting++
 		}
-		m.active.Done()
+		m.mu.Unlock()
+		if !room {
+			m.release(g, guest, false)
+			return
+		}
+		// The goroutine inherits the call's generation reference and active
+		// count, so unload and Close wait for it.
+		go func() { m.releaseReset(g, guest, resetGuest(guest)) }()
 	}()
 	defer func() {
 		if p := recover(); p != nil {
@@ -447,16 +487,35 @@ func (m *Manager) Call(ctx context.Context, principal int64, target string, args
 	if ctx.Err() != nil {
 		return guestError(ctx)
 	}
-	inst, err := component.Instantiate(ctx, g.runtime, g.data, component.WithCompileCache(g.cache))
-	if err != nil {
+	m.mu.Lock()
+	// A reset in flight finishes sooner than a new guest instantiates.
+	for len(g.pool) == 0 && g.resetting > 0 {
+		g.ready.Wait()
+	}
+	// The context may have ended during the wait; a guest called with it
+	// would run to completion, so leave the clean guest pooled.
+	if ctx.Err() != nil {
+		m.mu.Unlock()
 		return guestError(ctx)
 	}
-	defer func() {
-		if err := inst.Close(context.Background()); err != nil {
-			slog.Error("close WASM guest", slog.Any("err", err))
+	if n := len(g.pool); n > 0 {
+		guest = g.pool[n-1]
+		g.pool[n-1] = nil
+		g.pool = g.pool[:n-1]
+	}
+	m.mu.Unlock()
+	if guest == nil {
+		opts := []component.Option{component.WithCompileCache(g.cache)}
+		if g.resettable {
+			opts = append(opts, component.WithReset())
 		}
-	}()
-	out, err := inst.Call(ctx, export, values...)
+		inst, err := component.Instantiate(ctx, g.runtime, g.data, opts...)
+		if err != nil {
+			return guestError(ctx)
+		}
+		guest = inst
+	}
+	out, err := guest.Call(ctx, export, values...)
 	if err != nil {
 		return guestError(ctx)
 	}
@@ -468,6 +527,7 @@ func (m *Manager) Call(ctx context.Context, principal int64, target string, args
 		if len(out) != 0 {
 			return types.Err(types.E_INVARG)
 		}
+		clean = true
 		return types.Ok(types.NewInt(0))
 	}
 	if len(out) != 1 {
@@ -477,7 +537,72 @@ func (m *Manager) Call(ctx context.Context, principal int64, target string, args
 	if e != types.E_NONE {
 		return types.Err(e)
 	}
+	clean = true
 	return types.Ok(v)
+}
+
+// resetGuest restores a guest after a successful call and reports whether it
+// may be reused. A refusal means the guest must be closed.
+// It runs on its own goroutine, so a panic is recovered here as a refusal.
+func resetGuest(inst *component.Instance) (ok bool) {
+	defer func() {
+		if p := recover(); p != nil {
+			logPanic("reset", p)
+			ok = false
+		}
+	}()
+	return inst.Reset(context.Background()) == nil
+}
+
+// release ends a call's hold on g: a clean guest goes back to the pool while
+// the generation is live and the pool has room, any other guest is closed, and
+// the generation is closed once retired and unreferenced.
+func (m *Manager) release(g *generation, inst *component.Instance, clean bool) {
+	m.mu.Lock()
+	m.releaseLocked(g, inst, clean)
+}
+
+// releaseReset is release for a guest reset off the call path; it wakes the
+// calls waiting for that reset in the same critical section that pools it.
+func (m *Manager) releaseReset(g *generation, inst *component.Instance, clean bool) {
+	m.mu.Lock()
+	g.resetting--
+	g.ready.Broadcast()
+	m.releaseLocked(g, inst, clean)
+}
+
+// releaseLocked is release with m.mu held; it unlocks m.mu.
+func (m *Manager) releaseLocked(g *generation, inst *component.Instance, clean bool) {
+	if inst != nil && clean && !g.retired && len(g.pool) < PoolGuests {
+		g.pool = append(g.pool, inst)
+		inst = nil
+	}
+	if inst != nil {
+		// Close while the reference still keeps the runtime open.
+		m.mu.Unlock()
+		closeGuest(inst)
+		m.mu.Lock()
+	}
+	g.refs--
+	dispose := g.retired && g.refs == 0
+	m.mu.Unlock()
+	if dispose {
+		g.close()
+	}
+	m.active.Done()
+}
+
+// closeGuest runs outside the call's recover (in its last defer, on a reset
+// goroutine, and in generation close), so it recovers a panic itself.
+func closeGuest(inst interface{ Close(context.Context) error }) {
+	defer func() {
+		if p := recover(); p != nil {
+			logPanic("close", p)
+		}
+	}()
+	if err := inst.Close(context.Background()); err != nil {
+		slog.Error("close WASM guest", slog.Any("err", err))
+	}
 }
 func guestError(ctx context.Context) types.Result {
 	if ctx.Err() != nil {
