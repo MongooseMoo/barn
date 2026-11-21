@@ -33,6 +33,7 @@ type StoreTxn struct {
 	locked                    bool
 	gateExempt                bool // set on the txn of an escalated attempt; its Commit skips the shared commit gate (the runtime holds it exclusively)
 	exclusiveGrant            *commitgate.Grant
+	grantSeq                  uint64 // Store.exclusiveGrantSeq of exclusiveGrant while gateExempt
 	gateWait                  func(time.Duration, bool)
 	commitContext             context.Context
 	objects                   map[types.ObjID]*Object
@@ -435,6 +436,7 @@ func (tx *StoreTxn) BindExclusiveGrant(grant *commitgate.Grant) {
 		panic("transaction requires a live exclusive commit grant")
 	}
 	tx.exclusiveGrant, tx.gateExempt = grant, true
+	tx.grantSeq = tx.store.exclusiveGrantSeq.Load()
 }
 
 // ClearCommitGateExemption re-arms the shared gate for a retryable txn that
@@ -443,6 +445,7 @@ func (tx *StoreTxn) ClearCommitGateExemption() {
 	if tx != nil && !tx.direct {
 		tx.gateExempt = false
 		tx.exclusiveGrant = nil
+		tx.grantSeq = 0
 	}
 }
 

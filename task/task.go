@@ -137,6 +137,9 @@ type State struct {
 	pendingInput     int  // injected events that have not finished their first slice
 	waitingForInput  bool // only a zero-delay continuation observes this fence
 	cancelRequested  bool // explicit kill, distinct from an uncaught MOO exception
+	// createdAnonymous lists the anonymous objects this task created since its
+	// last slice boundary took them (engine finalization fast path).
+	createdAnonymous []types.ObjID
 	// wokenUnrun marks a queued task woken from a suspension whose slice has not
 	// started. Toast still finds it suspended (tasks.cc do_resume searches the
 	// background queues), so resume() only replaces its WakeValue.
@@ -778,6 +781,23 @@ func (t *State) JoinForkFamily(parent *State) {
 	t.Mu.Lock()
 	defer t.Mu.Unlock()
 	t.forkFamily = family
+}
+
+// NoteCreatedAnonymous records an anonymous object this task created.
+func (t *State) NoteCreatedAnonymous(id types.ObjID) {
+	t.Mu.Lock()
+	t.createdAnonymous = append(t.createdAnonymous, id)
+	t.Mu.Unlock()
+}
+
+// TakeCreatedAnonymous returns and forgets the anonymous objects this task
+// created since the last call.
+func (t *State) TakeCreatedAnonymous() []types.ObjID {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	created := t.createdAnonymous
+	t.createdAnonymous = nil
+	return created
 }
 
 // SetReadier records the task whose fork made this task ready.

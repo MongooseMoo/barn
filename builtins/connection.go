@@ -249,6 +249,8 @@ func builtinListen(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
+	// The listener keeps the object and hands it to every connection's hooks.
+	escapeFinalizers(ctx, args[0])
 	spec := listener.Spec{
 		Protocol: listener.ProtocolTCP,
 		Object:   args[0].Obj(),

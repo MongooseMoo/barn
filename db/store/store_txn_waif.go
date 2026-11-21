@@ -92,6 +92,9 @@ func (tx *StoreTxn) setWaifProperty(value types.Value, name string, next types.V
 	if tx == nil || tx.store == nil {
 		return false, types.E_INVARG
 	}
+	// Any task that holds the WAIF can read its properties, so the value
+	// escapes as soon as it is written, whether or not this write commits.
+	tx.store.MarkFinalizersEscaped(next)
 	if tx.direct {
 		tx.store.mu.Lock()
 		defer tx.store.mu.Unlock()

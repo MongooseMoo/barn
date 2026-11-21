@@ -600,3 +600,125 @@ a live holder.
   sweep later). Accept, or deliver completion first and order only resumes?
   No measurement yet of the recycle verbs' own cost on Mongoose; the
   implementation's real-workload gate measures it.
+
+## Implementation (C2)
+
+Owner decisions (2026-11-21, via the lead): D1 build C2; D2 unknown values
+keep today's batched sweep with no hold (build so a hold could be added
+later, do not add one); D3 other tasks stay unordered against a task's
+recycle verbs (known difference from Toast); D4 recycle verbs of a completing
+command run before its completion is delivered.
+
+### State
+
+- Step 1 done: the four #1040 tests (`engine/suspend_finalization_order_test.go`,
+  unchanged) fail on master (`k.hits ... = 0, want 1`, all four).
+- Step 2 done: the mechanism; the four tests pass (30 runs each), and
+  `go test ./...` passes.
+
+Where the mechanism lives:
+- `types/finalizer_tag.go`: `FinalizerTag` (creator task id; state confined /
+  tentative under grant N / escaped; numbered-holder count while tentative).
+  A WAIF carries it in its rep (`types/waif.go`); anonymous objects in
+  `Store.anonTags`, dropped when the object is recycled
+  (`db/store/store_lifecycle.go` Recycle).
+- `db/store/store_reachability.go` `refreshDirectRefsPublishing` /
+  `noteHolderChangeLocked`: every reference a numbered holder's index entry
+  gains is a publication (tentative when the commit holds an exclusive
+  grant, otherwise escape), every one it loses decrements the tentative
+  holder count. The commit path passes the grant
+  (`db/store/store_cow.go` publishStagedLocked); every other caller of
+  `refreshDirectRefs` passes none.
+- `Store.exclusiveGrantSeq` numbers exclusive grants (`noteExclusiveGrant`);
+  a bound transaction records it (`StoreTxn.grantSeq`, `BindExclusiveGrant`);
+  `sliceGate.seq` holds it for the slice, and `commitGrantSeq` is read just
+  before the gate is released after the slice's commit
+  (`engine/task_runtime.go`).
+- `engine/finalization_fast.go`: `decideConfined` (after the slice commit:
+  released WAIFs, anonymous objects in the ledger and those the task created
+  (`task.State.TakeCreatedAnonymous`); confined and not held by the task's
+  own VM, call-stack snapshot or result = dead) and `recycleConfinedDead`
+  (the sweep's own runners: `callVerbWithArgstr(..., vmOwnershipSweep)` for a
+  WAIF after `BeginWaifRecycle`, `recycle()` under `gcRecycleContext` for an
+  anonymous object).
+- Wired into `handOffSuspended` (commit, decide, queue the rest, recycle, prune
+  the ledger, save the VM, requeue) and the completion path of
+  `runTaskSliceAdmitted` (decide in `settleCompletedTaskFinalizations`,
+  recycle after the completion's own commit, before `SetVM(nil)` and before
+  the lease is released and the completion callback runs).
+
+### Decisions and why
+
+- Everything the fast path does not find dead goes to the sweep exactly as
+  before, including values a numbered object holds and confined values the
+  task still holds. The design allowed dropping numbered-held values from the
+  queue; I kept them because a holder that later lets go at a release site
+  that records nothing (OP_POP and the others, out of scope) would then never
+  be swept, which today's sweep does catch. Cost: the sweep runs as often as
+  on master; the fast path only adds work.
+- The numbered-holder count is kept only for tentative values of task-created
+  values (the only use C2 has for it); loaded values carry no creator and
+  cost one atomic load per reference in `refreshDirectRefs`.
+- Escape into an anonymous object or a WAIF is marked at staging time
+  (conservative: an aborted attempt still escapes the value), and again at
+  commit for every property of an anonymous object the commit wrote or the
+  inheritance walk joined. A commit whose inheritance walk joined descendants
+  publishes nothing tentatively.
+- A tentative mark is valid only for the grant it was made under: any later
+  decision or publication under another grant (or none) makes it an escape.
+  So a tentative value still held by a numbered object when its slice ended
+  can never be called confined later.
+- The creation floor request for anonymous objects (`deferAnonGC`) is still
+  queued whenever it was before; the fast path recycles its dead ones first
+  and the sweep finds them gone. A standalone hook's anonymous objects (no
+  creator) still need that request.
+- Anonymous recycle verbs and WAIF recycle verbs run on the releasing task's
+  goroutine under its execution lease and admission scope, so no sweep can
+  start meanwhile (`collectAllGCRefs` sees a running lease) and nothing waits
+  on another VM.
+- Hold for unknowns (D2) not built: `confinedVerdict.undecided` is the count a
+  hold would test, at the one place each boundary queues its rest.
+
+### Surprises
+
+### Escape channels (file:line)
+
+Each marks every WAIF and anonymous object the value holds directly (through
+lists and maps; a value inside a WAIF or anonymous object's property was
+marked when written there):
+- Property of a numbered object: `db/store/store_reachability.go:159`
+  `refreshDirectRefsPublishing` (publication time, tentative under a grant).
+- Property of an anonymous object: `db/store/store_txn_properties.go:413`
+  (SetPropertyValue), `:510` (DefineProperty),
+  `db/store/store_txn_mapkeys.go:208` (SetPropertyMapKey), at commit
+  `db/store/store_cow.go:559,566`; inherited slots of a new anonymous object
+  `db/store/store_lifecycle.go:33`.
+- Property of a WAIF: `db/store/store_txn_waif.go:97` (setWaifProperty, both
+  SetWaifProperty and ReplaceWaifProperty).
+- fork: `vm/control.go:183-185` (the child's `this` and every variable).
+- resume: `builtins/tasks.go:192`.
+- set_connection_option: `builtins/network.go:1380`.
+- task_stack, queued_tasks, finished_tasks results: `builtins/tasks.go:725-730`
+  (`escapingResult`); the finished-tasks record itself:
+  `engine/lag_callback.go:79`.
+- Hook arguments: `engine/task_factory.go:101` (runServerVerbTask: uncaught
+  error, timeout, lagging task and other server hooks), `:213`
+  (CreateLoginHookTask), `engine/call_verb.go:204-206` (every standalone VM:
+  receiver and arguments).
+- move: `builtins/objects_movement.go:31` (object and destination: location
+  and contents name each other, and both reach the lifecycle verbs).
+- Threaded builtins: `builtins/threaded.go:83` with the values each passes:
+  sort `builtins/lists.go:327`, all_members `builtins/math.go:500`, sqlite
+  parameters `builtins/sqlite.go:203`; background_test `builtins/system.go:880`.
+- listen: `builtins/connection.go:253`.
+- A task's result at completion is treated as held by the task (not dead):
+  the Go caller of a hook keeps it.
+- Not channels (read): `CallVerbInContext` (same task, synchronous VM);
+  the WAIF registry used by property renames (rewrites images, hands no value
+  out); anonymous children lists of a parent (not readable by MOO code).
+- Out of scope, same blind spot as the sweep: an anonymous object reached by
+  number (`toobj`, or an owner/location field read back as an object number).
+
+### Gates
+
+### Next step

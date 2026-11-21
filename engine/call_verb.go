@@ -199,6 +199,12 @@ func (s *Runtime) CallVerbWithArgstr(objID types.ObjID, verbName string, args []
 }
 
 func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args []types.Value, player types.ObjID, argstr string, ownership vmOwnership, ownerTaskID int64, scope *admission.Scope) (result types.Result) {
+	// A standalone VM, which can outlive the caller's slice when it suspends,
+	// holds the receiver and arguments.
+	s.store.MarkFinalizersEscaped(receiver)
+	for _, arg := range args {
+		s.store.MarkFinalizersEscaped(arg)
+	}
 	objID := receiver.ID()
 	if receiver.Type() == types.TYPE_WAIF {
 		objID = receiver.Class()
