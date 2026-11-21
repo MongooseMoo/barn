@@ -789,7 +789,6 @@ func (t *State) JoinForkFamily(parent *State) {
 	t.forkFamily = family
 }
 
-// SetReadier records the task whose fork made this task ready.
 // HoldForFinalization keeps the task from being ready until swept reaches seq.
 // The sweep that advances swept notifies the scheduler.
 func (t *State) HoldForFinalization(swept *atomic.Uint64, seq uint64) {
@@ -799,6 +798,7 @@ func (t *State) HoldForFinalization(swept *atomic.Uint64, seq uint64) {
 	t.Mu.Unlock()
 }
 
+// SetReadier records the task whose fork made this task ready.
 func (t *State) SetReadier(readier *State) {
 	t.Mu.Lock()
 	defer t.Mu.Unlock()

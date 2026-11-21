@@ -12,9 +12,11 @@ worktree(s) it belongs to, this note committed. Not included: push, PR, posting.
 
 ## State
 
-Cause found (Barn ordering bug, class (a)); fix and Go tests in the working
-tree of branch `fix/anonymous-recycle-after-suspend-flake`, committed locally.
-No suite change (the test asserts what Toast guarantees). Not pushed, no PR.
+Cause found (Barn ordering bug, class (a)). The hold fix is committed and
+published as PR 1040, but it must not merge: it cuts Mongoose goodput about
+15-20x and fails the Elle check (both below). A replacement design is an
+open choice for the lead. No suite change (the test asserts what Toast
+guarantees).
 
 ## Findings
 
@@ -176,6 +178,79 @@ touches frame naming for builtin callbacks (`vm/registry.go`, `vm/stack.go`,
 when the deferred batch is swept or when the suspended task resumes. Not (c);
 the window above exists on master.
 
+### How long a held task can wait
+
+The hold ends only when `SweptSeq` reaches the task's number
+(`task/task.go` `readyDeadlineLocked`), i.e. when a sweep drains its batch
+(`engine/waif_lifecycle.go` `markFinalizationSweptLocked(drained)` in the sweep's
+deferred cleanup) or shutdown takes the batches
+(`takeDeferredFinalizationRootsLocked`). What keeps a sweep from running:
+- `FinalizationHeld` (startup, until `#0:server_started` returns,
+  `engine/runtime.go` `ReleaseStartupFinalization`): flush and worker both stand
+  down (`waif_lifecycle.go:294`, `deferred_gc_maintenance.go:26`); the release
+  flushes. Toast also runs startup finalization only after server_started.
+- Another sweep running (`GCRunning`): it ends, wakes the worker.
+- A lease that does not park. A sweep needs every execution lease parked
+  (`engine/gc_handshake.go:55-77` `awaitGCParked` / `leasesParkedLocked`,
+  `engine/runtime.go:703-730` `collectAllGCRefs`). A VM parks only at its
+  1024-tick checkpoint (`vm/vm.go:439-472`, `engine/task_runtime.go:463-471`),
+  never while it holds the commit gate, while inside a builtin (an outer VM with
+  a nested lease, `count != 1`), or while `TaskRunning` without a lease. The
+  worker retries every `maintenanceBarrierPatience` = 20 ms
+  (`waif_lifecycle.go:267`, `deferred_gc_maintenance.go:85-88`).
+
+So the wait has no fixed bound: it lasts until one 20 ms window finds every
+running VM parked or finished. One unparked VM delays it by that VM's stretch
+without a checkpoint: at most its slice's seconds limit for MOO code, and
+unbounded by Barn for a builtin that blocks inline. Under constant load the
+windows can keep failing, and the held task waits for all of them. Before
+the fix the sweep was delayed the same way, but the task did not wait for it.
+
+### Throughput: the fix is a large regression (TestMongooseRealWorkload)
+
+Interleaved A/B in WSL, base = merge base with origin/master (detached worktree
+`C:/Users/Q/code/barn-anon-perf-base`), fix = this branch's commit; goodput-series
+shape (fixture `mongoose.db.new.2026-11-12T0055` sha256 `626bd284...25e7`,
+sound sqlite `0fcdc8d7...9318`, players 1,16, warmup 5 s, measure 30 s,
+GOGC 400, linux `go test -c` binaries, CGO off). Script: scratchpad
+`perf_ab.sh`. 1-minute load before each run in the last column.
+
+| pair | base 1p | fix 1p | base 16p | fix 16p | load before base / fix |
+|---|---|---|---|---|---|
+| 1 | 62/s | 3/s | 140/s | 19/s | 12.1 / 18.7 |
+| 2 | 32/s | 3/s | 227/s | 19/s | 20.5 / 25.9 |
+| 3 | 52/s | 1/s | 80/s | 14/s | 19.3 / 27.7 |
+| 4 | 39/s | 2/s | 208/s | 14/s | 22.1 / 17.8 |
+| 5 | 58/s | 3/s | 306/s | 24/s | 14.3 / 11.3 |
+
+Base spread is wide (1p 32-62, 16p 80-306) because the machine was at load
+11-28, but every fix run is far below the slowest base run (1p max 3 vs min
+32; 16p max 24 vs min 80), so the data does distinguish the builds: the fix
+cuts goodput about 15-20x. p50 latency 7-16 ms base vs 148-220 ms fix (1p);
+allocs/op about 30k vs 600k and bytes/op about 4 MB vs 150 MB (1p), i.e.
+every command now waits on and pays for a full sweep. Every run of both builds
+ended `--- FAIL: TestMongooseRealWorkload` (failed 1-4 or uncaught 1 at some
+level, in base as well), so the harness verdict does not separate them.
+
+Why (inference from the counters, not traced per command): on Mongoose nearly
+every command suspends after its slice queued a WAIF or anonymous request, so
+each command is held for a sweep, and a Mongoose sweep costs on the order of
+the 150-200 ms p50 added. That cost is why sweeps are batched on a 2 s cadence
+once they exceed 50 ms.
+
+### Elle check failure on PR 1040: caused by the hold
+
+`TestElleIsolationHistories` (`-tags elle`, seeds 412/395/396, 40 rounds,
+GOMAXPROCS 4, the `scripts/check_elle.py` command) fails on the fix with
+`elle_workload_test.go:757: unsettled task 1001xx: queued`, and passes on the
+base worktree for the same three seeds. `elleDrain`
+(`engine/elle_workload_test.go:195-214`) treats `ProcessReadyTasks() == 0` as
+"everything settled"; with the hold, a suspended task whose slice-boundary and
+end-of-pass flushes could not sweep (parallel batch siblings executing, or the
+worker holding SweepMu) is queued but not ready until the maintenance worker
+sweeps asynchronously, so the pass returns 0 with the task unsettled. The same
+assumption made `TestSuspendFinalizesReleasedWaifBeforeResume` flaky earlier.
+
 ## Decisions and why
 
 - Hold only the task whose own suspend queued the garbage. Toast also orders
@@ -197,8 +272,12 @@ the window above exists on master.
 
 ## Next step
 
-- Not measured: Mongoose real-workload throughput (`TestMongooseRealWorkload`
-  1p/16p). Every suspend that queues finalization now forces a prompt sweep
-  instead of waiting for the 2 s cadence; on Mongoose that may cost throughput
-  and must be measured on an idle machine before merge.
-- Lead: push, PR, CI.
+- Do not merge PR 1040 as is (throughput table and Elle section above).
+- Choice pending with the lead: (1) hold only while sweeps are cheap
+  (`LastGCCost < cheapGCSweep`), so small databases such as Test.db get Toast's
+  order and Mongoose keeps the batched deferral, plus make the end-of-pass flush
+  in `ProcessReadyTasks` wait (patience, handshake) while a task is held so
+  drivers that read 0 as settled (Elle, `TestSuspendFinalizesReleasedWaifBeforeResume`)
+  stay correct; or (2) withdraw the hold and leave the flake until finding an
+  orphan costs O(released values) instead of a full sweep (Toast does it by
+  refcount).
