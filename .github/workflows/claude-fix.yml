@@ -121,7 +121,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           path_to_claude_code_executable: &claude-bin ${{ runner.temp }}/claude-home/.local/bin/claude
           # Nightly fuzz dispatches as github-actions[bot].
-          allowed_bots: github-actions
+          allowed_bots: github-actions,mongoosemoo-barn-repair-worker
           settings: .github/claude-fix-settings.json
           prompt: |
             Fix GitHub issue #${{ env.ISSUE }} in ${{ github.repository }} and open a pull request for review.

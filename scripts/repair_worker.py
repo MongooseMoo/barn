@@ -10,6 +10,7 @@ import pwd
 import subprocess
 import tempfile
 import time
+from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from repair_provider import classify
@@ -385,7 +386,7 @@ def main():
     while True:
         try:
             ok = cycle(args)
-        except (subprocess.SubprocessError, ValueError) as error:
+        except (subprocess.SubprocessError, ValueError, URLError) as error:
             if isinstance(error, subprocess.CalledProcessError):
                 message = f"{error.cmd[0]} exited {error.returncode}"
             else:

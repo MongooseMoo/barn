@@ -53,7 +53,7 @@ runs:
         path_to_claude_code_executable: ${{ inputs.claude_bin }}
         # The repair job runs as github-actions; a merge-queue merge can be
         # attributed to the queue's bot.
-        allowed_bots: github-actions,github-merge-queue
+        allowed_bots: github-actions,github-merge-queue,mongoosemoo-barn-repair-worker
         settings: .github/claude-fix-settings.json
         prompt: |
           Pull request #${{ inputs.pr }} in ${{ github.repository }} fixes a Barn bug. ${{ inputs.merged == 'true' && 'It has merged; this checkout is its merge commit.' || 'It is open and not merged; this checkout is its head commit. Before it may merge, the fixed behaviour is checked against Toast.' }}
