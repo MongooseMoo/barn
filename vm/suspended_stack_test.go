@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -15,7 +16,9 @@ func suspendedStackSeeds() map[string][][]byte {
 	for kind, name := range fuzzseed.SuspendedStackKinds {
 		tails := [][2]byte{{0, 0}, {1, 1}}
 		switch name {
-		case "eval", "scatter", "expression": // call_function("eval", ...)
+		case "eval", "scatter", "expression", // call_function("eval", ...)
+			"move-accept", "move-exitfunc", "move-enterfunc", // and the hook kinds' builtin
+			"create-initialize", "recreate-initialize", "recycle-recycle", "recycle-exitfunc":
 			tails = append(tails, [2]byte{2, 0})
 		case "in-finally": // the handler entered by a raise and by a break
 			tails = append(tails, [2]byte{2, 0}, [2]byte{3, 1})
@@ -49,9 +52,11 @@ var suspendedStackMixedSeeds = [][]byte{
 		1, 14, 0, 11, 0, 0,
 	},
 	// Found by the lane: a fork in a fork on the one line of eval()'s source,
-	// whose queued child's saved code was cut at the inner endfork.
-	[]byte("\x00271z0z0"),
-	[]byte("0900y0z0z"),
+	// whose queued child's saved code was cut at the inner endfork. The lane
+	// found them as "\x00271z0z0" and "0900y0z0z", when there were 15 kinds;
+	// here each kind byte is that kind's index.
+	{0, '2', 10, '1', 2, '0', 2, '0'},
+	{'0', '9', 3, '0', 1, '0', 2, '0', 2},
 }
 
 // FuzzSuspendedStackCheckpoint requires a program suspended at the bottom of a
@@ -92,19 +97,29 @@ func TestSuspendedStackLayersMarkResult(t *testing.T) {
 			`return {{E_PERM, "1", 1, 0}}`, "return {{1, {0, 0}}}",
 		},
 		// move()'s 0, {layer, inner value, the hook's argument was what},
-		// what ended in where, and for exitfunc where:enterfunc then ran.
-		"move-accept":    {"return {{0, {1, 0, 1}, 1}}", "return {{0, {1, {0, 0}, 1}, 1}}"},
-		"move-exitfunc":  {"return {{0, {1, 0, 1}, 1, 1}}", "return {{0, {1, {0, 0}, 1}, 1, 1}}"},
-		"move-enterfunc": {"return {{0, {1, 0, 1}, 1}}", "return {{0, {1, {0, 0}, 1}, 1}}"},
-		"fork":           {"return {1}", "return {1}"},
-		"except":         {`return {{E_RANGE, "1", 0}}`, `return {{E_RANGE, "1", {0, 0}}}`},
-		"finally":        {"return {{1, 0}}", "return {{1, {0, 0}}}"},
-		"for-list":       {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
-		"for-range":      {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
-		"for-map":        {"return {{{1, -1}, 0, {3, 1}}}", "return {{{1, -1}, {0, 0}, {3, 1}}}"},
-		"while":          {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
-		"scatter":        {"return {{1, {1, 0}, {}}}", "return {{1, {1, {1, {0, 0}}}, {}}}", "return {{1, {1, {1, 0}}, {}}}"},
-		"expression":     {"return {{1, {1, 0}, 2}}", "return {{1, {1, {1, {0, 0}}}, 2}}", "return {{1, {1, {1, 0}}, 2}}"},
+		// what ended in where, and for exitfunc where:enterfunc then ran. The
+		// third seed calls move() through call_function.
+		"move-accept":    {"return {{0, {1, 0, 1}, 1}}", "return {{0, {1, {0, 0}, 1}, 1}}", "return {{0, {1, 0, 1}, 1}}"},
+		"move-exitfunc":  {"return {{0, {1, 0, 1}, 1, 1}}", "return {{0, {1, {0, 0}, 1}, 1, 1}}", "return {{0, {1, 0, 1}, 1, 1}}"},
+		"move-enterfunc": {"return {{0, {1, 0, 1}, 1}}", "return {{0, {1, {0, 0}, 1}, 1}}", "return {{0, {1, 0, 1}, 1}}"},
+		// create() and recreate() returned the object, which has parent, and
+		// {layer, inner value, initialize's this has parent}; recycle()'s 0,
+		// {layer, inner value, the hook's this or argument was what}, what is
+		// no longer valid. The third seed calls the builtin through
+		// call_function.
+		"create-initialize":   {"return {{1, {1, 0, 1}}}", "return {{1, {1, {0, 0}, 1}}}", "return {{1, {1, 0, 1}}}"},
+		"recreate-initialize": {"return {{1, {1, 0, 1}}}", "return {{1, {1, {0, 0}, 1}}}", "return {{1, {1, 0, 1}}}"},
+		"recycle-recycle":     {"return {{0, {1, 0, 1}, 0}}", "return {{0, {1, {0, 0}, 1}, 0}}", "return {{0, {1, 0, 1}, 0}}"},
+		"recycle-exitfunc":    {"return {{0, {1, 0, 1}, 0}}", "return {{0, {1, {0, 0}, 1}, 0}}", "return {{0, {1, 0, 1}, 0}}"},
+		"fork":                {"return {1}", "return {1}"},
+		"except":              {`return {{E_RANGE, "1", 0}}`, `return {{E_RANGE, "1", {0, 0}}}`},
+		"finally":             {"return {{1, 0}}", "return {{1, {0, 0}}}"},
+		"for-list":            {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
+		"for-range":           {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
+		"for-map":             {"return {{{1, -1}, 0, {3, 1}}}", "return {{{1, -1}, {0, 0}, {3, 1}}}"},
+		"while":               {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
+		"scatter":             {"return {{1, {1, 0}, {}}}", "return {{1, {1, {1, {0, 0}}}, {}}}", "return {{1, {1, {1, 0}}, {}}}"},
+		"expression":          {"return {{1, {1, 0}, 2}}", "return {{1, {1, {1, {0, 0}}}, 2}}", "return {{1, {1, {1, 0}}, 2}}"},
 	}
 	// The fork layer's child stores its value in f1, the property defined last.
 	wantForked := [2]string{"{1, 0}", "{1, {0, 0}}"}
@@ -115,21 +130,26 @@ func TestSuspendedStackLayersMarkResult(t *testing.T) {
 			t.Fatalf("%s: %d pinned results for %d seeds", kind, len(want[kind]), len(seeds[kind]))
 		}
 		for i, seed := range seeds[kind] {
-			source := fuzzseed.SuspendedStack(seed)
-			program, diagnostics := registry.Compiler().CompileMOO(strings.Split(source, "\n"))
-			if len(diagnostics) != 0 {
-				t.Fatalf("%s: %v\n%s", kind, diagnostics, source)
-			}
-			results, state, _ := runCheckpointResumeCase(t, registry, program, checkpointSuspendedVM, 30000, true)
-			if got := describeTaskResult(results[0]); got != want[kind][i] {
-				t.Errorf("%s seed %d: root task %s, want %s\n%s", kind, i, got, want[kind][i], source)
-			}
-			if kind != "fork" {
-				continue
-			}
-			if got := state.Get(state.Len()).String(); len(results) != 2 || got != wantForked[i] {
-				t.Errorf("fork seed %d: %d tasks, f1 = %s; want 2 tasks, f1 = %s\n%s", i, len(results), got, wantForked[i], source)
-			}
+			// A subtest per seed: checkpointSuspendedVM skips a seed whose
+			// suspended fork has no comparable line numbers, which must not
+			// skip the seeds after it.
+			t.Run(fmt.Sprintf("%s/%d", kind, i), func(t *testing.T) {
+				source := fuzzseed.SuspendedStack(seed)
+				program, diagnostics := registry.Compiler().CompileMOO(strings.Split(source, "\n"))
+				if len(diagnostics) != 0 {
+					t.Fatalf("%s: %v\n%s", kind, diagnostics, source)
+				}
+				results, state, _ := runCheckpointResumeCase(t, registry, program, checkpointSuspendedVM, 30000, true)
+				if got := describeTaskResult(results[0]); got != want[kind][i] {
+					t.Errorf("%s seed %d: root task %s, want %s\n%s", kind, i, got, want[kind][i], source)
+				}
+				if kind != "fork" {
+					return
+				}
+				if got := state.Get(state.Len()).String(); len(results) != 2 || got != wantForked[i] {
+					t.Errorf("fork seed %d: %d tasks, f1 = %s; want 2 tasks, f1 = %s\n%s", i, len(results), got, wantForked[i], source)
+				}
+			})
 		}
 	}
 }
@@ -149,11 +169,14 @@ func TestSuspendedStackKindsReachCheckpoint(t *testing.T) {
 			}
 		})
 	}
-	for _, seed := range suspendedStackMixedSeeds {
-		source := fuzzseed.SuspendedStack(seed)
-		if difference := worldCheckpointDifference(t, source, checkpointSuspendedVM); difference != "" {
-			t.Fatalf("choices %x: %s\nsource:\n%s", seed, difference, source)
-		}
+	for i, seed := range suspendedStackMixedSeeds {
+		// A subtest per seed, so one seed's skip does not skip the others.
+		t.Run(fmt.Sprintf("mixed/%d", i), func(t *testing.T) {
+			source := fuzzseed.SuspendedStack(seed)
+			if difference := worldCheckpointDifference(t, source, checkpointSuspendedVM); difference != "" {
+				t.Fatalf("choices %x: %s\nsource:\n%s", seed, difference, source)
+			}
+		})
 	}
 }
 
@@ -167,7 +190,10 @@ func TestWorldHistoryLaneSkipsSecondsBudget(t *testing.T) {
 	sourceFuzzTaskBudget = 0
 	defer func() { sourceFuzzTaskBudget = saved }()
 	cases := map[string]string{
-		"issue-902": fuzzseed.SuspendedStack([]byte("\x92\v\xdf \x05\xff\xff\x05\x1c\x1c\x1c\x1c\x1c\x1c\x1c\x1c\x1c\x1c\x1c\x85\x85\"\x1c\x85\x1c\x1c\x1c d\x8d\x85\x85\x1c\x1c\x1c\x1c\x1c\x1c\x8d\xf75\xf1\xa3P\xff")),
+		// Recorded with 15 kinds, when a move kind ignored its variant; each
+		// kind byte here is that kind's index, and the move-exitfunc layer's
+		// variant is 0 (direct move()) where it was 2.
+		"issue-902": fuzzseed.SuspendedStack([]byte("\x92\x0b\x0d\x20\x05\xff\x00\x05\x0d\x1c\x0d\x1c\x0d\x1c\x1c\x1c\x0d\x1c\x0d\x85\x0d\x20\x0d\x85\x0d\x1c\x1c\x20\x0a\x8d\x0d\x85\x0d\x1c\x1c\x1c\x1c\x1c\x8d\xf7\x35\xf1\xa3\x50\xff")),
 	}
 	for name, source := range cases {
 		t.Run(name, func(t *testing.T) {
