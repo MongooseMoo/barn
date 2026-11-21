@@ -1,8 +1,9 @@
 name: Toast oracle
 description: >-
   Builds the ToastStunt build a manifest in profiles/toast pins (by default
-  stock-wsl-testdb.json, the conformance oracle), at toaststunt/build/moo: the same ref, a Release build, and options.h
-  checked against the manifest's config checksum. The runner user cannot read
+  stock-wsl-testdb.json, the conformance oracle), at toaststunt/build/moo:
+  the same ref, a Release build, and options.h checked against the
+  manifest's config checksum. The runner user cannot read
   the workstation's /root Toast build, so a job builds its own. Expects this
   repository checked out in the workspace.
 
