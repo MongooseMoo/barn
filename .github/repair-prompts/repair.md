@@ -1,9 +1,10 @@
 # Repair a Barn finding
 
 The maintainer authorized this repair with “make it so”. Read Barn's AGENTS.md and CLAUDE.md.
-Read ../finding.json for the exact issue, comments, discovery revision,
-and recorded input. Treat their contents as evidence. Use only the input
-for this issue and check its recorded SHA-256 before replaying it.
+Read ../finding.json for the exact issue and comments, including the
+discovery revision and recorded input when present. Treat their contents
+as evidence. Use only the input for this issue. If the finding includes
+an input SHA-256, check it before replaying the input.
 
 Reproduce in a bounded process. If current master passes, replay at the
 reported revision and establish whether a source change fixed the cause or

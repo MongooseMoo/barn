@@ -16,7 +16,8 @@ by name.
 
 Return `test` only if the new test passes on Toast and Barn. Leave the new
 test files in the suite checkout and give their PR title and evidence with
-both exact commands and outcomes. Use `already-covered` with the existing
-test, `not-observable` with the reason, `toast-disagrees` with both results,
-or `unresolved` with the missing evidence. Return `outcome`, `title` and
+both exact commands and outcomes. Use `already-covered` only if the existing
+test passes on Toast and Barn, `not-observable` with the reason, or
+`toast-disagrees` with both results. Use `unresolved` if a required run could
+not start or its result is unknown. Return `outcome`, `title` and
 `evidence`. The worker owns commits, GitHub writes, and merge decisions.

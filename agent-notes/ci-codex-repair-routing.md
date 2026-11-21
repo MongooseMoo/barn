@@ -11,6 +11,7 @@ Run Barn repair, conformance and alarm work using Claude or Q's Codex subscripti
 - Open work is visible in `docs/live/`, including Codex repair, conformance and alarm queue labels. The live Actions link opens the provider and stage dispatch controls.
 - The WSL Codex account completed a subscription-backed smoke turn. Q confirmed the private App installation on the two repositories. Its token returned exactly those repositories, and worker label initialization succeeded.
 - The live dispatch added `codex-repair` to #987 and the worker took it. Codex recorded `cyber_policy` and produced no repair. #987 is held with `repair-needs-attention`; the queue label was removed. Policy and unclassified outcomes now stop the attempt without provider fallback.
+- The full official Codex CLI package supplies the workspace tool host. An actual workspace command returned `BARN-TOOL-READY`. The first tool-enabled conformance attempt on #919 identified the existing tests but stopped before Toast started: its fresh job cache needed PyPI packages and the locked GitHub `moo_interp` dependency. Repair and conformance now prepare the published suite's frozen environment in the disposable checkout before the model runs. A conformance result lacking a required runtime verdict stays unresolved.
 
 ## Decisions and why
 

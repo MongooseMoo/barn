@@ -72,7 +72,9 @@ def run(*args, cwd=None, user=None, data=None, timeout=120, cache=None):
         }
         if cache:
             options["env"].update(GOCACHE=str(cache / "go-build"), GOMODCACHE=str(cache / "go-mod"),
-                                  UV_CACHE_DIR=str(cache / "uv"))
+                                  UV_CACHE_DIR=str(cache / "uv"),
+                                  UV_PROJECT_ENVIRONMENT=str(cache / "conformance"),
+                                  CONFORMANCE_ENV=str(cache / "conformance"))
     elif PUBLISHER_TOKEN and args[0] in {"gh", "git"}:
         options = {"env": {**os.environ, "GH_TOKEN": PUBLISHER_TOKEN.get(),
                            "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}}
@@ -127,14 +129,20 @@ def proposal(root, stage, number, report, user, codex):
         work = Path(temp)
         os.chown(work, account.pw_uid, account.pw_gid)
         barn = work / "barn"
+        suite = work / "moo-conformance-tests"
+        cache = work / "cache"
         clone(barn, BARN, "master", user=user)
         if stage == "conformance":
             pr = report["pull"]
             git(barn, "fetch", "origin", f"refs/pull/{number}/head", user=user)
             head = pr["merge_commit_sha"] if pr["merged"] else pr["head"]["sha"]
             git(barn, "checkout", "--detach", head, user=user)
-            clone(work / "moo-conformance-tests", SUITE, "main", user=user)
-            git(work / "moo-conformance-tests", "submodule", "update", "--init", "--recursive", user=user)
+        if stage in {"repair", "conformance"}:
+            clone(suite, SUITE, "main", user=user)
+            git(suite, "submodule", "update", "--init", "--recursive", user=user)
+            # The frozen suite includes a Git dependency. Fetch it before the model's network sandbox.
+            run("uv", "sync", "--frozen", "--no-python-downloads", cwd=suite, user=user,
+                cache=cache, timeout=300)
         baseline = git(barn, "rev-parse", "HEAD", user=user).strip()
         prompt = (root / ".github" / "repair-prompts" / f"{stage}.md").read_text(encoding="utf-8")
         for name, contents in (("finding.json", report), ("result-schema.json", RESULT)):
@@ -147,7 +155,7 @@ def proposal(root, stage, number, report, user, codex):
                          "exec", "--json", "--add-dir", str(work),
                          "--output-schema", str(work / "result-schema.json"),
                          "--output-last-message", str(work / "result.json"), "-",
-                         cwd=barn, user=user, data=prompt, timeout=10800, cache=work / "cache")
+                         cwd=barn, user=user, data=prompt, timeout=10800, cache=cache)
         except subprocess.CalledProcessError as error:
             reason, reset = classify(error.stdout or "", "codex")
             return {"outcome": reason, "retry_at": reset}, "", baseline
@@ -155,7 +163,7 @@ def proposal(root, stage, number, report, user, codex):
             reason, reset = classify(stream, "codex")
             return {"outcome": reason, "retry_at": reset}, "", baseline
         result = json.loads(run("/usr/bin/cat", str(work / "result.json"), user=user))
-        target = work / "moo-conformance-tests" if stage == "conformance" else barn
+        target = suite if stage == "conformance" else barn
         if result["outcome"] not in {"patch", "test"}:
             return result, "", baseline
         base = baseline if target == barn else "origin/main"
