@@ -341,30 +341,12 @@ jobs:
           pattern: fuzz-corpus-*
           merge-multiple: true
           path: .fuzz/retained
-      # The runner user cannot read the workstation's /root Toast build, so the
-      # differential builds the oracle the manifest pins: same ref, Release,
-      # and options.h checked against the manifest's config checksum.
-      - name: Read Toast oracle pin
-        id: toast-pin
-        run: |
-          python3 -c 'import json; m = json.load(open("profiles/toast/stock-wsl-testdb.json")); print("ref=" + m["implementation_ref"]); print("options=" + m["config_checksum"])' >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: MongooseMoo/toaststunt
-          ref: ${{ steps.toast-pin.outputs.ref }}
-          path: toaststunt
-          persist-credentials: false
+      - name: Build Toast oracle
+        run: bash scripts/build-toast-oracle.sh
 
-      - name: Build Toast oracle and Barn
-        env:
-          OPTIONS_SHA256: ${{ steps.toast-pin.outputs.options }}
+      - name: Build Barn
         run: |
-          echo "$OPTIONS_SHA256  toaststunt/src/include/options.h" | sha256sum -c -
-          # CMakeLists.txt generates version_options.h in cmake's working
-          # directory, which must be the build directory to be included.
-          mkdir toaststunt/build
-          (cd toaststunt/build && cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build . -j2)
           go list -f '{{.ImportPath}} {{.Name}}' ./cmd/barn
           go build -o bin/ ./cmd/barn
 
@@ -458,8 +440,100 @@ jobs:
             --target ToastReadsBarnDatabase --commit "$GITHUB_SHA" --campaign-outcome failure \
             --artifact-url "$ARTIFACT_URL" --publish
 
+  # FuzzSuspendedStackCheckpoint checkpoints and resumes its programs in one
+  # Go process, where Barn reads only its own checkpoints. Here each retained
+  # program is checkpointed by one engine and resumed by the other, in both
+  # directions, and compared with the same program run with no restart.
+  cross-engine:
+    needs: [route, fuzz]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.route.result == 'success' && needs.route.outputs.campaign == 'native-and-toast' }}
+    name: ToastCrossEngineCheckpoint
+    permissions:
+      contents: read
+      issues: write
+      actions: write
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    timeout-minutes: 60
+    env:
+      BARN_FUZZ_CORPUS: ''
+      FUZZ_TARGET: ToastCrossEngineCheckpoint
+      FUZZ_PACKAGE: ./scripts
+    steps:
+      - name: Check /dev/null is a device
+        run: |
+          if [ ! -c /dev/null ]; then
+            echo "::error::/dev/null on this runner is not a character device: $(stat -c '%F %U:%G %a' /dev/null). Restore it as root with: rm /dev/null && mknod -m 666 /dev/null c 1 3"
+            exit 1
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Download this cycle's suspended-stack corpus
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: fuzz-corpus-FuzzSuspendedStackCheckpoint
+          path: .fuzz/retained
+
+      - name: Build Toast oracle
+        run: bash scripts/build-toast-oracle.sh
+
+      - name: Build Barn
+        run: |
+          go list -f '{{.ImportPath}} {{.Name}}' ./cmd/barn
+          go build -o bin/ ./cmd/barn
+
+      - name: Checkout moo-conformance-tests
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          repository: MongooseMoo/moo-conformance-tests
+          path: moo-conformance-tests
+          # The suite's ToastCore startup database is a git submodule.
+          submodules: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      # The corpus holds thousands of programs at about 4 s per program and
+      # direction, so each cycle runs what fits in 20 minutes, starting at a
+      # place its run id picks.
+      - name: Resume retained suspended stacks on the other engine
+        id: campaign
+        run: |
+          set -o pipefail
+          logs="$RUNNER_TEMP/fuzz-logs"
+          rm -rf "$logs"
+          mkdir -p "$logs"
+          {
+            go version
+            python3 scripts/fuzz_cross_engine.py --barn bin/barn --toast toaststunt/build/moo \
+              --suite moo-conformance-tests --out fuzz-cross-engine --minutes 20 --seed "$GITHUB_RUN_ID" \
+              .fuzz/retained/vm/FuzzSuspendedStackCheckpoint/inputs
+          } 2>&1 | tee "$logs/run-001.log"
+
+      - name: Upload cross-engine evidence
+        id: artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fuzz-failure-ToastCrossEngineCheckpoint
+          path: fuzz-cross-engine/
+          if-no-files-found: error
+          retention-days: 30
+
+      - *failure-reporter
+
   accept:
-    needs: [route, fuzz, differential]
+    needs: [route, fuzz, differential, cross-engine]
     # Findings keep their jobs red. This job instead judges whether the cycle
     # completed measured work with its evidence kept; replenishment needs it.
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.route.result == 'success' }}
@@ -488,6 +562,11 @@ jobs:
         with:
           name: fuzz-failure-ToastReadsBarnDatabase
           path: toast-reads-barn-db
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.route.outputs.campaign == 'native-and-toast'
+        with:
+          name: fuzz-failure-ToastCrossEngineCheckpoint
+          path: fuzz-cross-engine
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           FUZZ_CAMPAIGN: ${{ needs.route.outputs.campaign }}

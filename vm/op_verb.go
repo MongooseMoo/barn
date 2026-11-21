@@ -322,6 +322,21 @@ func (vm *VM) markBuiltinCaller(name string, pc int) {
 	}
 }
 
+// nameBuiltinCaller names the callback a builtin just pushed by name, keeping
+// its pc. Toast's OP_BI_FUNC_CALL records the id of the builtin the bytecode
+// called on the new activation, call_function's when the callback's builtin
+// was reached through call_function("move", ...), and unwind_stack records
+// that same id on each later callback of the continuation (execute.cc
+// OP_BI_FUNC_CALL BI_CALL, unwind_stack BI_CALL); callers(), task_stack() and
+// tracebacks name the frame by it.
+func (vm *VM) nameBuiltinCaller(name string) {
+	frame := vm.CurrentFrame()
+	if name == "" || frame == nil || frame.BuiltinCaller == "" || frame.BuiltinCaller == name {
+		return
+	}
+	vm.markBuiltinCaller(name, frame.BuiltinPC)
+}
+
 func (vm *VM) pushInitialize(created types.Value, args []types.Value, builtin string) types.Result {
 	// The builtin returns the created object after the callback, regardless of
 	// the callback's normal result. The ordinary stack preserves it on suspend.

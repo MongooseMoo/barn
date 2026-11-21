@@ -5,31 +5,34 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/MongooseMoo/barn/config"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/types"
 
-	"modernc.org/sqlite"
+	"modernc.org/libc"
+	_ "modernc.org/sqlite" // registers the "sqlite" database/sql driver
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 type sqliteHandle struct {
-	id               int64
-	path             string
-	db               *sql.DB
-	conn             *sql.Conn
-	limits           map[int64]int64
-	mu               sync.Mutex
-	cond             *sync.Cond
-	activeOps        int
-	currentCancel    context.CancelFunc
-	pendingInterrupt bool
-	closed           bool
+	id      int64
+	path    string
+	options int64 // sqlite_open's option bits (sqlite_raw.go)
+	db      *sql.DB
+	conn    *sql.Conn
+	rawDB   uintptr // the connection's sqlite3*, for interrupt and limits
+	// limits are the values Toast's library would hold (sqlite_raw.go); the
+	// connection holds them too, bounded by modernc's compiled limits.
+	limits    map[int64]int64
+	mu        sync.Mutex
+	cond      *sync.Cond
+	activeOps int
+	closed    bool
 }
 
 var sqliteLimitNames = map[string]int64{
@@ -48,29 +51,21 @@ var sqliteLimitNames = map[string]int64{
 }
 
 func defaultSQLiteLimits() map[int64]int64 {
-	return map[int64]int64{
-		0:  1000000000,
-		1:  1000000000,
-		2:  2000,
-		3:  1000,
-		4:  500,
-		5:  250000000,
-		6:  127,
-		7:  10,
-		8:  50000,
-		9:  32766,
-		10: 1000,
-		11: 0,
+	limits := make(map[int64]int64, len(sqliteToastLimitDefaults))
+	for category, value := range sqliteToastLimitDefaults {
+		limits[int64(category)] = value
 	}
+	return limits
 }
 
 func newSQLiteHandle(id int64, path string, db *sql.DB, conn *sql.Conn) *sqliteHandle {
 	handle := &sqliteHandle{
-		id:     id,
-		path:   path,
-		db:     db,
-		conn:   conn,
-		limits: defaultSQLiteLimits(),
+		id:      id,
+		path:    path,
+		options: sqliteDefaultOptions,
+		db:      db,
+		conn:    conn,
+		limits:  defaultSQLiteLimits(),
 	}
 	handle.cond = sync.NewCond(&handle.mu)
 	return handle
@@ -90,7 +85,7 @@ func getSQLiteHandle(ctx *Execution, v types.Value) (*sqliteHandle, types.ErrorC
 	return handle, types.E_NONE
 }
 
-func beginSQLiteOperation(handle *sqliteHandle) (context.Context, bool) {
+func beginSQLiteOperation(handle *sqliteHandle) bool {
 	handle.mu.Lock()
 	defer handle.mu.Unlock()
 
@@ -98,149 +93,17 @@ func beginSQLiteOperation(handle *sqliteHandle) (context.Context, bool) {
 		handle.cond.Wait()
 	}
 	if handle.closed {
-		return nil, false
+		return false
 	}
-
 	handle.activeOps = 1
-	opCtx, cancel := context.WithCancel(context.Background())
-	if handle.pendingInterrupt {
-		cancel()
-		handle.pendingInterrupt = false
-	}
-	handle.currentCancel = cancel
-	return opCtx, true
+	return true
 }
 
 func endSQLiteOperation(handle *sqliteHandle) {
 	handle.mu.Lock()
-	cancel := handle.currentCancel
-	handle.currentCancel = nil
 	handle.activeOps = 0
 	handle.cond.Broadcast()
 	handle.mu.Unlock()
-
-	if cancel != nil {
-		cancel()
-	}
-}
-
-func sqliteReturnsRows(sqlText string) bool {
-	trimmed := strings.TrimSpace(sqlText)
-	if trimmed == "" {
-		return false
-	}
-	upper := strings.ToUpper(trimmed)
-	return strings.HasPrefix(upper, "SELECT") ||
-		strings.HasPrefix(upper, "WITH") ||
-		strings.HasPrefix(upper, "PRAGMA") ||
-		strings.HasPrefix(upper, "VALUES") ||
-		strings.HasPrefix(upper, "EXPLAIN")
-}
-
-func sqliteParamValue(v types.Value) any {
-	switch v.Type() {
-	case types.TYPE_INT:
-		return v.Int()
-	case types.TYPE_FLOAT:
-		return v.Float()
-	case types.TYPE_STR:
-		return v.Str()
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		return v.String()
-	default:
-		return v.String()
-	}
-}
-
-func sqliteRowValue(v any) types.Value {
-	switch value := v.(type) {
-	case nil:
-		return types.NewStr("NULL")
-	case int64:
-		return types.NewInt(value)
-	case float64:
-		return types.NewFloat(value)
-	case string:
-		return types.NewStr(value)
-	case []byte:
-		return types.NewStr(string(value))
-	case bool:
-		if value {
-			return types.NewInt(1)
-		}
-		return types.NewInt(0)
-	default:
-		return types.NewStr("")
-	}
-}
-
-func sqliteErrorResult(err error) types.Result {
-	if err == nil {
-		return types.Ok(types.NewEmptyList())
-	}
-	if errors.Is(err, context.Canceled) || strings.Contains(strings.ToLower(err.Error()), "interrupt") {
-		return types.Ok(types.NewStr("interrupt"))
-	}
-	return types.Ok(types.NewStr(sqliteErrorMessage(err)))
-}
-
-// sqliteErrorMessage reduces a driver error to the sqlite3_errmsg() text Toast
-// returns from its thread callbacks (sqlite.cc sqlite_query_thread_callback /
-// sqlite_execute_thread_callback): "no such table: t", not the driver's
-// decorated form. modernc formats every error as
-// "<sqlite3_errstr>: <sqlite3_errmsg> (<code>)", or "<sqlite3_errstr> (<code>)"
-// when the two texts coincide, with an extra " (SQLITE_BUSY)" for busy errors.
-func sqliteErrorMessage(err error) string {
-	var driverErr *sqlite.Error
-	if !errors.As(err, &driverErr) {
-		return err.Error()
-	}
-	msg := strings.TrimSuffix(driverErr.Error(), " (SQLITE_BUSY)")
-	msg = strings.TrimSuffix(msg, fmt.Sprintf(" (%d)", driverErr.Code()))
-	// sqlite3_errstr() texts never contain ": ", so the first occurrence
-	// separates the errstr prefix from the errmsg (which may itself contain it).
-	if i := strings.Index(msg, ": "); i >= 0 {
-		msg = msg[i+2:]
-	}
-	return msg
-}
-
-func sqliteScanRows(rows *sql.Rows, includeHeaders bool) types.Result {
-	defer func() { _ = rows.Close() }()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return sqliteErrorResult(err)
-	}
-
-	resultRows := make([]types.Value, 0)
-	for rows.Next() {
-		rawValues := make([]any, len(columns))
-		scanTargets := make([]any, len(columns))
-		for i := range rawValues {
-			scanTargets[i] = &rawValues[i]
-		}
-
-		if err := rows.Scan(scanTargets...); err != nil {
-			return sqliteErrorResult(err)
-		}
-
-		rowValues := make([]types.Value, 0, len(columns))
-		for i, raw := range rawValues {
-			converted := sqliteRowValue(raw)
-			if includeHeaders {
-				rowValues = append(rowValues, types.NewList([]types.Value{types.NewStr(columns[i]), converted}))
-				continue
-			}
-			rowValues = append(rowValues, converted)
-		}
-		resultRows = append(resultRows, types.NewList(rowValues))
-	}
-
-	if err := rows.Err(); err != nil {
-		return sqliteErrorResult(err)
-	}
-	return types.Ok(types.NewList(resultRows))
 }
 
 // sqliteExecOrQuery runs sqlText on handle. With readOnly set it runs it only
@@ -248,10 +111,11 @@ func sqliteScanRows(rows *sql.Rows, includeHeaders bool) types.Result {
 // returns ran false having run nothing; epoch is the store's external write
 // epoch loaded before the statement ran. Without readOnly every statement
 // runs, and one that is not shareable moves the epoch once it has run, before
-// the handle is released. A nil store skips both.
-func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, includeHeaders bool, id metrics.Identity, store *dbstore.Store, readOnly bool) (result types.Result, ran bool, epoch uint64) {
+// the handle is released. A nil store skips both. A nil params runs the text
+// as sqlite_query does; a non-nil one, even empty, as sqlite_execute does.
+func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []types.Value, includeHeaders bool, id metrics.Identity, store *dbstore.Store, readOnly bool) (result types.Result, ran bool, epoch uint64) {
 	waitStart := time.Now()
-	opCtx, ok := beginSQLiteOperation(handle)
+	ok := beginSQLiteOperation(handle)
 	handleWait := time.Since(waitStart)
 	if !ok {
 		metrics.ObserveRuntime(metrics.SQLiteHandleWait, id, handleWait, 0)
@@ -276,26 +140,43 @@ func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, inclu
 			defer store.BumpExternalWrites() // runs before the slot is released
 		}
 	}
-	return sqliteRunStatement(opCtx, handle, sqlText, params, includeHeaders), true, epoch
+	return sqliteRunStatement(handle, sqlText, params, includeHeaders), true, epoch
 }
 
-func sqliteRunStatement(opCtx context.Context, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
-	if sqliteReturnsRows(sqlText) {
-		rows, err := handle.conn.QueryContext(opCtx, sqlText, params...)
-		if err != nil {
-			return sqliteErrorResult(err)
+var errSQLiteDriverUnreachable = errors.New("SQLite connection is unavailable")
+
+// sqliteWithConnection runs f on the handle's sqlite3* and libc thread state.
+// The caller holds the handle's operation slot.
+func sqliteWithConnection(handle *sqliteHandle, f func(tls *libc.TLS, db uintptr)) error {
+	if handle.conn == nil {
+		return errSQLiteDriverUnreachable
+	}
+	return handle.conn.Raw(func(driverConn any) error {
+		tls, db, ok := sqliteDriverHandles(driverConn)
+		if !ok {
+			return errSQLiteDriverUnreachable
 		}
-		return sqliteScanRows(rows, includeHeaders)
-	}
-
-	_, err := handle.conn.ExecContext(opCtx, sqlText, params...)
-	if err != nil {
-		return sqliteErrorResult(err)
-	}
-	return types.Ok(types.NewEmptyList())
+		f(tls, db)
+		return nil
+	})
 }
 
-func sqliteExecOrQueryAsync(ctx *Execution, builtin string, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
+func sqliteRunStatement(handle *sqliteHandle, sqlText string, params []types.Value, includeHeaders bool) types.Result {
+	var result types.Result
+	err := sqliteWithConnection(handle, func(tls *libc.TLS, db uintptr) {
+		if params == nil {
+			result = sqliteRawQuery(tls, db, sqlText, handle.options, includeHeaders)
+		} else {
+			result = sqliteRawExecute(tls, db, sqlText, params, handle.options)
+		}
+	})
+	if err != nil {
+		return types.Ok(types.NewStr(err.Error()))
+	}
+	return result
+}
+
+func sqliteExecOrQueryAsync(ctx *Execution, builtin string, handle *sqliteHandle, sqlText string, params []types.Value, includeHeaders bool) types.Result {
 	id := runtimeIdentity(ctx)
 	store := ctx.Store
 	if ctx.Task != nil && !threadedCall(ctx) {
@@ -351,7 +232,8 @@ func sqliteLimitCategory(v types.Value) (int64, types.ErrorCode) {
 		}
 		return category, types.E_NONE
 	default:
-		return 0, types.E_TYPE
+		// Toast leaves the category at -1 for any other type (sqlite.cc:600-617).
+		return 0, types.E_INVARG
 	}
 }
 
@@ -377,10 +259,13 @@ func builtinSqliteOpen(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 	path := args[0].Str()
+	options := int64(sqliteDefaultOptions)
 	if len(args) == 2 {
 		if args[1].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
+		// Toast stores the argument as the option bits (sqlite.cc:261-262).
+		options = args[1].Int()
 	}
 
 	// osPath is what the driver opens; path stays the MOO-visible string that
@@ -434,32 +319,72 @@ func builtinSqliteOpen(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 
+	// Toast allocates the handle before sqlite3_open and deallocates it when
+	// the open fails (sqlite.cc:258-273), so a failed open still uses a number.
+	handle := newSQLiteHandle(0, path, nil, nil)
+	handle.options = options
+	rt := &ctx.Session.runtime.sqlite
+	rt.mu.Lock()
+	handle.id = rt.nextID
+	rt.nextID++
+	rt.handles[handle.id] = handle
+	rt.order.insert(handle.id)
+	rt.mu.Unlock()
+	fail := func(msg string) types.Result {
+		handle.mu.Lock()
+		handle.closed = true
+		handle.mu.Unlock()
+		removeSQLiteHandle(ctx, handle.id)
+		if handle.conn != nil {
+			_ = handle.conn.Close()
+		}
+		if handle.db != nil {
+			_ = handle.db.Close()
+		}
+		return sqliteOpenError(msg)
+	}
+
 	db, err := sql.Open("sqlite", osPath)
 	if err != nil {
-		return sqliteOpenError(err.Error())
+		return fail(err.Error())
 	}
+	handle.db = db
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
 	conn, err := db.Conn(context.Background())
 	if err != nil {
-		_ = db.Close()
-		return sqliteOpenError(err.Error())
+		return fail(err.Error())
 	}
+	handle.conn = conn
 	// Toast opens with SQLite's 2 MiB default. A larger cache changes no result;
 	// it stops each scan of a big database from rereading it through the OS.
 	if _, err := conn.ExecContext(context.Background(), fmt.Sprintf("PRAGMA cache_size = -%d", ctx.RuntimeOptions.SQLiteCacheSizeKiB())); err != nil {
-		_ = conn.Close()
-		_ = db.Close()
-		return sqliteOpenError(err.Error())
+		return fail(err.Error())
 	}
+	if err := sqliteWithConnection(handle, func(tls *libc.TLS, db uintptr) {
+		handle.mu.Lock()
+		handle.rawDB = db
+		sqliteSetUpConnection(tls, db, handle.limits)
+		handle.mu.Unlock()
+	}); err != nil {
+		return fail(err.Error())
+	}
+	return types.Ok(types.NewInt(handle.id))
+}
 
-	ctx.Session.runtime.sqlite.mu.Lock()
-	id := ctx.Session.runtime.sqlite.nextID
-	ctx.Session.runtime.sqlite.nextID++
-	ctx.Session.runtime.sqlite.handles[id] = newSQLiteHandle(id, path, db, conn)
-	ctx.Session.runtime.sqlite.mu.Unlock()
-	return types.Ok(types.NewInt(id))
+// removeSQLiteHandle forgets a handle as Toast's deallocate_handle does: it
+// leaves the connection map, and the numbering restarts at 1 once the map is
+// empty (sqlite.cc:123-137).
+func removeSQLiteHandle(ctx *Execution, id int64) {
+	rt := &ctx.Session.runtime.sqlite
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	delete(rt.handles, id)
+	rt.order.erase(id)
+	if len(rt.handles) == 0 {
+		rt.nextID = 1
+	}
 }
 
 func builtinSqliteClose(ctx *Execution, args []types.Value) types.Result {
@@ -479,9 +404,7 @@ func builtinSqliteClose(ctx *Execution, args []types.Value) types.Result {
 	handle.closed = true
 	handle.mu.Unlock()
 
-	ctx.Session.runtime.sqlite.mu.Lock()
-	delete(ctx.Session.runtime.sqlite.handles, handle.id)
-	ctx.Session.runtime.sqlite.mu.Unlock()
+	removeSQLiteHandle(ctx, handle.id)
 
 	return runInBackground(ctx, func() types.Result {
 		handle.mu.Lock()
@@ -508,18 +431,16 @@ func builtinSqliteHandles(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	ctx.Session.runtime.sqlite.mu.Lock()
-	ids := make([]int64, 0, len(ctx.Session.runtime.sqlite.handles))
-	for id := range ctx.Session.runtime.sqlite.handles {
-		ids = append(ids, id)
+	// Toast's unordered_map order (sqlite_handle_order.go).
+	rt := &ctx.Session.runtime.sqlite
+	rt.mu.Lock()
+	out := make([]types.Value, 0, len(rt.handles))
+	for _, id := range rt.order.list {
+		if _, ok := rt.handles[id]; ok {
+			out = append(out, types.NewInt(id))
+		}
 	}
-	ctx.Session.runtime.sqlite.mu.Unlock()
-
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	out := make([]types.Value, 0, len(ids))
-	for _, id := range ids {
-		out = append(out, types.NewInt(id))
-	}
+	rt.mu.Unlock()
 	return types.Ok(types.NewList(out))
 }
 
@@ -540,11 +461,17 @@ func builtinSqliteInfo(ctx *Execution, args []types.Value) types.Result {
 	locks := handle.activeOps
 	handle.mu.Unlock()
 
+	flag := func(bit int64) types.Value {
+		if handle.options&bit != 0 {
+			return types.NewInt(1)
+		}
+		return types.NewInt(0)
+	}
 	return types.Ok(types.NewMap([][2]types.Value{
 		{types.NewStr("path"), types.NewStr(handle.path)},
-		{types.NewStr("parse_types"), types.NewInt(1)},
-		{types.NewStr("parse_objects"), types.NewInt(1)},
-		{types.NewStr("sanitize_strings"), types.NewInt(0)},
+		{types.NewStr("parse_types"), flag(sqliteParseTypes)},
+		{types.NewStr("parse_objects"), flag(sqliteParseObjects)},
+		{types.NewStr("sanitize_strings"), flag(sqliteSanitizeStrings)},
 		{types.NewStr("locks"), types.NewInt(int64(locks))},
 	}))
 }
@@ -599,10 +526,7 @@ func builtinSqliteExecute(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	params := make([]any, 0, args[2].Len())
-	for _, value := range args[2].Elements() {
-		params = append(params, sqliteParamValue(value))
-	}
+	params := append(make([]types.Value, 0, args[2].Len()), args[2].Elements()...)
 	return sqliteExecOrQueryAsync(ctx, "sqlite_execute", handle, args[1].Str(), params, false)
 }
 
@@ -620,15 +544,16 @@ func builtinSqliteLastInsertRowID(ctx *Execution, args []types.Value) types.Resu
 	}
 
 	return runInBackground(ctx, func() types.Result {
-		opCtx, ok := beginSQLiteOperation(handle)
-		if !ok {
+		if !beginSQLiteOperation(handle) {
 			return types.Err(types.E_INVARG)
 		}
 		defer endSQLiteOperation(handle)
 
 		var lastID int64
-		if err := handle.conn.QueryRowContext(opCtx, "SELECT last_insert_rowid()").Scan(&lastID); err != nil {
-			return sqliteErrorResult(err)
+		if err := sqliteWithConnection(handle, func(tls *libc.TLS, db uintptr) {
+			lastID = sqlite3.Xsqlite3_last_insert_rowid(tls, db)
+		}); err != nil {
+			return types.Ok(types.NewStr(err.Error()))
 		}
 		return types.Ok(types.NewInt(lastID))
 	})
@@ -646,18 +571,22 @@ func builtinSqliteLimit(ctx *Execution, args []types.Value) types.Result {
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
+	if args[2].Type() != types.TYPE_INT {
+		return types.Err(types.E_TYPE)
+	}
 	category, code := sqliteLimitCategory(args[1])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
-	if args[2].Type() != types.TYPE_INT {
-		return types.Err(types.E_TYPE)
-	}
 
 	handle.mu.Lock()
 	prior := handle.limits[category]
-	if args[2].Int() >= 0 {
-		handle.limits[category] = args[2].Int()
+	if newLimit := args[2].Int(); newLimit >= 0 {
+		value := sqliteToastLimitValue(category, newLimit)
+		handle.limits[category] = value
+		if !handle.closed {
+			sqliteApplyLimit(handle.rawDB, category, value)
+		}
 	}
 	handle.mu.Unlock()
 	return types.Ok(types.NewInt(prior))
@@ -676,12 +605,10 @@ func builtinSqliteInterrupt(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(code)
 	}
 
+	// sqlite3_interrupt (sqlite.cc:647): with no statement running, SQLite
+	// clears it when the next statement starts.
 	handle.mu.Lock()
-	if handle.currentCancel != nil {
-		handle.currentCancel()
-	} else {
-		handle.pendingInterrupt = true
-	}
+	sqliteInterruptLocked(handle)
 	handle.mu.Unlock()
 	return types.Ok(types.NewInt(0))
 }

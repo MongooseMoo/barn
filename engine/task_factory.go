@@ -470,6 +470,13 @@ func (s *Runtime) GetTask(taskID int64) *Task {
 // cannot hold keeps Barn's own frame form, so Barn still restores it, and is
 // logged: Toast cannot load a checkpoint that holds it.
 func (s *Runtime) TaskSnapshots() (queued []task.Snapshot, suspended []task.Snapshot) {
+	queued, suspended, _ = s.TaskSnapshotsWithRefusals()
+	return queued, suspended
+}
+
+// TaskSnapshotsWithRefusals is TaskSnapshots that also returns, by task id,
+// why each task kept in Barn's frame form has no Toast form.
+func (s *Runtime) TaskSnapshotsWithRefusals() (queued, suspended []task.Snapshot, refused map[int64]error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -492,6 +499,10 @@ func (s *Runtime) TaskSnapshots() (queued []task.Snapshot, suspended []task.Snap
 					slog.Int64("verbloc", int64(snapshot.VerbLoc)),
 					slog.Int64("this", int64(snapshot.This)),
 					slog.String("reason", err.Error()))
+				if refused == nil {
+					refused = map[int64]error{}
+				}
+				refused[snapshot.ID] = err
 			}
 			suspended = append(suspended, snapshot)
 			continue
@@ -503,5 +514,5 @@ func (s *Runtime) TaskSnapshots() (queued []task.Snapshot, suspended []task.Snap
 			suspended = append(suspended, snapshot)
 		}
 	}
-	return queued, suspended
+	return queued, suspended, refused
 }

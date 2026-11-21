@@ -235,6 +235,7 @@ none does; the checkpoint then holds the tasks still waiting.`,
 		Example: "  barn offline-checkpoint --db game.db --omit-suspended\n  barn offline-checkpoint --db game.db --run world.moo",
 	}
 	cmd.Flags().BoolVar(&b.cfg.OmitSuspended, "omit-suspended", false, "Leave suspended and interrupted tasks out of the written file")
+	cmd.Flags().BoolVar(&b.cfg.ToastLoadable, "toast-loadable", false, "Leave out only the tasks with no Toast form, so ToastStunt can load the file, and print each")
 	cmd.Flags().StringVar(&b.cfg.OfflineRun, "run", "", "Run the MOO program in this `file` before writing")
 	b.addOptionFlags(cmd.Flags())
 	cmd.RunE = b.run(func(*cobra.Command, []string) error {

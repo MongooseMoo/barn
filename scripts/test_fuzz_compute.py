@@ -26,6 +26,8 @@ COMPARE = "Compare retained public source on Barn and Toast"
 WORLDS = "Compare Barn-written worlds in Toast"
 # accept() writes the worlds comparison's results with the differ's unless told.
 SAME = object()
+CROSS_ENGINE = "ToastCrossEngineCheckpoint"
+RESUME = "Resume retained suspended stacks on the other engine"
 CLEAN_BUILTIN_CENSUS = {"newly_zero": [], "newly_covered": []}
 
 
@@ -267,8 +269,16 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertIn("    if: github.event_name == 'schedule' && vars.FUZZ_CONTINUOUS_ENABLED == 'true'", controller)
 
     def accept(self, jobs, lanes, outcome="success", campaign="native-and-toast", memories=None,
-               builtins=CLEAN_BUILTIN_CENSUS, worlds=SAME):
+               cross_engine="default", builtins=CLEAN_BUILTIN_CENSUS, worlds=SAME):
+        """Accept a cycle of jobs. The cross-engine comparison, unless jobs
+        names it, is skipped with no results in a native-only cycle and passed
+        otherwise; cross_engine is its results outcome (None: no file). The
+        worlds comparison's results are written with the differ's unless told."""
         worlds = ("success" if outcome is not None else None) if worlds is SAME else worlds
+        if cross_engine == "default":
+            cross_engine = None if campaign == "native-only" else "success"
+        if not any(entry["name"] == CROSS_ENGINE for entry in jobs):
+            jobs = jobs + [job(CROSS_ENGINE, "skipped" if campaign == "native-only" else "success")]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for target, census in lanes.items():
@@ -285,6 +295,10 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
             if worlds is not None:
                 (root / "toast-reads-barn-db").mkdir()
                 (root / "toast-reads-barn-db/results.json").write_text(json.dumps({"summary": {"outcome": worlds}}))
+            if cross_engine is not None:
+                (root / "fuzz-cross-engine").mkdir()
+                (root / "fuzz-cross-engine/results.json").write_text(
+                    json.dumps({"summary": {"outcome": cross_engine}}))
             return self.execute("accept", env={**CONFIG, "FUZZ_CAMPAIGN": campaign}, jobs=jobs, cwd=root)
 
     def test_native_only_accepts_measured_clean_work_and_saved_findings(self):
@@ -347,7 +361,29 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         both = self.accept(jobs[:3] + [job("ToastDifferential", "failure", [COMPARE, WORLDS])], lanes,
                            "divergence", worlds="divergence")
         self.assertNotIn("error", both)
-        self.assertEqual(json.loads(both["info"][-1])["worlds"], "divergence")
+        self.assertEqual(json.loads(both["info"][-1])["comparisons"]["ToastReadsBarnDatabase"], "divergence")
+
+    def test_cross_engine_divergence_is_accepted_and_its_setup_failures_are_not(self):
+        lanes = {"FuzzA": {"completed_executions": 5, "campaign": "clean"}}
+        base = [job("FuzzA"), job("ToastDifferential")]
+        accepted = self.accept(base + [job(CROSS_ENGINE, "failure", RESUME)], lanes, cross_engine="divergence")
+        self.assertNotIn("error", accepted)
+        self.assertEqual(json.loads(accepted["info"][-1])["comparisons"][CROSS_ENGINE], "divergence")
+        cases = {
+            "setup": ([job(CROSS_ENGINE, "failure", "Build Barn")], "success"),
+            "inconclusive": ([job(CROSS_ENGINE, "failure", RESUME)], "inconclusive"),
+            "no results": ([job(CROSS_ENGINE)], None),
+            "success with a divergence": ([job(CROSS_ENGINE)], "divergence"),
+            "cancelled": ([job(CROSS_ENGINE, "cancelled")], "success"),
+        }
+        for name, (cross, outcome) in cases.items():
+            with self.subTest(name):
+                result = self.accept(base + cross, lanes, cross_engine=outcome)
+                self.assertIn("error", result)
+                self.assertIn(CROSS_ENGINE, result["error"])
+        native_only = self.accept([job("FuzzA"), job("ToastDifferential", "skipped")], lanes, outcome=None,
+                                  campaign="native-only", cross_engine="success")
+        self.assertIn(f"{CROSS_ENGINE}: native-only requires a skipped comparison", native_only["error"])
 
     def test_builtin_census_change_rejects_the_cycle(self):
         jobs, lanes = [job("FuzzA"), job("ToastDifferential")], {"FuzzA": {"completed_executions": 5, "campaign": "clean"}}
@@ -381,7 +417,7 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
             "no lanes": ([job("ToastDifferential")], {}, "success"),
             "inconclusive differential": ([job("FuzzA"), job("ToastDifferential", "failure", COMPARE)],
                                           {"FuzzA": good}, "inconclusive"),
-            "differential setup": ([job("FuzzA"), job("ToastDifferential", "failure", "Build Toast oracle and Barn")],
+            "differential setup": ([job("FuzzA"), job("ToastDifferential", "failure", "Build Barn")],
                                    {"FuzzA": good}, None),
             "skipped differential": ([job("FuzzA"), job("ToastDifferential", "skipped")], {"FuzzA": good}, None),
         }
@@ -436,6 +472,28 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertNotIn("\n    strategy:", differential)
         self.assertIn("FUZZ_TARGET: ToastDifferential", differential)
         self.assertIn("FUZZ_PACKAGE: ./scripts", differential)
+
+    def test_cross_engine_job_is_the_comparison_accept_judges(self):
+        fuzz = (ROOT / ".github/workflows/fuzz.yml").read_text()
+        cross = fuzz.split("\n  cross-engine:\n")[1].split("\n  accept:\n")[0]
+        accept = fuzz.split("\n  accept:\n")[1].split("\n  successor:\n")[0]
+        self.assertIn(f"\n    name: {CROSS_ENGINE}\n", cross)
+        self.assertNotIn("\n    strategy:", cross)
+        self.assertIn(f"FUZZ_TARGET: {CROSS_ENGINE}", cross)
+        # Its campaign step is the one step accept lets fail, its log is what
+        # the failure reporter reads, and its artifact is what accept reads.
+        self.assertIn(f"- name: {RESUME}\n        id: campaign\n", cross)
+        self.assertIn('tee "$logs/run-001.log"', cross)
+        self.assertIn("--out fuzz-cross-engine ", cross)
+        self.assertIn(f"name: fuzz-failure-{CROSS_ENGINE}\n          path: fuzz-cross-engine/", cross)
+        self.assertIn("- *failure-reporter", cross)
+        self.assertIn("name: fuzz-corpus-FuzzSuspendedStackCheckpoint", cross)
+        self.assertIn(".fuzz/retained/vm/FuzzSuspendedStackCheckpoint/inputs", cross)
+        self.assertIn("needs: [route, fuzz, differential, cross-engine]", accept)
+        self.assertIn(f"name: fuzz-failure-{CROSS_ENGINE}\n          path: fuzz-cross-engine\n", accept)
+        compute = (ROOT / "scripts/fuzz_compute.cjs").read_text()
+        self.assertIn(f"{{name: '{CROSS_ENGINE}', step: '{RESUME}',\n   results: 'fuzz-cross-engine/results.json'}}",
+                      compute)
 
     def test_builtin_census_is_written_into_the_uploaded_evidence(self):
         fuzz = (ROOT / ".github/workflows/fuzz.yml").read_text()
