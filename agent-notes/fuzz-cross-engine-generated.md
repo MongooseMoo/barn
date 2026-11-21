@@ -175,7 +175,12 @@ with origin/master on 2026-11-21:
   ./.github/actions/toast-oracle` at fuzz.yml:346 and :446 and wants
   `$/.github/actions/toast-oracle` (its own `--fix=all` writes that). GitHub
   shipped `$/` in July 2026 and per secondary sources it needs runner
-  2.336.0+; every workstation runner's newest `_diag` log reports 2.338.2.
+  2.336.0+; every workstation runner's newest `_diag` log reports 2.338.2
+  (`Q-barn-wsl-x64`, `-02`..`-08`, the pyspace and accessibleapps runners).
+  The fuzz route picks only self-hosted `barn-fuzz` runners
+  (`scripts/fuzz_compute.cjs:14-15`), never a hosted one; fuzz run
+  44887349169's job log shows `Runner name: 'mongoose-barn-fuzz-1'`,
+  `Current runner version: '2.338.2'`.
   But the same CI step runs actionlint v1.7.12, the newest release, which
   rejects `$/` ("specifying action \"$/.github/actions/toast-oracle\" in
   invalid format because ref is missing", exit 1; rhysd/actionlint issues
