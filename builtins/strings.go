@@ -66,6 +66,9 @@ func builtinStrsub(ctx *Execution, args []types.Value) types.Result {
 	} else {
 		result, errCode = replaceAllCaseInsensitive(ctx, subj, oldStr, newStr)
 	}
+	if errCode == types.E_QUOTA {
+		return ctx.spaceResult()
+	}
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -709,8 +712,8 @@ func builtinSubstitute(ctx *Execution, args []types.Value) types.Result {
 	resultStr := result.String()
 
 	// Check string limit
-	if err := ctx.Session.CheckStringLimitForTask(ctx.Context, resultStr); err != types.E_NONE {
-		return types.Err(err)
+	if ctx.Session.CheckStringLimitForTask(ctx.Context, resultStr) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(types.NewStr(resultStr))

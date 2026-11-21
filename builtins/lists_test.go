@@ -117,7 +117,8 @@ func TestSetaddUsesPendingListValueByteLimit(t *testing.T) {
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: limit,
+			MaxListValueBytes:  limit,
+			MaxConcatCatchable: true,
 		},
 	}}
 
@@ -135,7 +136,8 @@ func TestListinsertUsesPendingListValueByteLimit(t *testing.T) {
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: limit,
+			MaxListValueBytes:  limit,
+			MaxConcatCatchable: true,
 		},
 	}}
 
@@ -153,7 +155,8 @@ func TestListappendUsesPendingListValueByteLimit(t *testing.T) {
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: limit,
+			MaxListValueBytes:  limit,
+			MaxConcatCatchable: true,
 		},
 	}}
 
@@ -171,7 +174,8 @@ func TestListsetUsesPendingListValueByteLimit(t *testing.T) {
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: limit,
+			MaxListValueBytes:  limit,
+			MaxConcatCatchable: true,
 		},
 	}}
 

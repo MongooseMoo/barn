@@ -56,8 +56,8 @@ func builtinEncodeBase64(ctx *Execution, args []types.Value) types.Result {
 
 	// Check string length limit (update from load_server_options cache first)
 	ctx.Session.UpdateContextLimits(ctx.Context)
-	if err := ctx.CheckStringLimit(len(encoded)); err != types.E_NONE {
-		return types.Err(err)
+	if ctx.CheckStringLimit(len(encoded)) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(types.NewStr(encoded))
@@ -141,8 +141,8 @@ func builtinEncodeBinary(ctx *Execution, args []types.Value) types.Result {
 	// Check string length limit (update from load_server_options cache first)
 	ctx.Session.UpdateContextLimits(ctx.Context)
 	resultStr := result.String()
-	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
-		return types.Err(err)
+	if ctx.CheckStringLimit(len(resultStr)) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(types.NewStr(resultStr))
@@ -228,8 +228,8 @@ func builtinDecodeBinary(ctx *Execution, args []types.Value) types.Result {
 		}
 		result := types.NewList(elements)
 		// Check size limit
-		if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
-			return types.Err(err)
+		if ctx.Session.CheckListLimitForTask(ctx.Context, result) != types.E_NONE {
+			return ctx.spaceResult()
 		}
 		return types.Ok(result)
 	}
@@ -260,8 +260,8 @@ func builtinDecodeBinary(ctx *Execution, args []types.Value) types.Result {
 
 	result := types.NewList(elements)
 	// Check size limit
-	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
-		return types.Err(err)
+	if ctx.Session.CheckListLimitForTask(ctx.Context, result) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(result)
@@ -1425,8 +1425,8 @@ func builtinRandomBytes(ctx *Execution, args []types.Value) types.Result {
 	// The encoded string will be longer than count due to ~XX escapes
 	// but checking count first prevents unnecessary work
 	ctx.Session.UpdateContextLimits(ctx.Context)
-	if errCode := ctx.CheckStringLimit(count); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if ctx.CheckStringLimit(count) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	bytes := make([]byte, count)
@@ -1438,8 +1438,8 @@ func builtinRandomBytes(ctx *Execution, args []types.Value) types.Result {
 	resultStr := EncodeRawToBinary(bytes)
 
 	// Check actual encoded length (may be longer due to escapes)
-	if errCode := ctx.CheckStringLimit(len(resultStr)); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if ctx.CheckStringLimit(len(resultStr)) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(types.NewStr(resultStr))

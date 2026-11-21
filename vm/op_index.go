@@ -90,7 +90,7 @@ func (vm *VM) executeIndexSet() error {
 		case types.E_INVARG:
 			return newMooError(types.E_INVARG, "invalid argument for index assignment")
 		case types.E_QUOTA:
-			return newMooError(types.E_QUOTA, "value too large")
+			return vm.quotaError("value too large")
 		default:
 			return newMooError(errCode, "index assignment error")
 		}
@@ -264,15 +264,15 @@ func (vm *VM) executeRangeSet() error {
 	switch newColl.Type() {
 	case types.TYPE_LIST:
 		if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, newColl); errCode != types.E_NONE {
-			return newMooError(types.E_QUOTA, "list too large")
+			return vm.quotaError("list too large")
 		}
 	case types.TYPE_STR:
 		if errCode := vm.Builtins.CheckStringLimitForTask(vm.Context, newColl.Str()); errCode != types.E_NONE {
-			return newMooError(types.E_QUOTA, "string too long")
+			return vm.quotaError("string too long")
 		}
 	case types.TYPE_MAP:
-		if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, newColl); errCode != types.E_NONE {
-			return newMooError(types.E_QUOTA, "map too large")
+		if errCode := vm.Builtins.CheckMapLimitForTask(vm.Context, newColl); errCode != types.E_NONE {
+			return vm.quotaError("map too large")
 		}
 	}
 

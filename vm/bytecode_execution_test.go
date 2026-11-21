@@ -2,6 +2,7 @@ package vm
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/MongooseMoo/barn/builtins"
@@ -249,7 +250,8 @@ func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: types.ValueBytes(resultList),
+			MaxListValueBytes:  types.ValueBytes(resultList),
+			MaxConcatCatchable: true,
 		},
 	}}
 
@@ -267,7 +269,7 @@ func TestListAddUsesInclusiveListValueByteLimit(t *testing.T) {
 			ctx := task.NewContext()
 			ctx.PendingEffects = []task.PendingEffect{{
 				Kind:          task.PendingEffectServerOptions,
-				ServerOptions: &task.PendingServerOptions{MaxListValueBytes: limit},
+				ServerOptions: &task.PendingServerOptions{MaxListValueBytes: limit, MaxConcatCatchable: true},
 			}}
 			result := runBytecodeProgram(t, source, nil, ctx)
 			if limit < size {
@@ -331,18 +333,20 @@ func TestListRangeTerminatesAtIntegerEndpoints(t *testing.T) {
 	}
 }
 
-func TestMapIndexAssignmentUsesPendingListValueByteLimit(t *testing.T) {
+// Toast OP_INDEXSET checks a map against max_map_value_bytes, not the list limit.
+func TestMapIndexAssignmentUsesPendingMapValueByteLimit(t *testing.T) {
 	ctx := task.NewContext()
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: types.ValueBytes(resultMap),
-			MaxMapValueBytes:  types.ValueBytes(resultMap) + 1,
+			MaxListValueBytes:  types.ValueBytes(resultMap) + 1,
+			MaxMapValueBytes:   types.ValueBytes(resultMap) - 1,
+			MaxConcatCatchable: true,
 		},
 	}}
 
-	result := runBytecodeProgram(t, `x = [1 -> 0]; x[1] = 1; return x;`, nil, ctx)
+	result := runBytecodeProgram(t, `x = []; x[1] = 1; return x;`, nil, ctx)
 	requireError(t, result, types.E_QUOTA)
 }
 
@@ -352,7 +356,8 @@ func TestMapLiteralUsesPendingMapValueByteLimit(t *testing.T) {
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxMapValueBytes: types.ValueBytes(resultMap) - 1,
+			MaxMapValueBytes:   types.ValueBytes(resultMap) - 1,
+			MaxConcatCatchable: true,
 		},
 	}}
 
@@ -360,15 +365,17 @@ func TestMapLiteralUsesPendingMapValueByteLimit(t *testing.T) {
 	requireError(t, result, types.E_QUOTA)
 }
 
-func TestMapRangeAssignmentUsesPendingListValueByteLimit(t *testing.T) {
+// Toast EOP_RANGESET checks a map against max_map_value_bytes, not the list limit.
+func TestMapRangeAssignmentUsesPendingMapValueByteLimit(t *testing.T) {
 	ctx := task.NewContext()
 	initialMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(0)}})
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: types.ValueBytes(resultMap),
-			MaxMapValueBytes:  types.ValueBytes(resultMap) + 1,
+			MaxListValueBytes:  types.ValueBytes(resultMap) + 1,
+			MaxMapValueBytes:   types.ValueBytes(resultMap) - 1,
+			MaxConcatCatchable: true,
 		},
 	}}
 
@@ -1252,5 +1259,26 @@ func TestBytecodeMapRangeAcceptsAnonymousKeyEndpoints(t *testing.T) {
 	}
 	if got := machine.Pop(); !got.Equal(mapping) {
 		t.Fatalf("anonymous map range = %v, want %v", got, mapping)
+	}
+}
+
+// Toast builds f(a, b) arguments with OP_LIST_ADD_TAIL, which refuses only a
+// list of more than max_list_value_bytes; an argument list of exactly the limit
+// is accepted.
+func TestBuiltinArgumentListUsesInclusiveListValueByteLimit(t *testing.T) {
+	big := types.NewStr(strings.Repeat("x", 2000))
+	size := types.ValueBytes(types.NewList([]types.Value{big, types.NewStr("y")}))
+	for _, limit := range []int{size - 1, size} {
+		ctx := task.NewContext()
+		ctx.PendingEffects = []task.PendingEffect{{
+			Kind:          task.PendingEffectServerOptions,
+			ServerOptions: &task.PendingServerOptions{MaxListValueBytes: limit, MaxStringConcat: 1 << 20, MaxConcatCatchable: true},
+		}}
+		result := runBytecodeProgram(t, `x = "`+big.Str()+`"; return index(x, "y");`, nil, ctx)
+		if limit < size {
+			requireError(t, result, types.E_QUOTA)
+		} else if result.Flow != types.FlowReturn || result.Val.String() != "0" {
+			t.Fatalf("argument list at byte limit %d = %+v, want 0", limit, result)
+		}
 	}
 }

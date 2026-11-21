@@ -964,12 +964,13 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 	t.SetState(task.TaskKilled)
 	handled := false
 	timedOut := false
+	timeoutResource := ""
 	isDatabaseHandler := t.Context.ServerInitiated && t.This == 0 && (t.VerbName == "handle_uncaught_error" || t.VerbName == "handle_task_timeout")
 	if !isDatabaseHandler && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
-		timedOut = true
+		timedOut, timeoutResource = true, "ticks"
 		handled = s.callTaskTimeoutHook(t, scope, "ticks")
 	} else if !isDatabaseHandler && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "seconds limit exceeded") {
-		timedOut = true
+		timedOut, timeoutResource = true, "seconds"
 		handled = s.callTaskTimeoutHook(t, scope, "seconds")
 	}
 	// Prefer the activation stack snapshotted at raise time (carried on the
@@ -1028,6 +1029,12 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 		if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
 			s.sendTaskLine(t.Owner, "Task ran out of ticks", t.Context.CommandDiagnostic)
 		} else {
+			if timedOut {
+				// Toast notifies the traceback it handed handle_task_timeout:
+				// "Task ran out of seconds" (execute.cc abort_task), not the
+				// E_MAXREC message.
+				result.Val = types.NewList([]types.Value{types.NewErr(result.Error), types.NewStr("Task ran out of " + timeoutResource), types.NewInt(0)})
+			}
 			result.CallStack = stack
 			s.SendTracebackToPlayer(t.Owner, result, t.Context.CommandDiagnostic)
 		}

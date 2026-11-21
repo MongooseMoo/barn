@@ -72,8 +72,12 @@ func TestLimitOperationsUseProvidedRegistry(t *testing.T) {
 
 	registry := BuildVMRegistry()
 	session := newTestSession(registry)
-	if loaded := session.LoadServerOptionsFromStore(store); loaded != 3 {
-		t.Fatalf("LoadServerOptionsFromStore loaded %d options, want 3", loaded)
+	if err := store.DirectTxn().DefineProperty(1, "max_concat_catchable", dbstore.NewProperty(types.NewInt(1), 0, dbstore.PropRead, false, true)); err != types.E_NONE {
+		t.Fatalf("DefineProperty(max_concat_catchable): %v", err)
+	}
+
+	if loaded := session.LoadServerOptionsFromStore(store); loaded != 4 {
+		t.Fatalf("LoadServerOptionsFromStore loaded %d options, want 4", loaded)
 	}
 
 	longValue := strings.Repeat("x", 1500)

@@ -28,6 +28,7 @@ var vmBenchWorkloads = []struct {
 	{"list_append_10k", "l = {}; for i in [1..10000]; l = {@l, i}; endfor; return length(l);"},
 	{"list_index_1M", "l = {}; for i in [1..1000]; l = {@l, i}; endfor; x = 0; for i in [1..1000000]; x = l[1 + (i % 1000)]; endfor; return x;"},
 	{"builtin_abs_200k", "x = 0; for i in [1..200000]; x = x + abs(-i); endfor; return x;"},
+	{"builtin_two_args_200k", "m = [1 -> 2]; x = 0; for i in [1..200000]; x = x + maphaskey(m, i); endfor; return x;"},
 	{"tostr_200k", "n = 0; for i in [1..200000]; n = n + length(tostr(i)); endfor; return n;"},
 	{"nested_1k", "c = 0; for i in [1..1000]; for j in [1..1000]; c = c + 1; endfor; endfor; return c;"},
 	// MOO has no list-range literal (the parser rejects {1..n}, as Toast does),

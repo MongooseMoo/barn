@@ -16,6 +16,7 @@ func newStrsubLimitExecution(limit int) *Execution {
 	session := NewSession(NewRegistry(), NoHost())
 	snapshot := defaultServerOptionsSnapshot()
 	snapshot.MaxStringConcat = limit
+	snapshot.MaxConcatCatchable = true
 	session.applyServerOptionsSnapshot(&snapshot)
 	return newTestExecutionForSession(session)
 }

@@ -192,6 +192,7 @@ type PendingServerOptions struct {
 	MaxCryptBcryptCost int
 	MaxCryptSHARounds  int
 	IncludeRTVars      bool
+	MaxConcatCatchable bool
 	ProtectedBuiltins  map[string]bool
 }
 
