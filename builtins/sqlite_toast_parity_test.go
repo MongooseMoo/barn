@@ -135,6 +135,7 @@ func TestSqliteStatementsRunAsToastDoes(t *testing.T) {
 		{sqliteRunText(t, ctx, h, "SELECT 'x' REGEXP 'x', 'ABC' REGEXP 'b'"), "{{1, 0}}"},
 		{sqliteRunText(t, ctx, h, "SELECT 'x' REGEXP NULL"), `"SQLite REGEXP called with invalid pattern."`},
 		{sqliteRunText(t, ctx, h, "SELECT 0.1 + 0.2, 1e300 * 1e10"), "{{0.3, inf.0}}"},
+		{sqliteExecText(t, ctx, h, "SELECT ?, ?, ?, ?", types.NewInt(2147483648), types.NewInt(-2147483649), types.NewInt(9223372036854775807), types.NewInt(4294967301)), "{{-2147483648, 2147483647, -1, 5}}"},
 	} {
 		if tc.got != tc.want {
 			t.Errorf("got %s, want %s", tc.got, tc.want)

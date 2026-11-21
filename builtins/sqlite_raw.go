@@ -346,7 +346,7 @@ func sqliteRawQuery(tls *libc.TLS, db uintptr, sqlText string, options int64, he
 // sqliteBindParameter binds one sqlite_execute parameter as
 // sqlite_execute_thread_callback does (sqlite.cc:386-407): STR, INT, FLOAT
 // and OBJ ("#N" text) are bound, every other type is left unbound, which is
-// NULL. Bind failures are ignored, as in Toast.
+// NULL. An INT keeps its low 32 bits. Bind failures are ignored, as in Toast.
 func sqliteBindParameter(tls *libc.TLS, stmt uintptr, index int32, value types.Value) {
 	bindText := func(s string) {
 		text := sqliteCString(tls, s)
@@ -360,7 +360,10 @@ func sqliteBindParameter(tls *libc.TLS, stmt uintptr, index int32, value types.V
 	case types.TYPE_STR:
 		bindText(value.Str())
 	case types.TYPE_INT:
-		sqlite3.Xsqlite3_bind_int64(tls, stmt, index, value.Int())
+		// sqlite3_bind_int takes a C int: Toast keeps only the low 32 bits
+		// of the MOO integer (sqlite.cc:394), so 2147483648 binds as
+		// -2147483648.
+		sqlite3.Xsqlite3_bind_int(tls, stmt, index, int32(value.Int()))
 	case types.TYPE_FLOAT:
 		sqlite3.Xsqlite3_bind_double(tls, stmt, index, value.Float())
 	case types.TYPE_OBJ:
