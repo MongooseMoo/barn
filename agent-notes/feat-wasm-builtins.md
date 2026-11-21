@@ -8,6 +8,26 @@ make it fast? worktree, up to date, etc."
 The PR is barn #464, branch `feat/wasm-builtins`, worktree
 `C:/Users/Q/code/barn-wasm-builtins`.
 
+## State (2026-11-21)
+
+- The guest pool is committed locally ("Reuse reset guests for wasm_call"),
+  then origin/master merged in (brings the fix for conformance test
+  `startup_shadowed_propname_later_slot` that turned PR CI red). Not pushed.
+- go.mod replaces `github.com/samyfodil/wazy` with the MongooseMoo fork at
+  the `instance-reset` commit that adds `WithReset` / `Instance.Reset`.
+- `internal/wasmbuiltins/runtime.go`: a generation whose component
+  instantiates under `WithReset` keeps up to `PoolGuests` (2) clean guests;
+  its validation guest is the first. A fully successful call's guest is reset
+  on a goroutine (which inherits the call's generation ref and `active`
+  count); any error, trap, late deadline, panic or refused reset closes it. A
+  call that finds the pool empty waits on `g.ready` for a reset in flight,
+  then rechecks its context. Components `WithReset` refuses fall back to a
+  guest per call (no admitted component found that reaches it).
+- Record: `experiments/2026-11-21-wasm-guest-pool/README.md`. Windows, one
+  CPU: example (Rust) Full 100.75 -> 27.67 us, scalar Full 28.89 -> 5.11 us;
+  a call that finds a ready guest about 3.5 / 2.4 us. Reset cost scales with
+  guest memory. No VM holdout row slower. Gates in `gates.txt`.
+
 ## State (2026-11-20)
 
 - Plan step 1 is done: the PR branch has master merged in and is pushed.
@@ -119,7 +139,25 @@ Target: a pure wasm call costs less than the same work as a MOO verb (under
   and returns success for a call that finishes after its deadline. Keeping
   v0.3.0's `E_QUOTA` for a late call was the team lead's decision.
 
+- Guests are reset off the call path and a call waits for an in-flight reset
+  instead of instantiating: without the wait, a tight loop found the pool
+  empty, instantiated every time and closed the surplus (about 250 us for the
+  Rust fixture in a quick run, 2.5x worse than no pool). Inline reset costs
+  about 1 us less per back-to-back call but loses the about-3 us latency when
+  a guest is ready; the inline variant is kept as `switch-variant.diff`.
+- Review of the pool found two defects, both fixed with tests in
+  `pool_test.go`: a call whose context ended while waiting spent a clean
+  guest on a call wazy would run to completion (now rechecked after the
+  wait); guest close ran outside any recover after the pool moved it into
+  the last defer and onto the reset goroutine (closeGuest now recovers).
+
 ## Unverified
+
+- Whether the Rust fixture's memory grows past its 17 declared pages during a
+  call (affects the per-page reset figure; wazy has no memory-size accessor).
+- Pool behaviour with `GOMAXPROCS` above 1, where resets can overlap the gap
+  between calls.
+- Linux timings for the pool were taken under WSL load average 15-28.
 
 - The "Why it is slow" section is from the October records; the
   2026-11-20 measurements on v0.3.0 and v0.8.0 are in the upgrade record.
@@ -130,7 +168,9 @@ Target: a pure wasm call costs less than the same work as a MOO verb (under
 
 ## Next step
 
-Candidate A: once the wazy fork's `instance-reset` branch has a reset entry
-point, point go.mod at the fork and give each generation a pool of reset
-guests in Barn (a guest that trapped, timed out or failed to reset is
-discarded), then measure as in plan step 5.
+Push the branch (the fork's `instance-reset` branch is on GitHub, so go.mod
+resolves), watch PR 464's CI, then update the
+PR description with the pool numbers (plan step 7). Back-to-back calls on a
+default-stack Rust guest stay at about 27-31 us; going under 10 us there needs
+a cheaper reset in the fork (for example tracking dirty pages instead of
+walking all memory), which is open.
