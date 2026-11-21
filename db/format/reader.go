@@ -246,6 +246,12 @@ func parseDatabaseWithWaifIdentities(r *bufio.Reader, identities []types.WaifIde
 	database.loadedSlots = store.LoadedSlots{}
 	database.loadedAnonymous = nil
 	database.repairStartupIssues()
+	// Name positional slots from the repaired hierarchy, the one the store
+	// and every later checkpoint walk. Naming them first from the file's
+	// parents, which repair may clear and rebuild in another order, moved
+	// values between slots on the next round trip.
+	database.resolvePropertyNames()
+	database.resolveWaifProperties()
 	return database, nil
 }
 

@@ -76,12 +76,6 @@ func (database *Database) parseV4(r *bufio.Reader) (*Database, error) {
 	// Optional: Active connections (may not be present)
 	// We just ignore any remaining content
 
-	// Resolve inherited property names now that all objects are loaded
-	database.resolvePropertyNames()
-
-	// Resolve WAIF property names now that all objects and their propdefs are known
-	database.resolveWaifProperties()
-
 	return database, nil
 }
 

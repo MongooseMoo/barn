@@ -74,8 +74,5 @@ func (database *Database) parseV5(r *bufio.Reader) (*Database, error) {
 		return nil, fmt.Errorf("read suspended tasks: %w", err)
 	}
 
-	database.resolvePropertyNames()
-	database.resolveWaifProperties()
-
 	return database, nil
 }
