@@ -1,0 +1,83 @@
+name: Route a repair
+description: Select Claude or place the work in the private Codex worker's queue
+inputs:
+  issue:
+    description: Issue or pull request number
+    required: true
+  stage:
+    description: repair, conformance, or investigation
+    required: true
+  provider:
+    description: auto, claude, codex, or claude-failed
+    required: true
+  execution_file:
+    description: Local Claude transcript when routing a failed invocation
+    default: ''
+  codex_enabled:
+    description: Whether the subscription worker is ready to accept work
+    required: true
+  token:
+    description: GitHub token with issue label access
+    required: true
+outputs:
+  provider:
+    description: Selected provider
+    value: ${{ steps.route.outputs.provider }}
+runs:
+  using: composite
+  steps:
+    - name: Select provider
+      id: route
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        ISSUE: ${{ inputs.issue }}
+        STAGE: ${{ inputs.stage }}
+        PROVIDER: ${{ inputs.provider }}
+        CODEX_ENABLED: ${{ inputs.codex_enabled }}
+        EXECUTION_FILE: ${{ inputs.execution_file }}
+      run: |
+        set -euo pipefail
+        [[ "$ISSUE" =~ ^[1-9][0-9]*$ ]]
+        case "$STAGE" in repair|conformance|investigation) ;; *) exit 2 ;; esac
+        label="codex-$STAGE"
+        endpoint="repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels"
+        labels=$(gh api "$endpoint" --jq '.[].name')
+        case "$PROVIDER" in
+          auto|claude|codex) ;;
+          claude-failed)
+            source=$(git show "$GITHUB_SHA:scripts/repair_provider.py")
+            details=$(python3 - claude "$EXECUTION_FILE" <<< "$source")
+            printf '%s\n' "$details" >> "$GITHUB_STEP_SUMMARY"
+            if [[ "$CODEX_ENABLED" != true ]] || grep -Fxq reason=unknown <<< "$details"; then
+              exit 0
+            fi
+            if grep -Fxq codex-unavailable <<< "$labels"; then
+              gh api -X POST "$endpoint" -f 'labels[]=repair-needs-attention' --silent
+              exit 0
+            fi
+            gh api -X POST "$endpoint" -f 'labels[]=claude-unavailable' --silent
+            PROVIDER=codex
+            ;;
+          *) exit 2 ;;
+        esac
+        if [[ "$PROVIDER" == auto ]]; then
+          PROVIDER=claude
+          if [[ "$CODEX_ENABLED" == true ]] && { grep -Fxq "$label" <<< "$labels" || (( ISSUE % 2 == 0 )); }; then
+            PROVIDER=codex
+          fi
+        fi
+        if [[ "$PROVIDER" == codex ]]; then
+          if [[ "$CODEX_ENABLED" != true ]]; then
+            echo '::error::The Codex worker is not enabled.'
+            exit 1
+          fi
+          if ! grep -Fxq "$label" <<< "$labels"; then
+            gh api -X POST "$endpoint" -f "labels[]=$label" --silent
+          fi
+        elif grep -Fxq "$label" <<< "$labels"; then
+          echo '::error::The issue is already assigned to the Codex worker.'
+          exit 1
+        fi
+        echo "provider=$PROVIDER" >> "$GITHUB_OUTPUT"
+        printf '%s #%s is assigned to %s.\n' "$STAGE" "$ISSUE" "$PROVIDER" >> "$GITHUB_STEP_SUMMARY"

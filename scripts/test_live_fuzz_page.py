@@ -184,6 +184,15 @@ class CycleTests(unittest.TestCase):
         self.assertTrue(day["bugs"][0]["direct"])
         self.assertEqual([p["number"] for p in day["fixes"]], [787, 758, 743])
 
+    def test_backlog_links_current_codex_pr_and_shows_its_conformance_stage(self):
+        report = issue(987, "Nightly fuzz failure: FuzzSuspendedStackCheckpoint", 44876392133)
+        old = pull(1020, "claude/issue-987", None)
+        current = {**pull(1021, "codex/issue-987", None, state="open"),
+                   "labels": [{"name": "codex-conformance"}, {"name": "codex-running"}]}
+        rows = call("repairBacklog", [report], [old, current], [])
+        self.assertEqual([(row["pr"]["number"], row["provider"], row["status"]) for row in rows],
+                         [(1021, "Codex", "Running conformance")])
+
     def test_summary_leads_with_state_progress_and_the_last_day(self):
         text = call("summary", {"current": {"id": 1}, "currentJobs": self.JOBS, "previous": None,
                                 "issues": ISSUES, "pulls": PULLS, "now": NOW, "locale": "en-US"})
