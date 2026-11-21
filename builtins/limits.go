@@ -73,6 +73,18 @@ func (r *Session) ListLimitLowered(ctx *task.Context) bool {
 	return r.runtime.serverOptions.listLimitLowered.Load()
 }
 
+// argListOverLimit reports whether args, as the list Toast builds for a call,
+// pass the task's max_list_value_bytes, and if so the result make_space_pack
+// gives. OP_LIST_ADD_TAIL refuses only more bytes than the limit.
+//
+//go:noinline
+func (r *Session) argListOverLimit(ctx *Execution, args []types.Value) (bool, types.Result) {
+	if limit := r.ListValueLimitForTask(ctx.Context); limit > 0 && types.ListBytes(args) > limit {
+		return true, ctx.spaceResult()
+	}
+	return false, types.Result{}
+}
+
 // SecondsAbortResult is what a task that ran out of seconds ends with. The VM
 // does not let a handler catch it: the task ends and #0:handle_task_timeout is
 // told "seconds".

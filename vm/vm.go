@@ -953,10 +953,12 @@ func (vm *VM) executeLoop() types.Result {
 		vm.syncContextTicks()
 		err = vm.Execute(op)
 		if err != nil {
-			if _, outOfSeconds := err.(secondsAbort); outOfSeconds {
+			switch err.(type) {
+			case secondsAbort:
+				// A size limit without max_concat_catchable: the task ran out of
+				// seconds, whatever its d flag.
 				goto secondsLimit
-			}
-			if _, aborting := err.(unreportedAbort); aborting {
+			case unreportedAbort:
 				// Not an error of this verb, whatever its d flag: the task is
 				// already ending and only enclosing finally bodies remain.
 				if handled, _, _ := vm.handleErrorWithReason(err); !handled {

@@ -68,11 +68,6 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 		if n > 0 {
 			args = vm.Stack[vm.SP-n : vm.SP]
 			vm.SP -= n
-			if n >= 2 {
-				if err := vm.checkArgListLimit(args); err != nil {
-					return err
-				}
-			}
 		}
 	}
 
