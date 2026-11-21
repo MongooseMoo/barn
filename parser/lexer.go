@@ -4,7 +4,6 @@ import (
 	"errors"
 	"github.com/MongooseMoo/barn/ir"
 	"strings"
-	"unicode"
 )
 
 // ErrNULInSource identifies bytes that canonical MOO source cannot represent.
@@ -19,6 +18,8 @@ type Lexer struct {
 	line         int
 	column       int
 	lexicalError *ParseError
+	// highByteEnd records that the program text ended at a byte above 127.
+	highByteEnd bool
 }
 
 // NewLexer creates a new Lexer instance
@@ -65,9 +66,10 @@ func (l *Lexer) peekCharN(n int) byte {
 	return l.input[pos]
 }
 
-// skipWhitespace skips over whitespace characters
+// skipWhitespace skips the characters C isspace() accepts in the "C" locale,
+// which is what Toast's lexer skips between tokens (parser.y yylex).
 func (l *Lexer) skipWhitespace() {
-	for l.ch == ' ' || l.ch == '\t' || l.ch == '\n' || l.ch == '\r' {
+	for l.ch == ' ' || l.ch == '\t' || l.ch == '\n' || l.ch == '\r' || l.ch == '\v' || l.ch == '\f' {
 		l.readChar()
 	}
 }
@@ -117,6 +119,16 @@ func (l *Lexer) NextToken() Token {
 		Line:   l.line,
 		Column: l.column,
 		Offset: l.position,
+	}
+
+	// Toast's verb-source reader hands its lexer each byte as a signed char,
+	// so a byte above 127 is a negative token, which the parser takes as end
+	// of input: the program text ends there (parser.y my_getc and yylex). The
+	// end is on the line of that byte, not the phantom line after the source.
+	if l.ch >= 0x80 || l.highByteEnd {
+		l.highByteEnd = true
+		l.ch = 0
+		return Token{Type: TOKEN_EOF, Position: tok.Position}
 	}
 
 	switch l.ch {
@@ -498,9 +510,10 @@ func (l *Lexer) readIdentifier() Token {
 	return tok
 }
 
-// isLetter returns true if the character is a letter or underscore
+// isLetter reports whether ch is an ASCII letter or underscore, the bytes C
+// isalpha() accepts in the "C" locale plus `_' (Toast parser.y yylex).
 func isLetter(ch byte) bool {
-	return unicode.IsLetter(rune(ch)) || ch == '_'
+	return ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ch == '_'
 }
 
 // isDigit returns true if the character is a digit
