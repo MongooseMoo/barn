@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"math"
+	"runtime"
 	"testing"
 	"time"
 
@@ -51,37 +52,59 @@ func TestBuiltinUniquePreservesValueEquality(t *testing.T) {
 }
 
 func TestBuiltinUniqueDistinctScalarsDoesNotScaleQuadratically(t *testing.T) {
-	measure := func(size int) time.Duration {
+	const (
+		smallSize = 1_000
+		largeSize = 16_000
+		// Each sample handles the same number of elements: many calls on the
+		// small list, or a sixteenth as many on the large one. A linear
+		// unique() takes about as long for both; the old all-pairs scan takes
+		// sixteen times as long on the large list. The limit sits four times
+		// from each. A sample is long enough (tens of milliseconds) to measure
+		// with Windows' coarse clock.
+		sampleElements = 256_000
+		maxRatio       = 4
+		maxRounds      = 10
+	)
+	distinct := func(size int) types.Value {
 		values := make([]types.Value, size)
 		for i := range values {
 			values[i] = types.NewInt(int64(i))
 		}
-		list := types.NewList(values)
-		ctx := reviewDataCtx()
-
-		best := time.Duration(1<<63 - 1)
-		for range 3 {
-			start := time.Now()
+		return types.NewList(values)
+	}
+	small, large := distinct(smallSize), distinct(largeSize)
+	ctx := reviewDataCtx()
+	// measure times sampleElements worth of calls on list, stopping early once
+	// the sample exceeds limit.
+	measure := func(list types.Value, limit time.Duration) time.Duration {
+		runtime.GC()
+		start := time.Now()
+		for range sampleElements / list.Len() {
 			result := admitTestBuiltin("unique", ctx, []types.Value{list})
-			elapsed := time.Since(start)
-			if !result.IsNormal() || result.Val.Len() != size {
-				t.Fatalf("unique() returned flow %v, error %v, length %d; want a normal %d-element result", result.Flow, result.Error, result.Val.Len(), size)
+			if !result.IsNormal() || result.Val.Len() != list.Len() {
+				t.Fatalf("unique() returned flow %v, error %v, length %d; want a normal %d-element result", result.Flow, result.Error, result.Val.Len(), list.Len())
 			}
-			if elapsed < best {
-				best = elapsed
+			if time.Since(start) > limit {
+				break
 			}
 		}
-		return best
+		return time.Since(start)
 	}
 
-	// Four times as much distinct scalar input takes roughly sixteen times as
-	// long with the old all-pairs scan. Allow twice the expected linear growth,
-	// plus a small fixed allowance for scheduler noise on slower CI workers.
-	small := measure(2_500)
-	large := measure(10_000)
-	if large > 8*small+10*time.Millisecond {
-		t.Fatalf("unique() scales quadratically: 2,500 values took %v, 10,000 took %v", small, large)
+	// Load on a shared runner stretches samples, sometimes a whole burst of
+	// them. Alternating the sizes puts both under the same load, and the
+	// fastest sample of each size is the least disturbed. A linear unique()
+	// meets the limit once one quiet sample of each size exists; a quadratic
+	// one never does.
+	bestSmall, bestLarge := time.Duration(math.MaxInt64), time.Duration(math.MaxInt64)
+	for range maxRounds {
+		bestSmall = min(bestSmall, measure(small, math.MaxInt64))
+		bestLarge = min(bestLarge, measure(large, maxRatio*bestSmall))
+		if bestLarge <= maxRatio*bestSmall {
+			return
+		}
 	}
+	t.Fatalf("unique() scales quadratically: fastest of %d rounds over %d elements, %d-value calls took %v, %d-value calls took %v (limit %dx)", maxRounds, sampleElements, smallSize, bestSmall, largeSize, bestLarge, maxRatio)
 }
 
 func BenchmarkBuiltinUniqueDistinct10000(b *testing.B) {
