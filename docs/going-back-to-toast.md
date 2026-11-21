@@ -11,8 +11,26 @@ not been run.
    identity sidecar beside it (`.new.waifids`); an emergency checkpoint goes to
    `.new.PANIC`. The input `--db` file is never rewritten. Stop Barn, or wait
    for a checkpoint to finish, and copy `<db>.new` to a working name, for
-   example `back.db`. Whether Barn's shutdown writes a final checkpoint before
-   it exits is **not verified** here.
+   example `back.db`.
+
+   On shutdown (`server/server.go` `shutdownWithCheckpoint`) Barn calls
+   `#0:shutdown_started`, closes listeners and connections, stops input, and
+   then writes a final checkpoint to the same `<db>.new` (through
+   `dbformat.BeginCheckpoint`, not renamed afterwards) when
+   `--checkpoint-interval` is above 0 (default 3600) or the shutdown came from
+   SIGINT or SIGTERM (`server/signals_unix.go`). With `--checkpoint-interval 0` and any other shutdown
+   (`shutdown()` from MOO) it logs `final checkpoint skipped (checkpointing
+   disabled)` and writes nothing, so `<db>.new` is the last periodic
+   checkpoint. A failed final checkpoint logs ERROR `final checkpoint failed`
+   and shutdown continues. Before taking the file, run
+   `bin/barn_logs --level error` on the run's log: it exits 1 when the run
+   logged any error, and `final checkpoint failed` among them means `<db>.new`
+   is not the final state. After a shutdown that did not come from a signal,
+   the final checkpoint also logs `checkpoint complete`; a signal shutdown
+   writes it without the checkpoint hooks and logs no completion line, so
+   there the absence of the ERROR is the check. Covered by
+   `server/lifecycle_hook_test.go` `TestShutdownFinalCheckpointRunsHooksBeforeRuntimeStops`
+   (source read; that test was not run for this doc).
 
 2. **Write a copy Toast can load.**
 
@@ -105,7 +123,16 @@ All runs on the workstation's WSL Debian, recorded in
   (`tests/mongoose-conformance/server/*checkpoint*.yaml`) pass through the
   conversion, so it keeps every task those tests leave for Toast.
 
-**Not verified:** resuming the converted copy on the `0ff6fd7` build (only
+- Each fuzz cycle, the generated cross-engine lane
+  (`scripts/fuzz_cross_engine.py`, job ToastCrossEngineCheckpoint) converts
+  every Barn-written checkpoint of a generated program that stock Toast does
+  not boot on and requires Toast to boot on the copy; its report counts the
+  omitted tasks by reason under `## converted copies`. A local run on the
+  programs that found this (a task suspended in `recreate()`'s initialize and
+  one in `call_function("create", ...)`'s): Toast booted on both copies, one
+  task omitted for each.
+
+**Not verified:** the lane on a GitHub runner; resuming the converted copy on the `0ff6fd7` build (only
 loading it was run there); the command on the Mongoose dump; how many tasks of
 the live game are in Barn's frame form at a given checkpoint.
 
