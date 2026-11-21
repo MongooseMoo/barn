@@ -54,9 +54,9 @@ func builtinEncodeBase64(ctx *Execution, args []types.Value) types.Result {
 		encoded = base64.StdEncoding.EncodeToString(bytes)
 	}
 
-	// Check string length limit (update from load_server_options cache first)
-	ctx.Session.UpdateContextLimits(ctx.Context)
-	if ctx.CheckStringLimit(len(encoded)) != types.E_NONE {
+	// Toast base64.cc bf_encode_base64 refuses (len / 3) * 4 past the stream
+	// maximum, max_string_concat + 1, before encoding.
+	if ctx.Session.CheckStringLengthForTask(ctx.Context, len(bytes)/3*4-1) != types.E_NONE {
 		return ctx.spaceResult()
 	}
 
@@ -90,6 +90,11 @@ func builtinDecodeBase64(ctx *Execution, args []types.Value) types.Result {
 
 	if err != nil {
 		return types.Err(types.E_INVARG)
+	}
+	// Toast base64.cc bf_decode_base64 refuses (len / 4) * 3 past the stream
+	// maximum, max_string_concat + 1, once the input is valid.
+	if ctx.Session.CheckStringLengthForTask(ctx.Context, str.Len()/4*3-1) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	// Encode the result as a binary string with ~XX escapes
@@ -1074,6 +1079,11 @@ func builtinValueHash(ctx *Execution, args []types.Value) types.Result {
 	if args[0].Type() == types.TYPE_ANON {
 		literal = "*anonymous*"
 	}
+	// Toast crypto.cc bf_value_hash unparses the value into a stream; past
+	// max_string_concat that is make_space_pack().
+	if ctx.Session.CheckStringLengthForTask(ctx.Context, len(literal)) != types.E_NONE {
+		return ctx.spaceResult()
+	}
 	hasher.Write([]byte(literal))
 	hashBytes := hasher.Sum(nil)
 
@@ -1234,8 +1244,14 @@ func builtinValueHmac(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
+	// Toast crypto.cc bf_value_hmac unparses the value into a stream; past
+	// max_string_concat that is make_space_pack().
+	literal := args[0].String()
+	if ctx.Session.CheckStringLengthForTask(ctx.Context, len(literal)) != types.E_NONE {
+		return ctx.spaceResult()
+	}
 	mac := hmac.New(h, key)
-	mac.Write([]byte(args[0].String()))
+	mac.Write([]byte(literal))
 	hashBytes := mac.Sum(nil)
 
 	// Toast exempts HMAC results from max_string_concat; do not apply CheckStringLimit here.

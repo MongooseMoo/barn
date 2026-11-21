@@ -103,6 +103,11 @@ func (vm *VM) quotaError(detail string) error {
 // compiler builds f(a, b, ...) arguments as a list with OP_MAKE_SINGLETON_LIST
 // and OP_LIST_ADD_TAIL (OP_LIST_APPEND for @), and each of those but the
 // singleton checks the list. A lone unspliced argument is never checked.
+//
+// While max_list_value_bytes is at or above its default (64537861) no argument
+// list is measured: reaching it takes more than 61 MiB of arguments in one
+// call, and counting on every call cost a measurable share of each builtin
+// call. That is the one place Barn knowingly differs from Toast here.
 
 // checkCallArgsLimit checks a verb or pass() call's arguments; spliced is the
 // args list of a splice call, or None.
@@ -117,9 +122,15 @@ func (vm *VM) checkCallArgsLimit(args []types.Value, spliced types.Value) error 
 }
 
 // checkArgListLimit checks two or more unspliced arguments.
-//
-//go:noinline
 func (vm *VM) checkArgListLimit(args []types.Value) error {
+	if !vm.Builtins.ListLimitLowered(vm.Context) {
+		return nil
+	}
+	return vm.measureArgList(args)
+}
+
+//go:noinline
+func (vm *VM) measureArgList(args []types.Value) error {
 	if size := types.ListBytes(args); size >= builtins.MinListValueBytesLimit {
 		return vm.checkArgBytes(size)
 	}
@@ -128,6 +139,9 @@ func (vm *VM) checkArgListLimit(args []types.Value) error {
 
 // checkSplicedArgsLimit checks the list a splice call passes.
 func (vm *VM) checkSplicedArgsLimit(list types.Value) error {
+	if !vm.Builtins.ListLimitLowered(vm.Context) {
+		return nil
+	}
 	return vm.checkArgBytes(types.ValueBytes(list))
 }
 

@@ -250,7 +250,7 @@ func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes:  types.ValueBytes(resultList),
+			MaxListValueBytes:  types.ValueBytes(resultList) - 1,
 			MaxConcatCatchable: true,
 		},
 	}}
@@ -1270,10 +1270,7 @@ func TestBuiltinArgumentListUsesInclusiveListValueByteLimit(t *testing.T) {
 	size := types.ValueBytes(types.NewList([]types.Value{big, types.NewStr("y")}))
 	for _, limit := range []int{size - 1, size} {
 		ctx := task.NewContext()
-		ctx.PendingEffects = []task.PendingEffect{{
-			Kind:          task.PendingEffectServerOptions,
-			ServerOptions: &task.PendingServerOptions{MaxListValueBytes: limit, MaxStringConcat: 1 << 20, MaxConcatCatchable: true},
-		}}
+		ctx.ServerOptions = &task.PendingServerOptions{MaxListValueBytes: limit, MaxStringConcat: 1 << 20, MaxConcatCatchable: true}
 		result := runBytecodeProgram(t, `x = "`+big.Str()+`"; return index(x, "y");`, nil, ctx)
 		if limit < size {
 			requireError(t, result, types.E_QUOTA)

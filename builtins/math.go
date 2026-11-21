@@ -463,6 +463,11 @@ func builtinChr(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(err)
 		}
 	}
+	// Toast list.cc bf_chr builds into a stream; past max_string_concat that is
+	// make_space_pack().
+	if ctx.Session.CheckStringLengthForTask(ctx.Context, out.Len()) != types.E_NONE {
+		return ctx.spaceResult()
+	}
 
 	return types.Ok(types.NewStr(out.String()))
 }

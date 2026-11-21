@@ -3,196 +3,184 @@
 ## Goal
 
 When a value grows past a size limit and `$server_options.max_concat_catchable`
-is unset or false, ToastStunt aborts the task; Barn raises a catchable E_QUOTA
-and never reads the option. Pin Toast behavior in conformance tests, then make
-Barn match.
+is unset or false, ToastStunt aborts the task; Barn raised a catchable E_QUOTA
+and never read the option. Pin Toast behavior in conformance tests, then make
+Barn match at every place Toast calls make_space_pack or its interpreter
+equivalent.
 
 ## State
 
-- Conformance: `server/limits_concat_catchable.yaml` (14 tests incl.
-  admission) committed on test/max-concat-catchable-abort, not pushed.
-- Managed runs (WSL, `-k "capability_admission or (limits_concat_catchable)"`):
-  - stock Toast (`make conformance-toast`): 14 passed (load 15.17 before,
-    28.70 after).
-  - Barn before the fix (binary built from the unfixed tree): 9 failed,
-    5 passed (load 32.73 / 16.16). Failures: catchable E_QUOTA where Toast
+- Conformance: `server/limits_concat_catchable.yaml` on
+  test/max-concat-catchable-abort (27 tests). Barn fix on
+  fix/max-concat-catchable-abort. The team lead pushes; no PRs from me.
+- Managed runs (WSL, `-k "capability_admission or (limits_concat_catchable)"`
+  unless stated):
+  - First 13 tests: stock Toast 14 passed with admission (load 15.17 /
+    28.70); Barn before the fix 9 failed (catchable E_QUOTA where Toast
     aborts; map index assignment ignored max_map_value_bytes; the hook test
-    saw "caught".
-  - Barn with the VM/builtins fix only: 7 failed; the abort happened but the
-    player traceback said "Too many verb calls" (the E_MAXREC message)
-    instead of Toast's "Task ran out of seconds". Fixed in
-    `engine/task_runtime.go` `reportUncaughtException` (applies to real
-    seconds timeouts too).
-  - Barn fixed: 14 passed (load 8.81 after).
-  - Full managed suite on that build: 1 failed, 13833 passed, 325 skipped
-    (load 10.33 before, 11.07 after). The failure,
-    `server/limits.yaml::mapdelete_uses_list_not_map_max_value_bytes`, is
-    Toast-passing: Toast builds call arguments as a list and checks it
-    (emergency-mode probe on Test.db with max_list_value_bytes 1021 and a
-    200-entry map x: `mapdelete(x, 1)`, `{x, 1}`, `maphaskey(x, 1)` all
-    E_QUOTA; `{x}` and `length(x)` fine). Base Barn passed it only by
-    accident (its map index assignment used the list limit). Fixed: Barn
-    now checks argument lists of builtin, verb and pass() calls
-    (`vm/error.go` checkCallArgsLimit / checkArgListLimit /
-    checkSplicedArgsLimit). Two suite tests added for it.
-  - Toast and fixed Barn on the 16 new tests plus the three limits.yaml
-    map/list tests: 19 passed each (load 10.06 before Toast, 14.55 after
-    Barn).
-  - Full managed suite with the argument-list check: 1 failed, 13835
-    passed, 325 skipped (load 7.87 / 12.48):
-    `server/limits.yaml::setadd_checks_list_max_value_bytes_small`. The
-    check refused an argument list of exactly the limit (it used Barn's
-    `>=`); Toast's OP_LIST_ADD_TAIL refuses only `>`. Changed to `>`, with a
-    VM boundary test. The limits, crash_prevention and
-    server_options_same_task suites then passed on Barn (64 passed,
-    1 skipped; load 9.70 / 34.19).
-  - Full managed suite on the final build: 13836 passed, 325 skipped, 0
-    failed (load 34.43 before, 17.17 after).
-- Performance of the argument-list check: `BenchmarkVM/builtin_two_args_200k`
-  (new workload, `maphaskey(m, i)` in a loop) measured 10 interleaved runs:
-  base median 30.0 ms, fixed 33-36 ms on a loaded machine (the check reads
-  each argument's cached size; `types.ListBytes` reads list/map caches in
-  place, ~6 ns for two arguments in a microbenchmark). One-argument calls
-  (`builtin_abs_200k`) unchanged. Real-workload gate
-  (`TestMongooseRealWorkload`, mongoose.db.new, 3 interleaved runs each,
-  load 5-29): 1 player base 84/87/84 vs fixed 88/84/75 cmd/s, 16 players
-  base 422/354/331 vs fixed 408/351/404 cmd/s: no difference outside the
-  noise. The harness reports FAIL on both builds (failed/uncaught commands
-  from the dump's own verbs, same counts on both).
-- Go: new `engine/concat_catchable_test.go` (failed before, passes after);
-  existing builtins/vm tests that expected E_QUOTA without setting the option
-  now set `MaxConcatCatchable` (they pinned the old wrong default); the map
-  index/range tests and the keyed-map rebase test now use the map limit.
-  gofmt, go vet, staticcheck, golangci-lint (0 issues), `go test ./...` all
-  pass.
+    saw "caught") (load 32.73 / 16.16).
+  - Barn with the VM/builtins fix only: the player traceback said "Too many
+    verb calls" (the E_MAXREC message) instead of Toast's "Task ran out of
+    seconds". Fixed in `engine/task_runtime.go` `reportUncaughtException`
+    (applies to real timeouts too).
+  - Full suite then failed
+    `server/limits.yaml::mapdelete_uses_list_not_map_max_value_bytes`
+    (Toast-passing): Toast builds call arguments as a list and checks it
+    (emergency-mode probe on Test.db, max_list_value_bytes 1021, 200-entry
+    map x: `mapdelete(x, 1)`, `{x, 1}`, `maphaskey(x, 1)` E_QUOTA; `{x}` and
+    `length(x)` fine). Base Barn passed it by accident (map index assignment
+    used the list limit). Barn now checks argument lists of builtin, verb and
+    pass() calls; two suite tests pin it. A later full run failed
+    `server/limits.yaml::setadd_checks_list_max_value_bytes_small` because
+    the check refused exactly the limit; Toast's OP_LIST_ADD_TAIL refuses
+    only more, fixed.
+  - Remaining make_space_pack sites (chr, value_hash, value_hmac,
+    encode_base64, decode_base64; both option states) and "a list result of
+    exactly the limit is allowed" (decode_binary, `{@x, 1}`): 12 more tests.
+    Stock Toast: 28 passed with admission (load 21.02 / 14.00).
+  - Full managed suite results for the final build: see "Final runs".
+- Go: `engine/concat_catchable_test.go`, `types/list_bytes_test.go`,
+  `vm/bytecode_execution_test.go` (argument list at the limit),
+  `builtins/crypto_test.go` (decode_base64); each failed on the code before
+  its fix. Existing builtins/vm tests that pinned old Barn behavior (E_QUOTA
+  without the option, the list limit applied to maps, a list of exactly the
+  limit refused) were moved to Toast's behavior. gofmt, go vet, staticcheck,
+  golangci-lint (0 issues), `go test ./...` pass.
+
+## Final runs
+
+(filled at the end; see the bottom of this section)
+
+## Performance
+
+- The first argument-list check measured `types.ListBytes` on every call with
+  two or more arguments: `BenchmarkVM/builtin_two_args_200k` (new workload,
+  `maphaskey(m, i)` in a loop) +6% with alignment controlled (12 interleaved
+  rounds: base 30.9-31.7 ms, fixed 33.2-33.8 ms; load 22-25). Removed: the
+  check now reads one atomic flag (`Session.ListLimitLowered`, set by
+  `load_server_options()`, or the task's own pending options) and measures
+  nothing while max_list_value_bytes is at or above its default 64537861.
+  Same benchmark after: base 32.44 ms, fixed 32.80 ms (12 rounds, load 25.28
+  / 24.20). Knowing divergence: with the default list limit Barn does not
+  refuse an argument list over 64537861 bytes; Toast does. That needs more
+  than 61 MiB of arguments in one call.
+- The BenchmarkVM set showed a second effect unrelated to any changed code:
+  every workload, including int_arith, nested loops and while_lt, ran 5-15%
+  slower in the default `go test` build. Bisect: reverting either of two
+  cold, unrelated edits (builtins/crypto.go or builtins/lists.go) removed it;
+  reverting vm/vm.go, task, types did not. In all eight builds measured,
+  `vm.(*VM).executeLoop` started on a 64-byte boundary in every fast build and
+  at 32 mod 64 in every slow one (`go tool nm`). The Go linker aligns
+  functions to 32 bytes, so any edit anywhere can move the interpreter loop
+  across a 64-byte line. With `-ldflags=-funcalign=64` on both builds, the
+  whole BenchmarkVM set is within 2% (5 interleaved rounds, load 23.01 /
+  16.76): builtin_abs 28.84/28.87, builtin_two_args 31.26/31.95, float_arith
+  48.70/48.33, if_chain 96.73/95.93, int_arith 45.74/45.59, list_append
+  2.44/2.30, list_index 70.96/71.27, list_iter 44.26/44.37, nested
+  45.58/45.44, prop_access 200.3/201.3, prop_defined 212.4/207.3, prop_name
+  114.6/113.7, string_concat 1.58/1.52, tostr 63.97/64.82, typeof
+  119.4/119.2, while_lt 45.72/45.85 ms (base/fixed medians). The deployment
+  build (`GOOS=linux GOAMD64=v3`, PGO from cmd/barn/default.pgo) puts
+  executeLoop on a 64-byte boundary for both base and fixed. The default
+  test build of the fixed tree does not (32 mod 64), so a plain
+  `go test -bench BenchmarkVM` comparison still shows the layout shift.
+  Fixing that for every future change would mean building benchmarks with
+  `-ldflags=-funcalign=64`; that is a build-policy change I did not make.
+- Real-workload gate before the flag (`TestMongooseRealWorkload`,
+  mongoose.db.new, 3 interleaved runs, load 5-29): 1 player base 84/87/84 vs
+  fixed 88/84/75 cmd/s; 16 players base 422/354/331 vs fixed 408/351/404:
+  inside noise. The harness reports FAIL on both builds (failed/uncaught
+  commands from the dump's own verbs, same counts).
 
 ## Toast source (origin/master)
 
 - Option: `src/include/server.h:230` `SVO_MAX_CONCAT_CATCHABLE`, kind flag,
-  default 0, cached by `load_server_options()` like `include_rt_vars`
-  (truthiness of `$server_options.max_concat_catchable`).
-- Builtins: `make_space_pack()` returns `make_error_pack(E_QUOTA)` when the
-  flag is set, else `make_abort_pack(ABORT_SECONDS)` (copies in list.cc:620,
-  base64.cc:41, crypto.cc:391, numbers.cc:821). Callers: list.cc setadd,
-  setremove, listinsert/listappend (insert_or_append), listdelete, listset,
-  decode_binary (list limit); strsub, tostr, toliteral, substitute,
-  encode_binary, chr (stream past `stream_alloc_maximum` =
-  max_string_concat+1); base64.cc encode_base64/decode_base64; crypto.cc
-  binary_hash, value_hash, string_hmac, binary_hmac, value_hmac (streams);
+  default 0, cached by `load_server_options()` like `include_rt_vars`.
+- `make_space_pack()` returns E_QUOTA when the flag is set, else
+  `make_abort_pack(ABORT_SECONDS)` (copies in list.cc:620, base64.cc:41,
+  crypto.cc:391, numbers.cc:821). Callers: list.cc setadd, setremove,
+  listinsert/listappend, listdelete, listset, decode_binary (result
+  `value_bytes(r) <= max_list_value_bytes` passes); strsub, tostr, toliteral,
+  substitute, encode_binary, chr (stream past `stream_alloc_maximum` =
+  max_string_concat + 1); base64.cc encode_base64 (`(len / 3) * 4 >
+  stream_alloc_maximum`), decode_base64 (`(len / 4) * 3 >
+  stream_alloc_maximum`, after input validation); crypto.cc value_hash and
+  value_hmac (fresh stream holding the unparsed value), binary_hash,
+  string_hmac, binary_hmac (only `binary_to_raw_bytes`, see below);
   numbers.cc random_bytes. No map builtin calls it.
-- Interpreter: `execute.cc:899` `PUSH_ERROR_UNLESS_QUOTA`: when the error is
-  E_QUOTA and the flag is off, `abort_task(ABORT_SECONDS)` and return
-  OUTCOME_ABORTED, regardless of the verb's `d` flag. Used by OP_MAP_INSERT
-  (map literal, map limit), OP_LIST_ADD_TAIL and OP_LIST_APPEND (list
-  literal and `@` splice, list limit), OP_INDEXSET (list/map), OP_ADD
-  (string concat vs max_string_concat, list + vs list limit), EOP_RANGESET
-  (map/list/string).
+- Interpreter: `execute.cc:899` `PUSH_ERROR_UNLESS_QUOTA`: E_QUOTA with the
+  flag off is `abort_task(ABORT_SECONDS)`, regardless of the `d` flag. Used
+  by OP_MAP_INSERT (map limit), OP_LIST_ADD_TAIL and OP_LIST_APPEND (list
+  limit; this is also how call arguments are built), OP_INDEXSET (list/map),
+  OP_ADD (string vs max_string_concat, list vs list limit), EOP_RANGESET.
+  Every one passes `value_bytes(r) <= limit`.
 - The issue's reproducer `{@r, i}` goes OP_LIST_APPEND/OP_LIST_ADD_TAIL ->
-  `PUSH_ERROR_UNLESS_QUOTA`, so the issue's description (same option decides
-  in the interpreter) is right; the mechanism is the macro, not make_space_pack.
-- `abort_task(ABORT_SECONDS)` (execute.cc:569): saves handler info
-  `handle_task_timeout` with args `{"seconds", stack, traceback}` where the
-  traceback message is "Task ran out of seconds", then
-  `unwind_stack(FIN_ABORT)`, which skips `finally` bodies and except
-  handlers. After the task ends (execute.cc:3193) `#0:handle_task_timeout`
-  runs if it exists; if it returns true or suspends, nothing else; otherwise
-  the traceback lines are notified to the player. Exactly the path of a real
-  seconds timeout.
-- Minimum limits: 1021 for max_string_concat, max_list_value_bytes,
-  max_map_value_bytes (smaller positive values are raised to 1021).
-
-## Barn source (before the fix)
-
-- No production Go code reads `max_concat_catchable`
-  (`builtins/limits.go` `collectServerOptions` does not load it).
-- Barn's seconds abort: `vm/vm.go` `secondsLimitResult()` returns
-  E_MAXREC with `ExceptionReasonSecondsBudget` straight out of the run loop
-  (no handlers, no finally); `engine/task_runtime.go`
-  `reportUncaughtException` calls `callTaskTimeoutHook(..., "seconds")`.
-- Interpreter size sites: vm/op_arith.go (string +, list +), vm/op_list.go
-  (list literal, map literal, splice, add tail, OP_CHECK_MAP_LIMIT),
-  vm/op_index.go (indexset, rangeset), vm/collection_helpers.go.
-- Builtin size sites: builtins/lists.go, strings.go, types.go, crypto.go,
-  plus Barn-only sites (maps.go, unicode.go, wasm.go, fileio.go, pcre.go)
-  that have no make_space_pack counterpart in Toast.
+  `PUSH_ERROR_UNLESS_QUOTA`; the issue's description is right.
+- `abort_task(ABORT_SECONDS)` (execute.cc:569): `handle_task_timeout` gets
+  `{"seconds", stack, traceback}` ("Task ran out of seconds"),
+  `unwind_stack(FIN_ABORT)` skips finally and except. After the task
+  (execute.cc:3193) the hook runs; true or suspended means nothing else,
+  otherwise the traceback lines go to the player. Same as a real timeout.
+- Minimum limits: 1021 for all three (smaller positive values are raised).
 
 ## Decisions and why
 
 - One signal for "the task ran out of seconds": builtins return
-  `builtins.SecondsAbortResult()` (E_MAXREC, `ExceptionReasonSecondsBudget`,
-  the same result `vm.secondsLimitResult` builds); `executeCallBuiltin` turns
-  that into the `secondsAbort` sentinel and the run loop sends it to the
-  existing `secondsLimit` exit, before the `d`-flag branch. So the limit abort
-  takes exactly the path of a real seconds timeout (no handler, no finally,
-  `#0:handle_task_timeout` with "seconds", the same traceback). Only typed
-  metadata sets that reason, so `raise(E_MAXREC, ...)` cannot trigger it.
+  `builtins.SecondsAbortResult()`; `executeCallBuiltin` turns it into the
+  `secondsAbort` sentinel and the run loop takes the existing `secondsLimit`
+  exit before the `d`-flag branch. Only typed metadata sets that reason, so
+  `raise(E_MAXREC, ...)` cannot trigger it.
 - `Session.SpaceResult` / `VM.quotaError` are make_space_pack /
-  PUSH_ERROR_UNLESS_QUOTA. Converted only sites that are Toast
-  make_space_pack or PUSH_ERROR_UNLESS_QUOTA sites. Barn-only size checks
+  PUSH_ERROR_UNLESS_QUOTA, used only at Toast sites. Barn-only size checks
   (implode, map builtins, encode_chars/decode_chars/graphemes, wasm, fileio,
-  pcre_replace, the `{a..b}` range literal guard) keep E_QUOTA: Toast has no
-  such check to copy.
-- Map index assignment and map range assignment checked the list limit
-  (`vm/collection_helpers.go`, `vm/op_index.go`); Toast's OP_INDEXSET and
-  EOP_RANGESET check max_map_value_bytes. Fixed on the same path (the new map
-  tests lower only the map limit, and Barn completed the loop). The keyed
-  property writeback (`vm/op_property.go`) now hands the store the map limit
-  as its first refused size (limit + 1, since the store refuses `>=`).
-- `max_concat_catchable` is read like `include_rt_vars` (defined on
-  $server_options, truthiness) into the cached snapshot, including the
-  same-task pending view.
+  pcre_replace, the `{a..b}` range guard) keep E_QUOTA.
+- Map index and range assignment check max_map_value_bytes (Toast
+  OP_INDEXSET/EOP_RANGESET); the keyed property writeback hands the store the
+  map limit + 1 because the store refuses `>=`.
+- `CheckListLimitForTask` now refuses only more than the limit (Toast `<=`
+  passes); it had refused exactly the limit.
+- Not changed: binary_hash, string_hmac and binary_hmac. Their only stream is
+  the static one inside `binary_to_raw_bytes` (utils.cc:907), which throws
+  only when it has to grow; once any earlier call has grown it, a later call
+  never throws. Toast's result there depends on what earlier calls in the
+  process decoded, so no deterministic Toast test can pin it, and copying a
+  plain length check would differ from Toast whenever the buffer is already
+  large.
 
 ## Fuzz generator reach
 
-- `internal/fuzzseed/structured.go` never names a $server_options property
-  (its property names are name/owner/p/location/contents), so every generated
-  program runs with `max_concat_catchable` unset, i.e. false. It can reach a
-  size limit only in that state, and only by repeated doubling in a loop
-  (`acc = acc + acc`; strings are at most 6 characters and lists 4 elements)
-  against the 64537861-byte defaults. It cannot reach the true state; that
-  would need the generator to define and set the option and call
-  `load_server_options()`, which it does not do.
-- `vm/fuzz_test.go` `checkLiteralRoundTrip` treats any exception from
-  toliteral (now the seconds abort when over the limit) as a result, so it is
-  unaffected.
+- `internal/fuzzseed/structured.go` never names a $server_options property,
+  so every generated program runs with `max_concat_catchable` unset (false)
+  and the default limits. It can reach a size limit only in that state, by
+  repeated doubling in a loop (strings are at most 6 characters, lists 4
+  elements) against the 64537861-byte defaults. The true state, and the
+  argument-list check (which needs a lowered list limit), are unreachable.
+- `vm/fuzz_test.go` `checkLiteralRoundTrip` treats any toliteral exception as
+  a result, so the abort does not disturb it.
 
 ## Surprises
 
-- Toast's grammar has no `try ... except ... finally`; the first Toast runs
-  failed my own tests with "syntax error" until except and finally were
-  nested. A plain YAML scalar `run: return #0.x;` loses everything after `#`
-  (YAML comment); such runs must be quoted.
-- Barn checked map index assignment and map range assignment against
-  max_list_value_bytes (deliberately, in July 2026: "apply list limit to map
-  index assignment"); Toast 03af4fa and master check max_map_value_bytes. The
-  Toast run of `map_indexset_past_limit_raises_when_catchable` (only the map
-  limit lowered) passed, which confirms the source.
+- Toast's grammar has no `try ... except ... finally`; except and finally
+  must be nested. A plain YAML scalar `run: return #0.x;` loses everything
+  after `#`; quote such runs.
+- Barn applied the list limit to maps on purpose in July 2026; Toast 03af4fa
+  and master use the map limit, and the Toast run with only the map limit
+  lowered confirms it.
+- `git stash` is shared by every worktree of the barn repository: another
+  agent's push/pop pair took my entry. Restored; never use stash in a shared
+  repo. The session scratchpad is shared too: another agent overwrote my
+  `run_barn.sh`, so scratch scripts need task-specific names.
+- `files/` in the Barn worktree (log.sqlite, news.sqlite, sound.sqlite) was
+  written by my TestMongooseRealWorkload runs (`files/sqlite/sound.sqlite`
+  is where the harness copies the catalog; the others are the dump's own
+  sqlite files). It held Mongoose data, so I deleted it; nothing of it was
+  committed.
 
-## Found, not fixed here
+## Merge order
 
-- `chr()` has no string-limit check in Barn (`builtins/math.go`); Toast
-  `bf_chr` builds under TRY_STREAM and calls make_space_pack. No conformance
-  test pins it yet.
-- Barn's binary_hash/value_hash/hmac builtins and decode_base64 have no
-  stream-limit check; Toast's do (make_space_pack). Same.
-- `CheckListLimitForTask` refuses a list of exactly the limit (`>=`), while
-  Toast's interpreter and list builtins refuse only `>`; existing Toast-passing
-  tests (server/limits.yaml) pass, so value_bytes accounting likely differs by
-  the same margin. Not touched.
-
-- `git stash` is shared across all worktrees of the barn repository. While I
-  used push/pop to build an unfixed binary, another agent (branch
-  fix/reserved-property-names) pushed its own stash between my push and pop;
-  my stash entry (engine/task_runtime.go only) was popped by someone else and
-  my pop hit theirs (it aborted and kept theirs). I restored my change from
-  the unreachable stash commit. Their worktree may now hold my
-  engine/task_runtime.go diff. Build a base binary from a separate worktree,
-  never with stash.
-
-## Next step
-
-- Push both branches and open the PRs (team lead's call), suite PR first;
-  the Barn PR's conformance job needs the suite PR merged.
+Barn's CI runs the suite's main branch. The new suite tests fail on unfixed
+Barn, so the Barn PR merges first and the suite PR waits for it. Fixed Barn
+against the suite's current main: see "Final runs".
 
 ## Suite PR body draft
 
@@ -207,15 +195,17 @@ player gets the "Task ran out of seconds" traceback and
 `#0:handle_task_timeout` gets "seconds".
 
 The tests cover both settings for list splice, string `+`, map index
-assignment (only the map limit lowered), `listappend()` and `tostr()`, plus
-the unset option, a verb without the `d` flag, and the timeout hook. A second
-commit pins the argument-list check: Toast builds call arguments as a list, so
-two or more arguments whose list passes `max_list_value_bytes` abort (or raise
-E_QUOTA when catchable); a lone argument is never checked. That is what
-`server/limits.yaml::mapdelete_uses_list_not_map_max_value_bytes` already
-observes. Limits are 1100 and the loops grow far past them, so nothing depends
-on value width. Stock WSL Toast: all 16 new tests pass with
-`capability_admission`.
+assignment (only the map limit lowered), `listappend()`, `tostr()`, `chr()`,
+`value_hash()`, `value_hmac()`, `encode_base64()` and `decode_base64()`, plus
+the unset option, a verb without the `d` flag, the timeout hook, the
+argument-list check (Toast builds call arguments as a list, so two or more
+arguments whose list passes `max_list_value_bytes` are refused; a lone
+argument is not), and a list result of exactly the limit being allowed.
+Limits are 1100 and the values grow far past them, so nothing depends on
+value width. Stock WSL Toast: 28 passed with `capability_admission`.
+
+Merge after the Barn PR (Barn CI runs this repository's main, and these
+tests fail on Barn without it).
 
 ## Barn PR body draft
 
@@ -228,23 +218,33 @@ Fixes #1089
   same-task pending view.
 - Every Toast `make_space_pack` builtin site (setadd, setremove, listappend,
   listinsert, listdelete, listset, decode_binary, strsub, substitute, tostr,
-  toliteral, encode_base64, encode_binary, random_bytes) and every interpreter
-  `PUSH_ERROR_UNLESS_QUOTA` site (list/map literals, splice, `+`, index and
-  range assignment) now raises E_QUOTA only when the option is true.
-  Otherwise the task takes Barn's existing out-of-seconds exit: no handler,
-  no finally, whatever the `d` flag, and `#0:handle_task_timeout` with
-  "seconds".
-- An unhandled timeout now reports Toast's "Task ran out of seconds" (or
-  ticks) traceback, not the E_MAXREC message "Too many verb calls".
-- Map index and range assignment check `max_map_value_bytes` as Toast does,
-  not `max_list_value_bytes`.
+  toliteral, encode_binary, chr, encode_base64, decode_base64, value_hash,
+  value_hmac, random_bytes) and every interpreter `PUSH_ERROR_UNLESS_QUOTA`
+  site (list/map literals, splice, `+`, index and range assignment) raises
+  E_QUOTA only when the option is true. Otherwise the task takes the
+  out-of-seconds exit: no handler, no finally, whatever the `d` flag, and
+  `#0:handle_task_timeout` with "seconds". chr, value_hash, value_hmac and
+  decode_base64 had no size check before; encode_base64 now uses Toast's
+  `(len / 3) * 4` rule.
+- An unhandled timeout reports Toast's "Task ran out of seconds" (or ticks)
+  traceback, not the E_MAXREC message "Too many verb calls".
+- Map index and range assignment check `max_map_value_bytes`, as Toast does.
+- List size checks refuse only more than `max_list_value_bytes`; a list of
+  exactly the limit is allowed, as in Toast.
 - Builtin, verb and `pass()` calls hold two or more arguments (or a spliced
-  argument list) to `max_list_value_bytes`, as Toast does by building the
-  arguments as a list. On `BenchmarkVM/builtin_two_args_200k` (new) this costs
-  about 3-6 ms per 200k two-argument calls on a loaded machine; the
-  real-workload harness showed no difference outside its noise (numbers in
-  the task note).
+  argument list) to `max_list_value_bytes` while that limit is below its
+  default, as Toast does by building the arguments as a list. At the default
+  limit nothing is measured (Toast would refuse an argument list over
+  64537861 bytes; Barn does not).
+- binary_hash, string_hmac and binary_hmac are left alone: Toast's check
+  there depends on a static buffer's history (`binary_to_raw_bytes`).
 
-Checked: conformance `server/limits_concat_catchable.yaml` (suite PR): Toast
-passes all 16; Barn failed 9 of the first 13 before and passes all 16 after;
-full managed suite on the fixed build; `go test ./...`, go vet, staticcheck, golangci-lint.
+Performance: with both builds at `-ldflags=-funcalign=64`, the BenchmarkVM
+set (including the new `builtin_two_args_200k`) is within 2% of master. The
+default `go test` build of this tree places `executeLoop` 32 bytes off a
+64-byte line and runs every BenchmarkVM workload 5-15% slower, also loops
+that touch no changed code; reverting either of two cold, unrelated edits
+removes it. The deployment build (PGO) is 64-byte aligned for both. Numbers
+and the bisect are in the task note.
+
+Merge before the suite PR.

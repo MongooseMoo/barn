@@ -63,6 +63,16 @@ func (r *Session) MaxConcatCatchable(ctx *task.Context) bool {
 	return state.maxConcatCatchable
 }
 
+// ListLimitLowered reports whether the task running ctx sees a
+// max_list_value_bytes below its default. A task's own reload is its
+// Context.ServerOptions until it commits.
+func (r *Session) ListLimitLowered(ctx *task.Context) bool {
+	if ctx != nil && ctx.ServerOptions != nil {
+		return ctx.ServerOptions.MaxListValueBytes < defaultMaxListValueBytes
+	}
+	return r.runtime.serverOptions.listLimitLowered.Load()
+}
+
 // SecondsAbortResult is what a task that ran out of seconds ends with. The VM
 // does not let a handler catch it: the task ends and #0:handle_task_timeout is
 // told "seconds".
@@ -184,6 +194,7 @@ func (r *Session) applyServerOptionsSnapshot(snapshot *task.PendingServerOptions
 	state.maxCryptSHARounds = snapshot.MaxCryptSHARounds
 	state.includeRTVars = snapshot.IncludeRTVars
 	state.maxConcatCatchable = snapshot.MaxConcatCatchable
+	state.listLimitLowered.Store(snapshot.MaxListValueBytes < defaultMaxListValueBytes)
 	state.mu.Unlock()
 }
 
@@ -467,7 +478,7 @@ func (r *Session) GetMaxMapValueBytes() int {
 }
 
 // ListValueLimitForTask is the max_list_value_bytes limit CheckListLimitForTask
-// applies to ctx's task: a value of that many bytes or more is E_QUOTA. Zero or
+// applies to ctx's task: a value of more bytes than that is E_QUOTA. Zero or
 // less means no limit.
 func (r *Session) ListValueLimitForTask(ctx *task.Context) int {
 	if pending := pendingServerOptions(ctx); pending != nil {
@@ -476,11 +487,11 @@ func (r *Session) ListValueLimitForTask(ctx *task.Context) int {
 	return r.GetMaxListValueBytes()
 }
 
-// CheckListLimitForTask returns E_QUOTA when list reaches the task's
-// max_list_value_bytes limit; the limit is exclusive.
+// CheckListLimitForTask returns E_QUOTA when list has more bytes than the
+// task's max_list_value_bytes limit (Toast: value_bytes(r) <= limit passes).
 func (r *Session) CheckListLimitForTask(ctx *task.Context, list types.Value) types.ErrorCode {
 	limit := r.ListValueLimitForTask(ctx)
-	if limit > 0 && ValueBytes(list) >= limit {
+	if limit > 0 && ValueBytes(list) > limit {
 		return types.E_QUOTA
 	}
 	return types.E_NONE

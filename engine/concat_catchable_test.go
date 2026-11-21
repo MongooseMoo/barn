@@ -27,6 +27,10 @@ var sizeLimitGrowths = []struct {
 	{"setadd", "max_list_value_bytes", `r = {}; for i in [1..1000] r = setadd(r, i); endfor`},
 	{"tostr", "max_string_concat", `s = "0123456789"; r = s; for i in [1..200] r = tostr(r, s); endfor`},
 	{"strsub", "max_string_concat", `r = "a"; for i in [1..20] r = strsub(r, "a", "aa"); endfor`},
+	{"chr", "max_string_concat", `l = {}; for i in [1..1500] l = {@l, 65}; endfor r = chr(l);`},
+	{"value_hash", "max_string_concat", `l = {}; for i in [1..400] l = {@l, i}; endfor r = value_hash(l);`},
+	{"value_hmac", "max_string_concat", `l = {}; for i in [1..400] l = {@l, i}; endfor r = value_hmac(l, "key");`},
+	{"encode_base64", "max_string_concat", `s = ""; for i in [1..90] s = s + "0123456789"; endfor r = encode_base64(s);`},
 }
 
 func concatCatchableCode(catchable int, option, grow string) string {

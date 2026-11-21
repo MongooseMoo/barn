@@ -70,6 +70,9 @@ type serverOptionsState struct {
 	maxCryptSHARounds  int
 	includeRTVars      bool
 	maxConcatCatchable bool
+	// listLimitLowered is maxListValueBytes < defaultMaxListValueBytes, read
+	// without the lock on every multi-argument call.
+	listLimitLowered atomic.Bool
 }
 
 func newSessionRuntime() *sessionRuntime {
