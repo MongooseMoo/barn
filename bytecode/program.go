@@ -1,7 +1,6 @@
 package bytecode
 
 import (
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -86,18 +85,47 @@ func (c *CallSites) Slot(index int) *atomic.Value {
 
 // IsBuiltinPropertyName reports whether name, in any case, is one of the
 // server-maintained object properties: name, owner, location, contents,
-// last_move, programmer, wizard, r, w, f, a. Those can never be defined
-// properties: add_property rejects them. parent/parents/children/player are
+// last_move, programmer, wizard, r, w, f, a. add_property rejects them, and a
+// lookup by name finds the built-in property even when a loaded database
+// defines a property with that name. parent/parents/children/player are
 // NOT properties -- they have dedicated accessor built-in functions (parent(),
 // parents(), children(), is_player()), so `.parent` etc. raise E_PROPNF.
 func IsBuiltinPropertyName(name string) bool {
-	switch strings.ToLower(name) {
-	case "name", "owner", "location", "contents", "last_move",
-		"programmer", "wizard", "r", "w", "f", "a":
-		return true
-	default:
-		return false
+	_, ok := BuiltinPropertyKey(name)
+	return ok
+}
+
+// BuiltinPropertyKey returns the lower-case built-in property name that name
+// spells, and whether it spells one. Toast compares with strcasecmp
+// (src/db_properties.cc db_find_property), which folds ASCII letters only, so
+// a name holding any other character is never a built-in property name.
+func BuiltinPropertyKey(name string) (string, bool) {
+	for _, key := range builtinPropertyKeys {
+		if len(key) == len(name) && asciiFoldEqual(key, name) {
+			return key, true
+		}
 	}
+	return "", false
+}
+
+var builtinPropertyKeys = [...]string{
+	"name", "owner", "location", "contents", "last_move",
+	"programmer", "wizard", "r", "w", "f", "a",
+}
+
+// asciiFoldEqual reports whether s, with ASCII letters lowered, equals lower,
+// which is lower case and as long as s.
+func asciiFoldEqual(lower, s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if c != lower[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // ClassifyPropertyConstants fills BuiltinPropertyConstants from Constants.

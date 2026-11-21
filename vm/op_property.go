@@ -217,10 +217,10 @@ func (vm *VM) executeGetPropAccess(propName string, builtin bool, access propAcc
 		if errCode := objectExistsForRead(txn, objID); errCode != types.E_NONE {
 			return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
 		}
-		// Built-in property names (.name/.owner/.location/...) can never be
-		// defined properties — add_property rejects them with E_INVARG — so
-		// serve them from the built-in path directly, skipping the
-		// (always-failing) inheritance walk.
+		// Built-in property names (.name/.owner/.location/...) name the
+		// built-in property even when a loaded database defines a property
+		// with that name (Toast db_find_property checks them first), so serve
+		// them from the built-in path directly, skipping the inheritance walk.
 		if builtin {
 			if val, ok := getBuiltinProperty(txn, objID, propName); ok {
 				vm.Push(val)
@@ -526,7 +526,8 @@ func localPropertyForRead(txn *dbstore.StoreTxn, objID types.ObjID, name string)
 
 // getBuiltinProperty returns server-maintained object properties.
 func getBuiltinProperty(txn *dbstore.StoreTxn, objID types.ObjID, name string) (types.Value, bool) {
-	switch strings.ToLower(name) {
+	key, _ := bytecode.BuiltinPropertyKey(name)
+	switch key {
 	case "name":
 		// Shared box built when the name was written — no strRep per read.
 		nameVal, errCode := txn.ObjectNameValue(objID)
@@ -630,7 +631,8 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 
 // setBuiltinProperty sets mutable server-maintained object properties.
 func setBuiltinProperty(session *builtins.Session, txn *dbstore.StoreTxn, objID types.ObjID, name string, value types.Value, ctx *task.Context) (bool, types.ErrorCode) {
-	switch strings.ToLower(name) {
+	key, _ := bytecode.BuiltinPropertyKey(name)
+	switch key {
 	case "name":
 		if value.Type() != types.TYPE_STR {
 			return true, types.E_TYPE
@@ -661,16 +663,16 @@ func setBuiltinProperty(session *builtins.Session, txn *dbstore.StoreTxn, objID 
 			return true, types.E_INVARG
 		}
 		flag := dbstore.FlagProgrammer
-		if strings.EqualFold(name, "wizard") {
+		if key == "wizard" {
 			flag = dbstore.FlagWizard
 		}
 		return true, txn.SetObjectFlag(objID, flag, value.Truthy())
 	case "r", "w", "f", "a":
-		if errCode := checkBuiltinPropertyOwner(session, txn, objID, strings.ToLower(name), ctx, false); errCode != types.E_NONE {
+		if errCode := checkBuiltinPropertyOwner(session, txn, objID, key, ctx, false); errCode != types.E_NONE {
 			return true, errCode
 		}
 		flags := map[string]dbstore.ObjectFlags{"r": dbstore.FlagRead, "w": dbstore.FlagWrite, "f": dbstore.FlagFertile, "a": dbstore.FlagAnonymous}
-		flag := flags[strings.ToLower(name)]
+		flag := flags[key]
 		return true, txn.SetObjectFlag(objID, flag, value.Truthy())
 	default:
 		return false, types.E_NONE
