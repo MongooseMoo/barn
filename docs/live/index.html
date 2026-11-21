@@ -17,6 +17,11 @@
   .bad { color: var(--bad); font-weight: 600; }
   .good { color: var(--good); font-weight: 600; }
   a { color: inherit; }
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  caption { text-align: left; padding-bottom: .5rem; }
+  th, td { border-bottom: 1px solid var(--muted); text-align: left; padding: .35rem .5rem; }
+  th[scope="row"] { font-weight: normal; }
 </style>
 </head>
 <body>
@@ -24,6 +29,9 @@
 <h1>Barn fuzz machine, live</h1>
 <p id="summary" role="status">Loading from GitHub…</p>
 <p class="muted" id="updated"></p>
+
+<h2>Repair backlog</h2>
+<div id="backlog"></div>
 
 <h2>Current cycle</h2>
 <div id="current"></div>
@@ -57,7 +65,7 @@
     "Accept discovery cycle" job decides this.</li>
 </ul>
 <p class="muted">This page reads GitHub's public API from your browser, with no sign-in, every 6 minutes.
-GitHub allows 60 unauthenticated requests an hour per address; each refresh makes at most 6.
+GitHub allows 60 unauthenticated requests an hour per address; each refresh makes at most 10.
 Times are in your time zone.</p>
 </main>
 <script src="fuzz_live.js"></script>
@@ -65,8 +73,8 @@ Times are in your time zone.</p>
 "use strict";
 const L = globalThis.FuzzLive;
 const API = "https://api.github.com/repos/MongooseMoo/barn";
-// At most 6 requests per refresh; 60 unauthenticated requests an hour allow one every 6 minutes.
-const REFRESH_MINUTES = 6;
+// At most 10 requests per refresh; 60 unauthenticated requests an hour allow one every 10 minutes.
+const REFRESH_MINUTES = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 let rateNote = "";
 
@@ -104,7 +112,11 @@ function fill(id, nodes) {
   const box = document.getElementById(id);
   const fresh = el("div");
   fresh.append(...nodes);
-  if (fresh.innerHTML !== box.innerHTML) box.replaceChildren(...fresh.childNodes);
+  if (fresh.innerHTML === box.innerHTML) return;
+  const active = document.activeElement;
+  const href = box.contains(active) && active.tagName === "A" ? active.href : null;
+  box.replaceChildren(...fresh.childNodes);
+  if (href) [...box.querySelectorAll("a")].find(a => a.href === href)?.focus({preventScroll: true});
 }
 function announce(text, cls) {
   const summary = document.getElementById("summary");
@@ -112,6 +124,33 @@ function announce(text, cls) {
   summary.className = cls;
 }
 const issueLink = issue => link(`#${issue.number}`, issue.html_url);
+function showBacklog(issues, pulls, runs, now) {
+  const rows = L.repairBacklog(issues, pulls, runs);
+  const controls = line("p", [link("Dispatch a repair or resume conformance", `${API.replace("api.github.com/repos", "github.com")}/actions/workflows/claude-fix.yml`)]);
+  if (!rows.length) return [el("p", "No open repair work found."), controls];
+  const table = el("table");
+  table.append(el("caption", `${rows.length} open repair and investigation records shown`));
+  const headings = el("tr");
+  for (const name of ["Finding", "Provider", "Stage", "Last Actions attempt", "Repair PR"]) {
+    const heading = el("th", name);
+    heading.scope = "col";
+    headings.append(heading);
+  }
+  table.createTHead().append(headings);
+  const body = table.createTBody();
+  for (const {issue, pr, attempt, status, provider} of rows) {
+    const heading = line("th", [link(`#${issue.number} ${issue.title}`, issue.html_url)]);
+    heading.scope = "row";
+    const last = attempt ? [link(`Run ${attempt.id}`, attempt.html_url), `, ${L.local(attempt.created_at, now)}`] : ["None in recent runs"];
+    const repair = pr ? [link(`PR #${pr.number}`, pr.html_url), `, ${pr.merged_at ? "merged" : pr.state}`] : ["None"];
+    const row = body.insertRow();
+    row.append(heading, el("td", provider), el("td", status), line("td", last), line("td", repair));
+  }
+  const scroll = el("div", undefined, "table-scroll");
+  scroll.append(table);
+  return [controls, scroll];
+}
+
 function repairText(issue, pulls) {
   if (issue.direct) return [", found by fuzzing and fixed in this PR,", issue.merged_at ? " merged" : issue.state === "open" ? " open" : " closed without merging"];
   const pr = L.repairFor(issue.number, pulls);
@@ -195,6 +234,23 @@ async function refresh() {
     fill("current", current ? [...describeCycle(current, currentJobs, issues, pulls, now, true),
       ...(next.length ? [el("p", "The next cycle is already queued.")] : [])] : [el("p", "No cycle is running.")]);
     fill("previous", previous ? describeCycle(previous, previousJobs, issues, pulls, now, false) : [el("p", "None.")]);
+
+    try {
+      const [backlog, repairs, alarms, investigations] = await Promise.all([
+        get("/issues?state=open&labels=claude-fix&per_page=100"),
+        get("/actions/workflows/claude-fix.yml/runs?per_page=100"),
+        get("/issues?state=open&labels=codex-investigation&per_page=100"),
+        get("/actions/workflows/alarm-investigate.yml/runs?per_page=30"),
+      ]);
+      const runs = [...repairs.workflow_runs, ...investigations.workflow_runs].sort((a, b) => b.id - a.id);
+      const manual = issues.filter(issue => issue.labels.some(label =>
+        label.name === "codex-repair" || label.name === "repair-needs-attention"));
+      const work = new Map([...backlog, ...alarms, ...manual].map(issue => [issue.number, issue]));
+      fill("backlog", [...showBacklog([...work.values()], pulls, runs, now),
+        ...(backlog.length === 100 || alarms.length === 100 ? [el("p", "This view shows up to 100 open records per queue.")] : [])]);
+    } catch (error) {
+      fill("backlog", [el("p", `Could not refresh the repair backlog. ${error.message}`)]);
+    }
 
     const day = L.lastDay(issues, pulls, now);
     fill("bugs", day.bugs.length ? [list(day.bugs.map(i => line("li", [issueLink(i),

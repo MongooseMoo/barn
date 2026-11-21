@@ -15,7 +15,20 @@ func WriteCheckpoint(
 	queuedTasks, suspendedTasks []task.Snapshot,
 	activeConnections []ActiveConnection,
 ) error {
-	return writeCheckpoint(path+".new", path+".tmp", objectStore, queuedTasks, suspendedTasks, activeConnections)
+	_, err := writeCheckpoint(path+".new", path+".tmp", objectStore, queuedTasks, suspendedTasks, activeConnections, false)
+	return err
+}
+
+// WriteToastLoadableCheckpoint is WriteCheckpoint with OmitBarnFrameTasks: it
+// leaves out every task in Barn's frame form, so ToastStunt can load the file,
+// and returns their ids.
+func WriteToastLoadableCheckpoint(
+	path string,
+	objectStore *store.Store,
+	queuedTasks, suspendedTasks []task.Snapshot,
+	activeConnections []ActiveConnection,
+) ([]int64, error) {
+	return writeCheckpoint(path+".new", path+".tmp", objectStore, queuedTasks, suspendedTasks, activeConnections, true)
 }
 
 // WritePanicCheckpoint writes an emergency database checkpoint to
@@ -27,7 +40,8 @@ func WritePanicCheckpoint(
 	queuedTasks, suspendedTasks []task.Snapshot,
 	activeConnections []ActiveConnection,
 ) error {
-	return writeCheckpoint(path+".new.PANIC", path+".tmp.PANIC", objectStore, queuedTasks, suspendedTasks, activeConnections)
+	_, err := writeCheckpoint(path+".new.PANIC", path+".tmp.PANIC", objectStore, queuedTasks, suspendedTasks, activeConnections, false)
+	return err
 }
 
 func writeCheckpoint(
@@ -35,20 +49,24 @@ func writeCheckpoint(
 	objectStore *store.Store,
 	queuedTasks, suspendedTasks []task.Snapshot,
 	activeConnections []ActiveConnection,
-) (resultErr error) {
+	toastLoadable bool,
+) (omitted []int64, resultErr error) {
 	if objectStore == nil {
-		return fmt.Errorf("snapshot store is nil")
+		return nil, fmt.Errorf("snapshot store is nil")
 	}
 	checkpoint, err := beginCheckpoint(outPath, tempPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { resultErr = errors.Join(resultErr, checkpoint.Close()) }()
+	if toastLoadable {
+		checkpoint.OmitBarnFrameTasks()
+	}
 	if err := checkpoint.Capture(objectStore, queuedTasks, suspendedTasks, activeConnections); err != nil {
-		return err
+		return nil, err
 	}
 	if err := checkpoint.Serialize(); err != nil {
-		return err
+		return nil, err
 	}
-	return checkpoint.Publish()
+	return checkpoint.Omitted(), checkpoint.Publish()
 }

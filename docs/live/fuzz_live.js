@@ -91,9 +91,9 @@
     return {success: "healthy", failure: "not healthy"}[accept.conclusion] || "not checked";
   }
 
-  // claude-fix.yml pushes each automatic repair on claude/issue-<N>.
   function repairFor(number, pulls) {
-    return pulls.find(p => p.head && p.head.ref === `claude/issue-${number}`) || null;
+    const matches = pulls.filter(p => p.head && ["claude", "codex"].some(provider => p.head.ref === `${provider}/issue-${number}`));
+    return matches.find(p => p.state === "open") || matches.find(p => p.merged_at) || matches[0] || null;
   }
 
   // A bug that fuzzing found outside a nightly report (a new lane, a coverage
@@ -101,7 +101,50 @@
   // both the bug and its fix.
   const FINDING_LABEL = "fuzz-finding";
   const isFinding = p => (p.labels || []).some(l => l.name === FINDING_LABEL);
-  const isRepair = p => Boolean(p.head && p.head.ref.startsWith("claude/issue-")) || isFinding(p);
+  const isRepair = p => Boolean(p.head && /^(claude|codex)\/issue-\d+$/.test(p.head.ref)) || isFinding(p);
+
+  function repairBacklog(issues, pulls, runs) {
+    const lastAttempt = new Map();
+    for (const run of runs) {
+      const match = /^(Repair|Investigate) #(\d+) \/ (auto|claude|codex)$/.exec(run.display_title || "");
+      if (match && !lastAttempt.has(Number(match[2]))) lastAttempt.set(Number(match[2]), run);
+    }
+    const open = issues.filter(i => i.state === "open" && !i.pull_request);
+    const labels = item => (item?.labels || []).map(label => label.name);
+    const rows = open.map(issue => {
+      const pr = repairFor(issue.number, pulls);
+      const issueLabels = labels(issue);
+      const prLabels = labels(pr);
+      const recent = lastAttempt.get(issue.number);
+      const phase = ["repair", "investigation"].find(stage => issueLabels.includes(`codex-${stage}`));
+      const conformance = prLabels.includes("codex-conformance");
+      const blocked = issueLabels.includes("repair-needs-attention") || prLabels.includes("needs-decision");
+      let status = "Awaiting repair";
+      let provider = "Any";
+      if (phase || conformance) {
+        provider = "Codex";
+        const targetLabels = conformance ? prLabels : issueLabels;
+        const stage = conformance ? "conformance" : phase;
+        status = `${targetLabels.includes("codex-running") ? "Running" : "Waiting for"} ${stage}`;
+      } else if (blocked) {
+        status = "Needs attention";
+      } else if (pr?.state === "open") {
+        provider = pr.head.ref.startsWith("codex/") ? "Codex" : "Claude";
+        status = "PR open";
+      } else if (recent) {
+        provider = recent.display_title.endsWith(" / auto") ? "Automatic" : recent.display_title.split(" / ")[1];
+        status = recent.conclusion === "failure" ? "Attempt failed" : recent.status.replaceAll("_", " ");
+      }
+      return {issue, pr, attempt: recent, status, provider};
+    });
+    for (const pr of pulls) {
+      if (labels(pr).includes("codex-conformance") && !rows.some(row => row.pr?.number === pr.number)) {
+        rows.push({issue: pr, pr, attempt: lastAttempt.get(pr.number), provider: "Codex",
+          status: labels(pr).includes("codex-running") ? "Running conformance" : "Waiting for conformance"});
+      }
+    }
+    return rows;
+  }
 
   function lastDay(issues, pulls, now) {
     const since = ms(now) - DAY_MS;
@@ -165,5 +208,5 @@
   const took = run => duration(ms(run.updated_at) - ms(run.created_at));
 
   Object.assign(live, {ACCEPT, DIFFERENTIAL, WAITING, lanes, classifyJob, progress, progressText,
-    health, repairFor, lastDay, summary, ago, duration, local, when, took});
+    health, repairFor, repairBacklog, lastDay, summary, ago, duration, local, when, took});
 })(typeof module === "object" ? module.exports : (globalThis.FuzzLive = {}));

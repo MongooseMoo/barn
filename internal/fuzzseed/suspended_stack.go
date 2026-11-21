@@ -243,12 +243,15 @@ func (s *suspendedStack) inFinally(variant, k int, inner []string) []string {
 // where:enterfunc; create(parent)'s and recreate(old, parent)'s
 // initialize; recycle(what)'s what:recycle or the exitfunc of what's
 // location. indirect calls the builtin through call_function. The hook
-// stores the inner value and whether its this or argument is the object the
-// builtin acts on. The result is a check of the builtin's return value
-// (move()'s and recycle()'s 0 itself), what the hook stored, and the
-// builtin's effect: whether what ended in where, and for exitfunc whether
-// where:enterfunc then ran; whether the created object has parent; whether
-// what is still valid.
+// stores the inner value, whether its this or argument is the object the
+// builtin acts on, and the name callers() gives the builtin's entry below it
+// once the inner layers have resumed (Toast names it by the builtin the
+// bytecode called: call_function when indirect). The result is a check of
+// the builtin's return value (move()'s and recycle()'s 0 itself), what the
+// hook stored, and the builtin's effect: whether what ended in where, and for
+// exitfunc the name callers() gave where:enterfunc's builtin entry, which
+// move() named after the resumed exitfunc returned; whether the created
+// object has parent; whether what is still valid.
 func (s *suspendedStack) builtinHook(kind string, indirect bool, k int, inner []string) []string {
 	// The objects the builtin acts on: what and where for move(), parent and
 	// the object to recreate for create() and recreate(), what for recycle().
@@ -271,7 +274,7 @@ func (s *suspendedStack) builtinHook(kind string, indirect bool, k int, inner []
 	}
 	hooked := s.property(fmt.Sprintf("h%d", k), "0")
 	hook := func(check string) []string {
-		return append(append([]string{}, inner...), fmt.Sprintf("%s = {%d, v, %s};", hooked, k, check))
+		return append(append([]string{}, inner...), fmt.Sprintf("%s = {%d, v, %s, callers()[1][2]};", hooked, k, check))
 	}
 	call := func(name string, args ...string) string {
 		if indirect {
@@ -297,7 +300,7 @@ func (s *suspendedStack) builtinHook(kind string, indirect bool, k int, inner []
 			s.setup = append(s.setup, fmt.Sprintf("move(%s, %s);", what, from))
 			s.verb(from, "exitfunc", hook...)
 			s.verb(where, "accept", "return 1;")
-			s.verb(where, "enterfunc", entered+" = 1;")
+			s.verb(where, "enterfunc", entered+" = callers()[1][2];")
 			result = append(result, entered)
 		default: // move-enterfunc
 			s.verb(where, "accept", "return 1;")
@@ -352,9 +355,12 @@ func (s *suspendedStack) verbCall(k int, inner []string) string {
 }
 
 // evalCall returns a call of eval() on inner, made directly or, when indirect,
-// through call_function. A completed eval() returns {1, {k, v}}.
+// through call_function. A completed eval() returns {1, {k, v, name}}, name
+// being what callers() calls the eval activation's builtin entry once inner
+// has resumed: eval, or call_function when indirect (Toast names it by the
+// builtin the bytecode called).
 func evalCall(k int, inner []string, indirect bool) string {
-	source := mooString(strings.Join(inner, " ") + fmt.Sprintf(" return {%d, v};", k))
+	source := mooString(strings.Join(inner, " ") + fmt.Sprintf(" return {%d, v, callers()[1][2]};", k))
 	if indirect {
 		return `call_function("eval", ` + source + ")"
 	}

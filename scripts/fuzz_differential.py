@@ -166,16 +166,18 @@ def is_choices_record(data: bytes) -> bool:
     return len(lines) == 2 and lines[0] == "go test fuzz v1" and lines[1].startswith("[]byte(")
 
 
-def render_choices(paths: list[str]) -> dict[str, dict[str, str]]:
+def render_choices(paths: list[str], generator: str = "structured-ascii") -> dict[str, dict[str, str]]:
     """Path -> {"choices": hex, "source": MOO} or {"error": text} for each
     structured corpus file, decoded and rendered by cmd/moo-fuzz-source, the
-    one owner of the choice encoding and of the generated program."""
+    one owner of the choice encoding and of the generated program, with the
+    named generator (its --generator)."""
     if not paths:
         return {}
-    # structured-ascii spells the generator's one non-ASCII string piece in
-    # ASCII from the same choices; exclusion() drops non-ASCII source, and
-    # about nine in ten structured programs have that piece.
-    proc = subprocess.run(["go", "run", "./cmd/moo-fuzz-source", "--corpus", "--generator", "structured-ascii"], cwd=REPO,
+    # The differential's default, structured-ascii, spells the structured
+    # generator's one non-ASCII string piece in ASCII from the same choices;
+    # exclusion() drops non-ASCII source, and about nine in ten structured
+    # programs have that piece.
+    proc = subprocess.run(["go", "run", "./cmd/moo-fuzz-source", "--corpus", "--generator", generator], cwd=REPO,
                           input="".join(path + "\n" for path in paths), capture_output=True,
                           text=True, encoding="utf-8", check=True)
     rendered = {}

@@ -162,6 +162,35 @@ func TestRecreateWithNothingParentReusesRecycledSlot(t *testing.T) {
 	}
 }
 
+// A slot loaded from a database as "#N recycled" has no placeholder object,
+// only a raised max_object(); recreate() must still reuse it, as Toast accepts
+// any invalid id in 1..db_last_used_objid() (objects.cc bf_recreate).
+func TestRecreateReusesLoadedRecycledSlot(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, -1)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if err := store.Add(NewObject(2, -1)); err != nil {
+		t.Fatalf("Add #2 failed: %v", err)
+	}
+	store.AddRecycledSlot(1)
+	if err := store.Recreate(1, 2, 0); err != nil {
+		t.Fatalf("Recreate of loaded recycled slot failed: %v", err)
+	}
+	if !store.DirectTxn().Valid(1) {
+		t.Fatalf("recreated object is not valid")
+	}
+	if parent, errCode := store.DirectTxn().Parent(1); errCode != types.E_NONE || parent != 2 {
+		t.Fatalf("Parent = %d, %v; want #2, E_NONE", parent, errCode)
+	}
+	// Still refused: a valid object, #0, and an id past max_object().
+	for _, id := range []types.ObjID{1, 0, 3} {
+		if err := store.Recreate(id, types.ObjNothing, 0); err == nil {
+			t.Errorf("Recreate(#%d) succeeded; want an error", id)
+		}
+	}
+}
+
 // Anonymous objects take no object number in ToastStunt (db_renumber_object scans
 // only objects[], db_objects.cc:550-552), so LowestFreeID must never offer the id
 // of a live or recycled anonymous object to renumber().
