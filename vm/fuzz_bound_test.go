@@ -30,16 +30,24 @@ const sourceFuzzCallBytes = 16 << 10
 //
 // Lowering the value limits instead would need a $server_options object in
 // the world, which programs could see, and would not bound slice.
-func newSourceFuzzRegistry(tb testing.TB, skipf func(format string, args ...any)) *builtins.Registry {
+func newSourceFuzzRegistry(tb testing.TB, capabilities config.Capabilities, skipf func(format string, args ...any)) *builtins.Registry {
 	tb.Helper()
-	return newRegistryOrFatal(tb, boundedSourceFuzzDescriptors(skipf))
+	return newRegistryOrFatal(tb, capabilities, boundedSourceFuzzDescriptors(skipf))
 }
 
-// newRegistryOrFatal returns a registry of the core capabilities' builtins
-// from descriptors.
-func newRegistryOrFatal(tb testing.TB, descriptors []builtins.Descriptor) *builtins.Registry {
+// structuredFuzzCapabilities are the capabilities of a generated program's
+// registry: the core and SQLite. internal/fuzzseed gives sqlite_open only the
+// path ":memory:" and SQL only from its own list, and each case's
+// session.Close releases every handle the case opened, so a SQLite call
+// touches no file and outlives no case. A raw source program could name a
+// database file, so the raw lanes get config.Core alone.
+const structuredFuzzCapabilities = config.Core | config.SQLite
+
+// newRegistryOrFatal returns a registry of the capabilities' builtins from
+// descriptors.
+func newRegistryOrFatal(tb testing.TB, capabilities config.Capabilities, descriptors []builtins.Descriptor) *builtins.Registry {
 	tb.Helper()
-	registry, err := builtins.NewRegistryFromDescriptors(config.Core, descriptors)
+	registry, err := builtins.NewRegistryFromDescriptors(capabilities, descriptors)
 	if err != nil {
 		tb.Fatal(err)
 	}

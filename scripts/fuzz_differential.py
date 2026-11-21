@@ -6,8 +6,9 @@ directories -- the committed ``testdata/fuzz/<Target>`` inputs and Go's fuzz
 cache, which the nightly campaigns fill. A ``string(...)`` value (vm
 FuzzSourceExecution, compiler FuzzCompileVerifiable) is the program. A
 ``[]byte(...)`` value is the choice bytes of a structured target
-(FuzzStructured*); ``cmd/moo-fuzz-source --corpus`` decodes it and renders the
-program with internal/fuzzseed, and each row keeps the choice bytes (hex) with
+(FuzzStructured*); ``cmd/moo-fuzz-source --corpus --generator structured-ascii``
+decodes it and renders the program with internal/fuzzseed, its string pieces
+spelled in ASCII (fuzzseed.ASCIISource), and each row keeps the choice bytes (hex) with
 the rendered source. Each directory is one lane with its own counts; a record
 neither form decodes is excluded as undecodable. It runs every program through both
 engines with bench_differ's lanes (Barn ``-eval-file``, Toast emergency mode),
@@ -165,13 +166,17 @@ def is_choices_record(data: bytes) -> bool:
     return len(lines) == 2 and lines[0] == "go test fuzz v1" and lines[1].startswith("[]byte(")
 
 
-def render_choices(paths: list[str], generator: str = "structured") -> dict[str, dict[str, str]]:
+def render_choices(paths: list[str], generator: str = "structured-ascii") -> dict[str, dict[str, str]]:
     """Path -> {"choices": hex, "source": MOO} or {"error": text} for each
     structured corpus file, decoded and rendered by cmd/moo-fuzz-source, the
     one owner of the choice encoding and of the generated program, with the
     named generator (its --generator)."""
     if not paths:
         return {}
+    # The differential's default, structured-ascii, spells the structured
+    # generator's one non-ASCII string piece in ASCII from the same choices;
+    # exclusion() drops non-ASCII source, and about nine in ten structured
+    # programs have that piece.
     proc = subprocess.run(["go", "run", "./cmd/moo-fuzz-source", "--corpus", "--generator", generator], cwd=REPO,
                           input="".join(path + "\n" for path in paths), capture_output=True,
                           text=True, encoding="utf-8", check=True)

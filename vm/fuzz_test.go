@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"math/rand/v2"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/compiler"
+	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/fuzzseed"
 	"github.com/MongooseMoo/barn/task"
@@ -43,12 +45,61 @@ func FuzzStructuredSourceExecution(f *testing.F) {
 	})
 }
 
-// executeFuzzSource runs source once as each principal, each time in a fresh
-// copy of world.
-func executeFuzzSource(t *testing.T, world sourceFuzzWorld, source string, mustCompile bool) {
-	registry, program, diagnostics := compileFuzzSource(t, source)
+// The generated programs' lane has the SQLite builtins, and with its thread
+// mode off, as fuzzseed's SQLite preamble sets it, a statement runs inline.
+func TestStructuredSourceLaneRunsSQLiteInline(t *testing.T) {
+	world := newSourceFuzzWorld(t)
+	source := `set_thread_mode(0);
+db = sqlite_open(":memory:");
+sqlite_query(db, "CREATE TABLE t (a, b)");
+sqlite_execute(db, "INSERT INTO t VALUES (?, ?)", {1, "x"});
+return sqlite_query(db, "SELECT * FROM t");`
+	registry, program, diagnostics := compileFuzzSource(t, source, structuredFuzzCapabilities)
 	if len(diagnostics) != 0 {
-		if mustCompile {
+		t.Fatalf("does not compile: %v", diagnostics)
+	}
+	results := runSourceFuzzProgram(t, world, registry, program, sourceFuzzPrincipals[0])
+	want := types.NewList([]types.Value{types.NewList([]types.Value{types.NewInt(1), types.NewStr("x")})})
+	if got := results[0]; got.Flow != types.FlowReturn || !got.Val.Equal(want) {
+		t.Fatalf("result %s, want %s", describeTaskResult(got), want)
+	}
+}
+
+// Generated programs that call SQLite builtins compile and run in the lane,
+// as each principal, and the session's Close releases their handles
+// (runSourceFuzzProgram fails the case otherwise).
+func TestStructuredSourceLaneRunsGeneratedSQLitePrograms(t *testing.T) {
+	world := newSourceFuzzWorld(t)
+	rng := rand.New(rand.NewPCG(11, 12))
+	ran := 0
+	for i := 0; ran < 40 && i < 5000; i++ {
+		choices := make([]byte, 300)
+		for j := range choices {
+			choices[j] = byte(rng.Uint32())
+		}
+		source := fuzzseed.StructuredSource(t, choices)
+		if !strings.Contains(source, "sqlite_") || strings.Contains(source, "suspend(") {
+			continue
+		}
+		ran++
+		executeFuzzSource(t, world, source, true)
+	}
+	if ran == 0 {
+		t.Fatal("no generated program called a SQLite builtin")
+	}
+}
+
+// executeFuzzSource runs source once as each principal, each time in a fresh
+// copy of world. A generated (structured) program must compile, and gets
+// structuredFuzzCapabilities; raw source gets the core capabilities.
+func executeFuzzSource(t *testing.T, world sourceFuzzWorld, source string, structured bool) {
+	capabilities := config.Core
+	if structured {
+		capabilities = structuredFuzzCapabilities
+	}
+	registry, program, diagnostics := compileFuzzSource(t, source, capabilities)
+	if len(diagnostics) != 0 {
+		if structured {
 			t.Fatalf("generated program does not compile: %v\nsource:\n%s", diagnostics, source)
 		}
 		return
@@ -58,12 +109,12 @@ func executeFuzzSource(t *testing.T, world sourceFuzzWorld, source string, mustC
 	}
 }
 
-// compileFuzzSource compiles source with a new registry of the core
-// capabilities, which exclude optional network, SQLite and process input.
+// compileFuzzSource compiles source with a new registry of capabilities;
+// config.Core excludes optional network, SQLite and process input.
 // State and compiler caches are private to this input, with no server.
-func compileFuzzSource(t *testing.T, source string) (*builtins.Registry, *bytecode.Program, []compiler.Diagnostic) {
+func compileFuzzSource(t *testing.T, source string, capabilities config.Capabilities) (*builtins.Registry, *bytecode.Program, []compiler.Diagnostic) {
 	t.Helper()
-	registry := newSourceFuzzRegistry(t, t.Skipf)
+	registry := newSourceFuzzRegistry(t, capabilities, t.Skipf)
 	program, diagnostics := registry.Compiler().CompileMOO(strings.Split(source, "\n"))
 	return registry, program, diagnostics
 }

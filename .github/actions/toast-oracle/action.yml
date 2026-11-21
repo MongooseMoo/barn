@@ -1,10 +1,15 @@
 name: Toast oracle
 description: >-
-  Builds the ToastStunt oracle that profiles/toast/stock-wsl-testdb.json pins,
-  at toaststunt/build/moo: the same ref, a Release build, and options.h
+  Builds the ToastStunt build a manifest in profiles/toast pins (by default
+  stock-wsl-testdb.json, the conformance oracle), at toaststunt/build/moo: the same ref, a Release build, and options.h
   checked against the manifest's config checksum. The runner user cannot read
   the workstation's /root Toast build, so a job builds its own. Expects this
   repository checked out in the workspace.
+
+inputs:
+  manifest:
+    description: The pinning manifest, relative to the repository root.
+    default: profiles/toast/stock-wsl-testdb.json
 
 runs:
   using: composite
@@ -12,8 +17,10 @@ runs:
     - name: Read Toast oracle pin
       id: toast-pin
       shell: bash
+      env:
+        MANIFEST: ${{ inputs.manifest }}
       run: |
-        python3 -c 'import json; m = json.load(open("profiles/toast/stock-wsl-testdb.json")); print("ref=" + m["implementation_ref"]); print("options=" + m["config_checksum"])' >> "$GITHUB_OUTPUT"
+        python3 -c 'import json, os; m = json.load(open(os.environ["MANIFEST"])); print("ref=" + m["implementation_ref"]); print("options=" + m["config_checksum"])' >> "$GITHUB_OUTPUT"
 
     - name: Checkout ToastStunt
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

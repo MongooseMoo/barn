@@ -190,7 +190,7 @@ var sourceFuzzPrincipals = []sourceFuzzPrincipal{
 // runSourceFuzzWorld compiles source and runs it in a fresh copy of world.
 func runSourceFuzzWorld(t *testing.T, world sourceFuzzWorld, source string, principal sourceFuzzPrincipal) []types.Result {
 	t.Helper()
-	registry, program, diagnostics := compileFuzzSource(t, source)
+	registry, program, diagnostics := compileFuzzSource(t, source, config.Core)
 	if len(diagnostics) != 0 {
 		t.Fatalf("%s does not compile: %v", source, diagnostics)
 	}

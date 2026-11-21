@@ -25,6 +25,7 @@ LEGACY_CYCLE = {"id": 12, "display_title": "Nightly fuzz / legacy"}
 COMPARE = "Compare retained public source on Barn and Toast"
 CROSS_ENGINE = "ToastCrossEngineCheckpoint"
 RESUME = "Resume retained suspended stacks on the other engine"
+CLEAN_BUILTIN_CENSUS = {"newly_zero": [], "newly_covered": []}
 
 
 def node_binary():
@@ -265,7 +266,7 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertIn("    if: github.event_name == 'schedule' && vars.FUZZ_CONTINUOUS_ENABLED == 'true'", controller)
 
     def accept(self, jobs, lanes, outcome="success", campaign="native-and-toast", memories=None,
-               cross_engine="default"):
+               cross_engine="default", builtins=CLEAN_BUILTIN_CENSUS):
         """Accept a cycle of jobs. The cross-engine comparison, unless jobs
         names it, is skipped with no results in a native-only cycle and passed
         otherwise; cross_engine is its results outcome (None: no file)."""
@@ -284,6 +285,8 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
             if outcome is not None:
                 (root / "fuzz-differential").mkdir()
                 (root / "fuzz-differential/results.json").write_text(json.dumps({"summary": {"outcome": outcome}}))
+                if builtins is not None:
+                    (root / "fuzz-differential/builtin-census.json").write_text(json.dumps(builtins))
             if cross_engine is not None:
                 (root / "fuzz-cross-engine").mkdir()
                 (root / "fuzz-cross-engine/results.json").write_text(
@@ -366,6 +369,19 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         native_only = self.accept([job("FuzzA"), job("ToastDifferential", "skipped")], lanes, outcome=None,
                                   campaign="native-only", cross_engine="success")
         self.assertIn(f"{CROSS_ENGINE}: native-only requires a skipped comparison", native_only["error"])
+
+    def test_builtin_census_change_rejects_the_cycle(self):
+        jobs, lanes = [job("FuzzA"), job("ToastDifferential")], {"FuzzA": {"completed_executions": 5, "campaign": "clean"}}
+        for builtins, message in (
+                (None, "ToastDifferential: no builtin census"),
+                ({"newly_zero": ["trunc"]}, "ToastDifferential: no builtin census"),
+                ({"newly_zero": ["trunc"], "newly_covered": []},
+                 "builtin census: no compared program or conformance test calls trunc"),
+                ({"newly_zero": [], "newly_covered": ["curl"]},
+                 "builtin census: curl gained coverage; remove from scripts/fuzz_zero_coverage_builtins.txt")):
+            with self.subTest(builtins=builtins):
+                result = self.accept(jobs, lanes, builtins=builtins)
+                self.assertIn(message, result.get("error", ""))
 
     def test_incomplete_or_unmeasured_cycle_is_rejected(self):
         good = {"completed_executions": 5, "campaign": "clean"}
@@ -453,6 +469,15 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         compute = (ROOT / "scripts/fuzz_compute.cjs").read_text()
         self.assertIn(f"{{name: '{CROSS_ENGINE}', step: '{RESUME}',\n   results: 'fuzz-cross-engine/results.json'}}",
                       compute)
+
+    def test_builtin_census_is_written_into_the_uploaded_evidence(self):
+        fuzz = (ROOT / ".github/workflows/fuzz.yml").read_text()
+        differential = fuzz.split("\n  differential:\n")[1].split("\n  accept:\n")[0]
+        census = differential.index("scripts/fuzz_builtin_census.py")
+        self.assertLess(differential.index(f"name: {COMPARE}"), census)
+        self.assertLess(census, differential.index("name: Upload differential evidence"))
+        self.assertIn("--out fuzz-differential", differential[census:])
+        self.assertIn("repository: MongooseMoo/moo-conformance-tests", differential)
 
     def test_changed_dedicated_configuration_prevents_replenishment(self):
         result = self.execute(env={**CONFIG, "FUZZ_RUNNER_LABELS": ""})

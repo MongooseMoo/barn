@@ -66,6 +66,7 @@ func TestCommandLineMistakesExitTwo(t *testing.T) {
 		{"frobnicate"},               // unknown command
 		{"dump-obj-raw", "#1", "#2"}, // too many arguments
 		{"memory-report", "--memory-profile", "x"},
+		{"toast-check", "--db", "x"}, // no --builtins
 	}
 	for _, args := range cases {
 		code, _, errOut := barn(t, args...)

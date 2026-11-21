@@ -152,7 +152,8 @@ func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpoi
 	return strings.Join(differences, "; "), ""
 }
 
-// newCheckpointResumeRegistry is newSourceFuzzRegistry, except that a call
+// newCheckpointResumeRegistry is newSourceFuzzRegistry with
+// structuredFuzzCapabilities, for generated programs, except that a call
 // whose result unrepeatableCall names as differing between two runs of the
 // same program skips the case in place of the builtin. Such a result differs
 // between the uninterrupted and the checkpointed run with or without the
@@ -169,7 +170,7 @@ func newCheckpointResumeRegistry(t *testing.T) *builtins.Registry {
 			return call(ctx, args)
 		}
 	}
-	return newRegistryOrFatal(t, descriptors)
+	return newRegistryOrFatal(t, structuredFuzzCapabilities, descriptors)
 }
 
 // unrepeatableCall returns why a call of the named builtin with argc
@@ -410,9 +411,10 @@ const checkpointValueBudget = 64 << 20
 // store the way engine.Runtime.loadSuspendedTask does, through the import of
 // Toast's frames. A task ExportNativeSnapshot refuses fails the case: the
 // runtime keeps such a task in Barn's frame form, and Toast cannot load the
-// checkpoint that holds it. The one refusal by design is
-// compiler.ErrPathDependentClear (engine TestExportRefusesPathDependentPushClear):
-// that task is written in Barn's frame form, as the runtime writes it, and
+// checkpoint that holds it. The refusals by design are
+// compiler.ErrPathDependentClear (engine TestExportRefusesPathDependentPushClear)
+// and ErrToastLosesObjectContinuation (TestExportRefusesObjectContinuation):
+// such a task is written in Barn's frame form, as the runtime writes it, and
 // must still resume the same. The restored VM keeps the task's state and tick
 // count: a snapshot carries no ticks, and the fuzz driver's budget spans the
 // whole task.
@@ -424,7 +426,7 @@ func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store, fork
 		t.Fatalf("task has %d activations for %d VM frames; the driver must push each task's root activation", len(snapshot.CallStack), len(snapshot.VM.Frames))
 	}
 	exported, err := ExportNativeSnapshot(snapshot.VM, snapshot.CallStack, machine.Builtins.Registry().Compiler())
-	if errors.Is(err, compiler.ErrPathDependentClear) {
+	if errors.Is(err, compiler.ErrPathDependentClear) || errors.Is(err, ErrToastLosesObjectContinuation) {
 		restored, reloadedStore, restoredForks, _ := reloadCheckpoint(t, machine, store, forks, snapshot)
 		return restored, reloadedStore, restoredForks
 	}
