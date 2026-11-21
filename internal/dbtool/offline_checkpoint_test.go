@@ -82,7 +82,7 @@ func TestOfflineCheckpointKeepsTasksWaifsAndIsStable(t *testing.T) {
 	options := config.DefaultOptions()
 
 	var out bytes.Buffer
-	if err := WriteOfflineCheckpoint(&out, source, options, false, false); err != nil {
+	if err := WriteOfflineCheckpoint(&out, source, options, false, false, ""); err != nil {
 		t.Fatalf("first offline checkpoint: %v", err)
 	}
 	if !strings.Contains(out.String(), "wrote "+source+".new: 1 queued, 1 suspended or interrupted tasks, 1 connections") {
@@ -111,7 +111,7 @@ func TestOfflineCheckpointKeepsTasksWaifsAndIsStable(t *testing.T) {
 		t.Fatalf("WAIF sidecar: %v", err)
 	}
 
-	if err := WriteOfflineCheckpoint(io.Discard, first, options, false, false); err != nil {
+	if err := WriteOfflineCheckpoint(io.Discard, first, options, false, false, ""); err != nil {
 		t.Fatalf("second offline checkpoint: %v", err)
 	}
 	for _, suffix := range []string{"", ".waifids"} {
@@ -129,9 +129,52 @@ func TestOfflineCheckpointKeepsTasksWaifsAndIsStable(t *testing.T) {
 	}
 }
 
+// With a program to run, every task due within a second runs (a suspend(0)
+// resumes) and the checkpoint holds what is still waiting.
+func TestOfflineCheckpointRunsProgramUntilNoTaskIsDue(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	if err := dbformat.WriteCheckpoint(source, evalStore(t), nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	program := filepath.Join(dir, "world.moo")
+	if err := os.WriteFile(program, []byte(`add_property(#0, "made", 0, {#3, "rw"});
+suspend(0);
+#0.made = 7;
+fork (3600)
+  return 1;
+endfork
+suspend();
+return 1;
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := WriteOfflineCheckpoint(&out, source+".new", config.DefaultOptions(), false, false, program); err != nil {
+		t.Fatalf("offline checkpoint: %v", err)
+	}
+	if !strings.Contains(out.String(), ".new: 1 queued, 1 suspended or interrupted tasks, 0 connections") {
+		t.Fatalf("output = %q", out.String())
+	}
+	loaded, err := dbformat.LoadDatabaseReadOnly(source + ".new.new")
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if len(loaded.QueuedTasks) != 1 || len(loaded.SuspendedTasks) != 1 {
+		t.Fatalf("reloaded %d queued, %d suspended; want 1, 1", len(loaded.QueuedTasks), len(loaded.SuspendedTasks))
+	}
+	store, err := loaded.NewStoreFromDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if made, errCode := store.DirectTxn().PropertyValue(0, "made"); errCode != types.E_NONE || !made.Equal(types.NewInt(7)) {
+		t.Fatalf("#0.made = %v (%v), want 7", made, errCode)
+	}
+}
+
 func TestOfflineCheckpointOmitSuspendedKeepsQueuedTasks(t *testing.T) {
 	source := writeTaskAndWaifCheckpoint(t)
-	if err := WriteOfflineCheckpoint(io.Discard, source, config.DefaultOptions(), true, false); err != nil {
+	if err := WriteOfflineCheckpoint(io.Discard, source, config.DefaultOptions(), true, false, ""); err != nil {
 		t.Fatalf("offline checkpoint: %v", err)
 	}
 	loaded, err := dbformat.LoadDatabaseReadOnly(source + ".new")

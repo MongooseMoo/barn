@@ -40,9 +40,14 @@ const SUCCESSOR = 'Submit continuous successor';
 // The jobs that compare Barn with Toast: the one step that may fail, and the
 // results file their artifact carries, whose summary.outcome is success,
 // divergence or inconclusive.
+// A job may hold several comparison steps, each with its own results; key
+// names one in the log when it is not its job's only one.
 const COMPARISONS = [
   {name: DIFFERENTIAL, step: 'Compare retained public source on Barn and Toast',
    results: 'fuzz-differential/results.json'},
+  // Barn-written worlds loaded in Toast (scripts/toast_reads_barn_db.py).
+  {name: DIFFERENTIAL, key: 'ToastReadsBarnDatabase', step: 'Compare Barn-written worlds in Toast',
+   results: 'toast-reads-barn-db/results.json'},
   {name: 'ToastCrossEngineCheckpoint', step: 'Resume retained suspended stacks on the other engine',
    results: 'fuzz-cross-engine/results.json'},
 ];
@@ -73,12 +78,8 @@ async function accept({github, context, core}) {
   };
   if (fs.existsSync('.fuzz/retained')) walk('.fuzz/retained');
   const problems = [];
-  // Only the step that found something may fail; a failed upload, cache save
+  // Only a step that found something may fail; a failed upload, cache save
   // or issue report is an evidence failure.
-  const onlyFailed = (job, step) => {
-    const failed = (job.steps || []).filter(s => s.conclusion === 'failure').map(s => s.name);
-    return job.conclusion === 'success' ? failed.length === 0 : failed.length === 1 && failed[0] === step;
-  };
   const lanes = jobs.filter(job => !NOT_LANES.has(job.name));
   if (!lanes.length) problems.push('no native lanes ran');
   for (const job of lanes) {
@@ -106,20 +107,26 @@ async function accept({github, context, core}) {
     if (job.conclusion === 'failure' && failed.length === 0) problems.push(`${job.name}: failure without a failed step`);
   }
   const outcomes = {};
-  for (const {name, step, results} of COMPARISONS) {
+  for (const {name, key = name, step, results} of COMPARISONS) {
     const comparison = jobs.find(job => job.name === name);
     const outcome = fs.existsSync(results) ? JSON.parse(fs.readFileSync(results, 'utf8')).summary?.outcome : undefined;
-    outcomes[name] = selected === 'native-only' ? 'not-run-native-only' : outcome ?? null;
+    outcomes[key] = selected === 'native-only' ? 'not-run-native-only' : outcome ?? null;
     if (selected === 'native-only') {
       if (comparison?.conclusion !== 'skipped' || fs.existsSync(results)) {
         problems.push(`${name}: native-only requires a skipped comparison with no results`);
       }
     } else if (!comparison || !['success', 'failure'].includes(comparison.conclusion)) {
       problems.push(`${name}: job ${comparison?.conclusion ?? 'missing'}`);
-    } else if (!onlyFailed(comparison, step)) {
-      problems.push(`${name}: a step other than the comparison failed`);
-    } else if (outcome !== (comparison.conclusion === 'success' ? 'success' : 'divergence')) {
-      problems.push(`${name}: outcome ${outcome ?? 'missing'} with job ${comparison.conclusion}`);
+    } else {
+      // Each comparison step may fail with a finding; no other step may.
+      const steps = COMPARISONS.filter(c => c.name === name).map(c => c.step);
+      const failed = (comparison.steps || []).filter(s => s.conclusion === 'failure').map(s => s.name);
+      const stepFailed = failed.includes(step);
+      if (failed.some(s => !steps.includes(s)) || (comparison.conclusion === 'failure') !== (failed.length > 0)) {
+        problems.push(`${name}: a step other than the comparison failed`);
+      } else if (outcome !== (stepFailed ? 'divergence' : 'success')) {
+        problems.push(`${key}: outcome ${outcome ?? 'missing'} with step ${stepFailed ? 'failure' : 'success'}`);
+      }
     }
   }
   // scripts/fuzz_builtin_census.py: a builtin that lost its last compared
@@ -141,7 +148,7 @@ async function accept({github, context, core}) {
   }
   core.info(JSON.stringify({campaign: selected, lanes: lanes.length,
     differential: outcomes[DIFFERENTIAL], comparisons: outcomes, problems}));
-  if (problems.length) throw new Error(`Cycle not accepted: ${problems.join('; ')}`);
+  if (problems.length) throw new Error(`Cycle not accepted: ${[...new Set(problems)].join('; ')}`);
 }
 
 const CONTINUOUS = new Map([

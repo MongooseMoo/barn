@@ -1,0 +1,104 @@
+name: Toast reads Barn's Mongoose checkpoint
+
+# Barn loads the dump of the live world that goodput-series.yml measures and
+# writes it through its checkpoint writer (barn offline-checkpoint); the
+# Mongoose Toast build then loads that file, and both engines must see the
+# same world: every object, property, verb and task count
+# (scripts/toast_reads_barn_db.py database). The run fails when Toast refuses
+# the file, when anything differs, or when Barn kept a task in its own frame
+# form, which Toast cannot load. Going back to Toast depends on this.
+#
+# The Toast is the build the live game runs (profiles/toast/mongoose-0ff6fd7-wsl-testdb.json;
+# docs/mongoose-conformance.md names that commit; PROMOTE_NUMBERS on), not
+# stock, the same pin toast-check.yml checks the dump's builtins against.
+#
+# The dump holds real players' data and this repository's logs are public.
+# Everything is kept in the runner's temporary directory; the step prints only
+# the script's report, which holds counts, digests and Barn's own fixed
+# format strings, and none of its error output.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/toast-reads-mongoose-checkpoint.yml
+      - scripts/toast_reads_barn_db.py
+      - internal/dbtool/offline_checkpoint.go
+      - profiles/toast/mongoose-0ff6fd7-wsl-testdb.json
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Toast loads Barn's Mongoose checkpoint and sees the same world
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+
+      # The pin is goodput-series.yml's, read from it so the two cannot drift.
+      - name: Copy the database and check it is the pinned one
+        run: |
+          set -euo pipefail
+          pin() { awk -v key="$1:" '$1 == key { print $2 }' .github/workflows/goodput-series.yml; }
+          mkdir -p "$RUNNER_TEMP/trbd"
+          cp "$(pin FIXTURE)" "$RUNNER_TEMP/trbd/mongoose.db"
+          echo "$(pin FIXTURE_SHA256)  $RUNNER_TEMP/trbd/mongoose.db" | sha256sum --check --quiet
+
+      - name: Read Mongoose Toast pin
+        id: toast-pin
+        run: |
+          python3 -c 'import json; m = json.load(open("profiles/toast/mongoose-0ff6fd7-wsl-testdb.json")); print("ref=" + m["implementation_ref"]); print("options=" + m["config_checksum"])' >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: MongooseMoo/toaststunt
+          ref: ${{ steps.toast-pin.outputs.ref }}
+          path: toaststunt
+          persist-credentials: false
+
+      - name: Build Mongoose Toast and Barn
+        env:
+          OPTIONS_SHA256: ${{ steps.toast-pin.outputs.options }}
+        run: |
+          echo "$OPTIONS_SHA256  toaststunt/src/include/options.h" | sha256sum -c -
+          # CMakeLists.txt generates version_options.h in cmake's working
+          # directory, which must be the build directory to be included.
+          mkdir toaststunt/build
+          (cd toaststunt/build && cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build . -j2)
+          go list -f '{{.ImportPath}} {{.Name}}' ./cmd/barn
+          go build -o bin/ ./cmd/barn
+
+      - name: Compare
+        run: |
+          set -uo pipefail
+          status=0
+          python3 scripts/toast_reads_barn_db.py database "$RUNNER_TEMP/trbd/mongoose.db" \
+            --toast "$PWD/toaststunt/build/moo" --barn-linux bin/barn --out "$RUNNER_TEMP/trbd/out" \
+            2> "$RUNNER_TEMP/trbd/stderr.txt" || status=$?
+          # The script prints every failure's reason on stdout. Its error
+          # output is shown too until an engine has read the database (it then
+          # creates data-read-started), e.g. a Python syntax or import error.
+          if [ "$status" -ne 0 ]; then
+            if [ -e "$RUNNER_TEMP/trbd/out/data-read-started" ]; then
+              echo "comparison exited $status. Its error output is not shown because it can name players' objects."
+            else
+              echo "comparison exited $status before reading the database; its error output:"
+              cat "$RUNNER_TEMP/trbd/stderr.txt"
+            fi
+          fi
+          exit "$status"
+
+      - name: Remove the database copies and transcripts
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/trbd"
