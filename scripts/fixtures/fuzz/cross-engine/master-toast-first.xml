@@ -1,0 +1,563 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="5" time="14.100" timestamp="2026-11-20T22:45:57.851007-07:00" hostname="Empiricist"><testcase classname="test_conformance" name="test_capability_admission" time="1.210"><properties><property name="admission_context" value="same-session" /></properties></testcase><testcase classname="test_conformance" name="test_yaml_conformance[cross_engine_generated.yaml::generated_3c477a14bb6f1b4e]" time="0.395"><failure message="moo_conformance.server.RestartCommandError: Managed server exited before accepting connections&#10;First process return code: 1&#10;Server log: /tmp/moo_conformance_ghvswoid/server.log&#10;--- server log tail ---&#10;Nov 20 22:46:06: *** TLS: Failed to load default certificate: error:80000002:system library::No such file or directory&#10;Nov 20 22:46:06: *** TLS: Failed to load default private key: error:10080002:BIO routines::system lib&#10;Nov 20 22:46:06: *** TLS: Private key does not match the certificate: error:0A080002:SSL routines::system lib&#10;Nov 20 22:46:06:  _   __           _____                ______&#10;Nov 20 22:46:06: ( `^` ))  ___________  /_____  _________ __  /_&#10;Nov 20 22:46:06: |     ||   __  ___/_  __/_  / / /__  __ \_  __/&#10;Nov 20 22:46:06: |     ||   _(__  ) / /_  / /_/ / _  / / // /_&#10;Nov 20 22:46:06: '-----'`   /____/  \__/  \__,_/  /_/ /_/ \__/   v2.8.0_7&#10;Nov 20 22:46:06: &#10;Nov 20 22:46:06: STARTING: Version 2.8.0_7 (64-bit) of the ToastStunt/LambdaMOO server&#10;Nov 20 22:46:06:           (Task timeouts measured in server CPU seconds.)&#10;Nov 20 22:46:06:           (Process id 133838)&#10;Nov 20 22:46:06: !!! CMDLINE: Initial port = 39925&#10;Nov 20 22:46:06: !!! NETWORK: Outbound network connections enabled.&#10;Nov 20 22:46:06: REGISTER_NETWORK: Using OpenSSL 3.0.22 25 Aug 2026&#10;Nov 20 22:46:06: REGISTER_SQLITE: Using SQLite Library v3.40.1&#10;Nov 20 22:46:06: REGISTER_PCRE: Using PCRE2 Library v10.42 2022-12-11 (JIT)&#10;Nov 20 22:46:06: REGISTER_ARGON2: Using Argon2 version 19&#10;Nov 20 22:46:06: REGISTER_SPELLCHECK: v1.0 (Aspell Library v0.60.8)&#10;Nov 20 22:46:06: REGISTER_CURL: Using libcurl version libcurl/7.88.1 OpenSSL/3.0.22 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13&#10;Nov 20 22:46:06: LOADING: /tmp/moo_conformance_ghvswoid/Test.db&#10;Nov 20 22:46:06: LOADING: Reading 8 objects ...&#10;Nov 20 22:46:06: LOADING: Done reading 8 objects ...&#10;Nov 20 22:46:06: VALIDATING the object hierarchies ...&#10;Nov 20 22:46:06: VALIDATE: Phase 1: Check for invalid objects ...&#10;Nov 20 22:46:06: VALIDATE: Phase 2: Check for cycles ...&#10;Nov 20 22:46:06: VALIDATE: Phase 3: Check for inconsistencies ...&#10;Nov 20 22:46:06: VALIDATING the object hierarchies ... finished.&#10;Nov 20 22:46:06: UPGRADING objects to new structure ...&#10;Nov 20 22:46:06: UPGRADING objects to new structure ... finished.&#10;Nov 20 22:46:06: LOADING: Reading 5 MOO verb programs ...&#10;Nov 20 22:46:06: LOADING: Done reading 5 verb programs ...&#10;Nov 20 22:46:06: LOADING: Reading forked and suspended tasks ...&#10;Nov 20 22:46:06: LOADING: Reading list of formerly active connections ...&#10;Nov 20 22:46:06: VALIDATE: Check for self-referential waifs ...&#10;Nov 20 22:46:06: LOADING: /tmp/moo_conformance_ghvswoid/Test.db done, will dump new database on /tmp/moo_conformance_ghvswoid/Test.db.new&#10;Nov 20 22:46:06: INTERN: 2 allocations saved, 18 bytes&#10;Nov 20 22:46:06: INTERN: at end, 28 entries in a 10007 bucket hash table.&#10;Nov 20 22:46:06: CACHE: Loaded protect cache for 238 builtin functions&#10;Nov 20 22:46:06: RANDOM: seeding from /dev/urandom&#10;Nov 20 22:46:06: LISTEN: #0 now listening on 0.0.0.0 [0.0.0.0], port 39925&#10;Nov 20 22:46:06: LISTEN: #0 now listening on :: [::], port 39925&#10;Nov 20 22:46:06: ACCEPT: #-2 on 0.0.0.0 [0.0.0.0], port 39925 from localhost [127.0.0.1], port 32840&#10;Nov 20 22:46:06: CLIENT DISCONNECTED: #-2 on localhost&#10;Nov 20 22:46:06: ACCEPT: #-3 on 0.0.0.0 [0.0.0.0], port 39925 from localhost [127.0.0.1], port 32854&#10;Nov 20 22:46:06: ### WIZARDED: #8 by programmer #3&#10;Nov 20 22:46:06: #0:do_login_command (this == #0), line 17:  Wizard bit set.&#10;Nov 20 22:46:06: (End of traceback)&#10;Nov 20 22:46:06: CONNECTED: #-3 is now  (#8) on localhost&#10;Nov 20 22:46:07: CONNECT: #-4 to localhost [127.0.0.1], port 39925&#10;Nov 20 22:46:07: DISCONNECTED: #-4 on localhost&#10;Nov 20 22:46:07: ACCEPT: #-5 on 0.0.0.0 [0.0.0.0], port 39925 from localhost [127.0.0.1], port 32870&#10;Nov 20 22:46:07: CLIENT DISCONNECTED: #-5 on localhost&#10;Nov 20 22:46:07: LISTEN: #8 now listening on 0.0.0.0 [0.0.0.0], port 0&#10;Nov 20 22:46:07: UNLISTEN: #8 no longer listening on 0.0.0.0&#10;Nov 20 22:46:07: CODE_CHANGE:  (#8) set verb #9:run&#10;Nov 20 22:46:07: CODE_CHANGE:  (#8) set verb #9:go&#10;Nov 20 22:46:07: CODE_CHANGE:  (#8) set verb #9:drain&#10;Nov 20 22:46:07: CODE_CHANGE:  (#8) set verb #9:snap&#10;Nov 20 22:46:07: CHECKPOINTING on /tmp/moo_conformance_ghvswoid/Test.db.new.#1# ...&#10;Nov 20 22:46:07: CLIENT DISCONNECTED:  (#8) on localhost&#10;Nov 20 22:46:07: CHECKPOINTING: Writing values pending finalization ...&#10;Nov 20 22:46:07: CHECKPOINTING: Writing forked and suspended tasks ...&#10;Nov 20 22:46:07: CHECKPOINTING: Writing list of formerly active connections ...&#10;Nov 20 22:46:07: CHECKPOINTING: Writing 12 objects ...&#10;Nov 20 22:46:07: CHECKPOINTING: Done writing 12 objects ...&#10;Nov 20 22:46:07: CHECKPOINTING: Writing 9 MOO verb programs ...&#10;Nov 20 22:46:07: CHECKPOINTING: Done writing 9 verb programs ...&#10;Nov 20 22:46:07: CHECKPOINTING on /tmp/moo_conformance_ghvswoid/Test.db.new.#1# finished&#10;Nov 20 22:46:08: ### SHUTDOWN: shutdown signal received&#10;Nov 20 22:46:08: DUMPING on /tmp/moo_conformance_ghvswoid/Test.db.new.#2# ...&#10;Nov 20 22:46:08: DUMPING: Writing values pending finalization ...&#10;Nov 20 22:46:08: DUMPING: Writing forked and suspended tasks ...&#10;Nov 20 22:46:08: DUMPING: Writing list of formerly active connections ...&#10;Nov 20 22:46:08: DUMPING: Writing 12 objects ...&#10;Nov 20 22:46:08: DUMPING: Done writing 12 objects ...&#10;Nov 20 22:46:08: DUMPING: Writing 9 MOO verb programs ...&#10;Nov 20 22:46:08: DUMPING: Done writing 9 verb programs ...&#10;Nov 20 22:46:08: DUMPING on /tmp/moo_conformance_ghvswoid/Test.db.new.#2# finished&#10;time=2026-11-20T22:46:08.166-07:00 level=INFO msg=&quot;Barn MOO Server&quot; database=/tmp/moo_conformance_ghvswoid/Test.db listeners=tcp://127.0.0.1:39925&#10;time=2026-11-20T22:46:08.202-07:00 level=INFO msg=listening protocol=tcp port=39925 descriptor_port=39925 this=0 primary=true&#10;time=2026-11-20T22:46:08.202-07:00 level=INFO msg=&quot;debug endpoint listening&quot; addr=127.0.0.1:44883&#10;time=2026-11-20T22:46:08.208-07:00 level=INFO msg=&quot;operator endpoint listening&quot; addr=127.0.0.1:41989&#10;time=2026-11-20T22:46:08.237-07:00 level=WARN msg=&quot;failed to restore suspended task&quot; task_id=963952496 verb=&quot;&quot; verbloc=-1 this=-1 programmer=8 err=&quot;native frame 3: native builtin continuation requires conversion&quot;&#10;time=2026-11-20T22:46:08.237-07:00 level=INFO msg=&quot;operator endpoint stopped&quot;&#10;time=2026-11-20T22:46:08.237-07:00 level=INFO msg=&quot;debug endpoint stopped&quot;&#10;time=2026-11-20T22:46:08.237-07:00 level=ERROR msg=&quot;Barn failed&quot; err=&quot;load database: restore suspended tasks: suspended task 963952496: native frame 3: native builtin continuation requires conversion&quot;&#10;&#10;--- end server log tail ---">self = &lt;moo_conformance.server.ManagedServer object at 0x74cda7a43770&gt;
+db_path = None, wait_for_port = True, ignore_sighup = False, arguments = None
+
+    def start(
+        self, db_path: Path | None = None, wait_for_port: bool = True,
+        ignore_sighup: bool = False,
+        arguments: list[str] | None = None,
+    ) -&gt; None:
+        """Start the server subprocess.
+    
+        When wait_for_port is False, the process is started and may exit on its
+        own after startup repair / dump processing without ever accepting a
+        socket connection.
+        """
+        if self._lifecycle_failure is not None:
+            raise self._lifecycle_failure
+    
+        selected_db_path = db_path if db_path is not None else self.db_path
+        previous_db_copy_path = self._db_copy_path
+        pending_copy_path: Path | None = None
+        rollback_copy_path: Path | None = None
+        db_copy_path: Path | None = None
+        use_restart_command = False
+    
+        def restore_failed_copy() -&gt; None:
+            if pending_copy_path is not None:
+                pending_copy_path.unlink(missing_ok=True)
+            if rollback_copy_path is not None and rollback_copy_path.exists():
+                if db_copy_path is None:
+                    raise RuntimeError("Managed server rollback target is missing")
+                os.replace(rollback_copy_path, db_copy_path)
+            elif (
+                db_copy_path is not None
+                and db_copy_path != previous_db_copy_path
+                and db_copy_path.exists()
+            ):
+                db_copy_path.unlink()
+    
+        try:
+            # Pick a port once (or use explicitly requested port).
+            if self._port is None:
+                if self._requested_port is not None:
+                    self._port = self._requested_port
+                else:
+                    self._port = self._find_free_port()
+    
+            # Create temp directory and copy the selected database into it.
+            created_temp_dir = self._temp_dir is None
+            if created_temp_dir:
+                self._temp_dir = tempfile.mkdtemp(prefix="moo_conformance_")
+            if self._temp_dir is None:
+                raise RuntimeError("Managed server temp directory is missing")
+    
+            if previous_db_copy_path is None or db_path is not None:
+                db_copy_path = Path(self._temp_dir, selected_db_path.name)
+            else:
+                db_copy_path = previous_db_copy_path
+    
+            manifest_path = Path(self._temp_dir, "profile.json")
+            # ToastStunt resolves file I/O paths under FILE_SUBDIR, which is "files".
+            Path(self._temp_dir, "files").mkdir(exist_ok=True)
+            self._install_exec_fixtures()
+    
+            # On the initial start, or when explicitly switching suites to a
+            # different source database, refresh the managed working copy from the
+            # selected input DB. Stage the copy first so a missing source cannot
+            # overwrite the last successfully selected working database.
+            fresh_copy = created_temp_dir or db_path is not None or not db_copy_path.exists()
+            use_restart_command = self.restart_command_template is not None and not fresh_copy
+            if fresh_copy:
+                pending_copy_path = db_copy_path.with_name(db_copy_path.name + ".pending")
+                pending_copy_path.unlink(missing_ok=True)
+                shutil.copy2(selected_db_path, pending_copy_path)
+                if db_copy_path == previous_db_copy_path and db_copy_path.exists():
+                    rollback_copy_path = db_copy_path.with_name(
+                        db_copy_path.name + ".rollback"
+                    )
+                    rollback_copy_path.unlink(missing_ok=True)
+                    os.replace(db_copy_path, rollback_copy_path)
+                os.replace(pending_copy_path, db_copy_path)
+                pending_copy_path = None
+            db_dest = db_copy_path
+    
+            for checkpoint_output in self._checkpoint_output_candidates(db_dest):
+                checkpoint_output.unlink(missing_ok=True)
+    
+            # Use forward slashes so shlex.split doesn't eat backslashes
+            db_posix = db_dest.as_posix()
+    
+            # Substitute placeholders in command template
+            command_template = (
+                self.restart_command_template if use_restart_command else self.command_template
+            )
+            assert command_template is not None
+            command = command_template.format(
+                port=self._port,
+                db=db_posix,
+                manifest=manifest_path.as_posix(),
+                server_dir=Path(self._temp_dir).as_posix(),
+                log=Path(self._temp_dir, "server.log").as_posix(),
+            )
+    
+            # Open log file for server output
+            self._log_path = os.path.join(self._temp_dir, "server.log")
+            self._log_file = open(self._log_path, "a")
+            self._log_file.flush()
+            self._process_log_offset = os.path.getsize(self._log_path)
+            self._process_file_snapshot = snapshot_regular_files(self._temp_dir)
+    
+            argv = shlex.split(command)
+            argv[1:1] = arguments or []
+            if ignore_sighup:
+                if os.name != "posix":
+                    raise ValueError("ignore_sighup requires POSIX")
+                # exec preserves the managed PID and the inherited SIG_IGN.
+                # Avoid preexec_fn, which is unsafe in a threaded harness.
+                argv = [sys.executable, "-c", (
+                    "import os,signal,sys; "
+                    "signal.signal(signal.SIGHUP, signal.SIG_IGN); "
+                    "os.execvp(sys.argv[1], sys.argv[1:])"
+                ), *argv]
+    
+            # Start server process
+            self._on_restart_command = use_restart_command
+            self._process = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=self._log_file,
+                stderr=subprocess.STDOUT,
+                cwd=self._temp_dir,
+            )
+    
+            # Some canned DB fixtures are intended to start, repair, dump, and exit
+            # without staying up long enough for a socket handshake. Their exit is
+            # only a failure if a later operation requires a live transport.
+            if wait_for_port:
+&gt;               self._wait_for_port(timeout=30.0)
+
+../mct-cross-engine-generated/src/moo_conformance/server.py:338: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;moo_conformance.server.ManagedServer object at 0x74cda7a43770&gt;
+timeout = 30.0
+
+    def _wait_for_port(self, timeout: float = 30.0) -&gt; None:
+        """Poll until the server port accepts connections."""
+        assert self._port is not None
+        deadline = time.monotonic() + timeout
+    
+        while time.monotonic() &lt; deadline:
+            # Check if process died
+            if self._process is not None and self._process.poll() is not None:
+&gt;               raise self._record_lifecycle_failure(
+                    "Managed server exited before accepting connections",
+                    returncode=self._process.returncode,
+                )
+E               moo_conformance.server.ManagedServerLifecycleError: Managed server exited before accepting connections
+E               First process return code: 1
+E               Server log: /tmp/moo_conformance_ghvswoid/server.log
+E               --- server log tail ---
+E               Nov 20 22:46:06: *** TLS: Failed to load default certificate: error:80000002:system library::No such file or directory
+E               Nov 20 22:46:06: *** TLS: Failed to load default private key: error:10080002:BIO routines::system lib
+E               Nov 20 22:46:06: *** TLS: Private key does not match the certificate: error:0A080002:SSL routines::system lib
+E               Nov 20 22:46:06:  _   __           _____                ______
+E               Nov 20 22:46:06: ( `^` ))  ___________  /_____  _________ __  /_
+E               Nov 20 22:46:06: |     ||   __  ___/_  __/_  / / /__  __ \_  __/
+E               Nov 20 22:46:06: |     ||   _(__  ) / /_  / /_/ / _  / / // /_
+E               Nov 20 22:46:06: '-----'`   /____/  \__/  \__,_/  /_/ /_/ \__/   v2.8.0_7
+E               Nov 20 22:46:06: 
+E               Nov 20 22:46:06: STARTING: Version 2.8.0_7 (64-bit) of the ToastStunt/LambdaMOO server
+E               Nov 20 22:46:06:           (Task timeouts measured in server CPU seconds.)
+E               Nov 20 22:46:06:           (Process id 133838)
+E               Nov 20 22:46:06: !!! CMDLINE: Initial port = 39925
+E               Nov 20 22:46:06: !!! NETWORK: Outbound network connections enabled.
+E               Nov 20 22:46:06: REGISTER_NETWORK: Using OpenSSL 3.0.22 25 Aug 2026
+E               Nov 20 22:46:06: REGISTER_SQLITE: Using SQLite Library v3.40.1
+E               Nov 20 22:46:06: REGISTER_PCRE: Using PCRE2 Library v10.42 2022-12-11 (JIT)
+E               Nov 20 22:46:06: REGISTER_ARGON2: Using Argon2 version 19
+E               Nov 20 22:46:06: REGISTER_SPELLCHECK: v1.0 (Aspell Library v0.60.8)
+E               Nov 20 22:46:06: REGISTER_CURL: Using libcurl version libcurl/7.88.1 OpenSSL/3.0.22 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13
+E               Nov 20 22:46:06: LOADING: /tmp/moo_conformance_ghvswoid/Test.db
+E               Nov 20 22:46:06: LOADING: Reading 8 objects ...
+E               Nov 20 22:46:06: LOADING: Done reading 8 objects ...
+E               Nov 20 22:46:06: VALIDATING the object hierarchies ...
+E               Nov 20 22:46:06: VALIDATE: Phase 1: Check for invalid objects ...
+E               Nov 20 22:46:06: VALIDATE: Phase 2: Check for cycles ...
+E               Nov 20 22:46:06: VALIDATE: Phase 3: Check for inconsistencies ...
+E               Nov 20 22:46:06: VALIDATING the object hierarchies ... finished.
+E               Nov 20 22:46:06: UPGRADING objects to new structure ...
+E               Nov 20 22:46:06: UPGRADING objects to new structure ... finished.
+E               Nov 20 22:46:06: LOADING: Reading 5 MOO verb programs ...
+E               Nov 20 22:46:06: LOADING: Done reading 5 verb programs ...
+E               Nov 20 22:46:06: LOADING: Reading forked and suspended tasks ...
+E               Nov 20 22:46:06: LOADING: Reading list of formerly active connections ...
+E               Nov 20 22:46:06: VALIDATE: Check for self-referential waifs ...
+E               Nov 20 22:46:06: LOADING: /tmp/moo_conformance_ghvswoid/Test.db done, will dump new database on /tmp/moo_conformance_ghvswoid/Test.db.new
+E               Nov 20 22:46:06: INTERN: 2 allocations saved, 18 bytes
+E               Nov 20 22:46:06: INTERN: at end, 28 entries in a 10007 bucket hash table.
+E               Nov 20 22:46:06: CACHE: Loaded protect cache for 238 builtin functions
+E               Nov 20 22:46:06: RANDOM: seeding from /dev/urandom
+E               Nov 20 22:46:06: LISTEN: #0 now listening on 0.0.0.0 [0.0.0.0], port 39925
+E               Nov 20 22:46:06: LISTEN: #0 now listening on :: [::], port 39925
+E               Nov 20 22:46:06: ACCEPT: #-2 on 0.0.0.0 [0.0.0.0], port 39925 from localhost [127.0.0.1], port 32840
+E               Nov 20 22:46:06: CLIENT DISCONNECTED: #-2 on localhost
+E               Nov 20 22:46:06: ACCEPT: #-3 on 0.0.0.0 [0.0.0.0], port 39925 from localhost [127.0.0.1], port 32854
+E               Nov 20 22:46:06: ### WIZARDED: #8 by programmer #3
+E               Nov 20 22:46:06: #0:do_login_command (this == #0), line 17:  Wizard bit set.
+E               Nov 20 22:46:06: (End of traceback)
+E               Nov 20 22:46:06: CONNECTED: #-3 is now  (#8) on localhost
+E               Nov 20 22:46:07: CONNECT: #-4 to localhost [127.0.0.1], port 39925
+E               Nov 20 22:46:07: DISCONNECTED: #-4 on localhost
+E               Nov 20 22:46:07: ACCEPT: #-5 on 0.0.0.0 [0.0.0.0], port 39925 from localhost [127.0.0.1], port 32870
+E               Nov 20 22:46:07: CLIENT DISCONNECTED: #-5 on localhost
+E               Nov 20 22:46:07: LISTEN: #8 now listening on 0.0.0.0 [0.0.0.0], port 0
+E               Nov 20 22:46:07: UNLISTEN: #8 no longer listening on 0.0.0.0
+E               Nov 20 22:46:07: CODE_CHANGE:  (#8) set verb #9:run
+E               Nov 20 22:46:07: CODE_CHANGE:  (#8) set verb #9:go
+E               Nov 20 22:46:07: CODE_CHANGE:  (#8) set verb #9:drain
+E               Nov 20 22:46:07: CODE_CHANGE:  (#8) set verb #9:snap
+E               Nov 20 22:46:07: CHECKPOINTING on /tmp/moo_conformance_ghvswoid/Test.db.new.#1# ...
+E               Nov 20 22:46:07: CLIENT DISCONNECTED:  (#8) on localhost
+E               Nov 20 22:46:07: CHECKPOINTING: Writing values pending finalization ...
+E               Nov 20 22:46:07: CHECKPOINTING: Writing forked and suspended tasks ...
+E               Nov 20 22:46:07: CHECKPOINTING: Writing list of formerly active connections ...
+E               Nov 20 22:46:07: CHECKPOINTING: Writing 12 objects ...
+E               Nov 20 22:46:07: CHECKPOINTING: Done writing 12 objects ...
+E               Nov 20 22:46:07: CHECKPOINTING: Writing 9 MOO verb programs ...
+E               Nov 20 22:46:07: CHECKPOINTING: Done writing 9 verb programs ...
+E               Nov 20 22:46:07: CHECKPOINTING on /tmp/moo_conformance_ghvswoid/Test.db.new.#1# finished
+E               Nov 20 22:46:08: ### SHUTDOWN: shutdown signal received
+E               Nov 20 22:46:08: DUMPING on /tmp/moo_conformance_ghvswoid/Test.db.new.#2# ...
+E               Nov 20 22:46:08: DUMPING: Writing values pending finalization ...
+E               Nov 20 22:46:08: DUMPING: Writing forked and suspended tasks ...
+E               Nov 20 22:46:08: DUMPING: Writing list of formerly active connections ...
+E               Nov 20 22:46:08: DUMPING: Writing 12 objects ...
+E               Nov 20 22:46:08: DUMPING: Done writing 12 objects ...
+E               Nov 20 22:46:08: DUMPING: Writing 9 MOO verb programs ...
+E               Nov 20 22:46:08: DUMPING: Done writing 9 verb programs ...
+E               Nov 20 22:46:08: DUMPING on /tmp/moo_conformance_ghvswoid/Test.db.new.#2# finished
+E               time=2026-11-20T22:46:08.166-07:00 level=INFO msg="Barn MOO Server" database=/tmp/moo_conformance_ghvswoid/Test.db listeners=tcp://127.0.0.1:39925
+E               time=2026-11-20T22:46:08.202-07:00 level=INFO msg=listening protocol=tcp port=39925 descriptor_port=39925 this=0 primary=true
+E               time=2026-11-20T22:46:08.202-07:00 level=INFO msg="debug endpoint listening" addr=127.0.0.1:44883
+E               time=2026-11-20T22:46:08.208-07:00 level=INFO msg="operator endpoint listening" addr=127.0.0.1:41989
+E               time=2026-11-20T22:46:08.237-07:00 level=WARN msg="failed to restore suspended task" task_id=963952496 verb="" verbloc=-1 this=-1 programmer=8 err="native frame 3: native builtin continuation requires conversion"
+E               time=2026-11-20T22:46:08.237-07:00 level=INFO msg="operator endpoint stopped"
+E               time=2026-11-20T22:46:08.237-07:00 level=INFO msg="debug endpoint stopped"
+E               time=2026-11-20T22:46:08.237-07:00 level=ERROR msg="Barn failed" err="load database: restore suspended tasks: suspended task 963952496: native frame 3: native builtin continuation requires conversion"
+E               
+E               --- end server log tail ---
+
+../mct-cross-engine-generated/src/moo_conformance/server.py:626: ManagedServerLifecycleError
+
+The above exception was the direct cause of the following exception:
+
+runner = &lt;moo_conformance.runner.YamlTestRunner object at 0x74cda7a43230&gt;
+yaml_test_case = (MooTestSuite(name='cross_engine_generated', description='Generated suspended-stack programs resumed by the other engi...ange=None, satisfies=None, notifications=None, output=None), cleanup=[], timeout_ms=120000, provides=None, assumes=[]))
+moo_config = {'log_file': '/tmp/moo_conformance_ghvswoid/server.log', 'managed_server': '1', 'named_log_file': None, 'posix_signals': '1', ...}
+profile_metadata_gate = {'option.OUTBOUND_NETWORK': True, 'option.PROMOTE_NUMBERS': False, 'runtime.arch_bits': 64}
+
+    @pytest.mark.conformance
+    def test_yaml_conformance(runner, yaml_test_case, moo_config, profile_metadata_gate):
+        """Run a single YAML test case.
+    
+        Args:
+            runner: YamlTestRunner fixture
+            yaml_test_case: (suite, test) tuple from parametrization
+            moo_config: dict of available config values for requires.config checks
+        """
+        suite, test = yaml_test_case
+    
+        _skip_declared_yaml_case(suite, test)
+    
+        _enforce_suite_config_requirements(suite, moo_config)
+        runner.prepare_suite_environment(suite)
+        _enforce_suite_requirements(suite, runner, moo_config, profile_metadata_gate)
+        _enforce_skip_condition(test, runner, profile_metadata_gate)
+    
+        if _uses_managed_restart(test) and moo_config.get("managed_server") is None:
+            pytest.skip(config_skip_reason("managed_server"))
+    
+        # With --restart-server-command this test continues on a second engine,
+        # which must meet the same requirements.
+        restart_engine = getattr(runner, "restart_engine", None)
+        if restart_engine is not None and keeps_database_across_restart(test):
+            restart_config = {**moo_config, "named_log_file": restart_engine.named_log_file}
+            with _probing_restart_engine():
+                _enforce_suite_requirements(
+                    suite, restart_engine, restart_config, restart_engine.profile_features
+                )
+                _enforce_skip_condition(test, restart_engine, restart_engine.profile_features)
+    
+        # Run suite setup if not already done
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+&gt;       runner.run_test(test)
+
+../mct-cross-engine-generated/src/moo_conformance/test_conformance.py:448: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../mct-cross-engine-generated/src/moo_conformance/runner.py:477: in run_test
+    self._run_test(test)
+../mct-cross-engine-generated/src/moo_conformance/runner.py:508: in _run_test
+    self._execute_steps(test)
+../mct-cross-engine-generated/src/moo_conformance/runner.py:760: in _execute_steps
+    self._execute_restart_server(
+../mct-cross-engine-generated/src/moo_conformance/runner.py:996: in _execute_restart_server
+    self.managed_server.restart(
+../mct-cross-engine-generated/src/moo_conformance/server.py:524: in restart
+    self.start(wait_for_port=wait_for_port)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;moo_conformance.server.ManagedServer object at 0x74cda7a43770&gt;
+db_path = None, wait_for_port = True, ignore_sighup = False, arguments = None
+
+    def start(
+        self, db_path: Path | None = None, wait_for_port: bool = True,
+        ignore_sighup: bool = False,
+        arguments: list[str] | None = None,
+    ) -&gt; None:
+        """Start the server subprocess.
+    
+        When wait_for_port is False, the process is started and may exit on its
+        own after startup repair / dump processing without ever accepting a
+        socket connection.
+        """
+        if self._lifecycle_failure is not None:
+            raise self._lifecycle_failure
+    
+        selected_db_path = db_path if db_path is not None else self.db_path
+        previous_db_copy_path = self._db_copy_path
+        pending_copy_path: Path | None = None
+        rollback_copy_path: Path | None = None
+        db_copy_path: Path | None = None
+        use_restart_command = False
+    
+        def restore_failed_copy() -&gt; None:
+            if pending_copy_path is not None:
+                pending_copy_path.unlink(missing_ok=True)
+            if rollback_copy_path is not None and rollback_copy_path.exists():
+                if db_copy_path is None:
+                    raise RuntimeError("Managed server rollback target is missing")
+                os.replace(rollback_copy_path, db_copy_path)
+            elif (
+                db_copy_path is not None
+                and db_copy_path != previous_db_copy_path
+                and db_copy_path.exists()
+            ):
+                db_copy_path.unlink()
+    
+        try:
+            # Pick a port once (or use explicitly requested port).
+            if self._port is None:
+                if self._requested_port is not None:
+                    self._port = self._requested_port
+                else:
+                    self._port = self._find_free_port()
+    
+            # Create temp directory and copy the selected database into it.
+            created_temp_dir = self._temp_dir is None
+            if created_temp_dir:
+                self._temp_dir = tempfile.mkdtemp(prefix="moo_conformance_")
+            if self._temp_dir is None:
+                raise RuntimeError("Managed server temp directory is missing")
+    
+            if previous_db_copy_path is None or db_path is not None:
+                db_copy_path = Path(self._temp_dir, selected_db_path.name)
+            else:
+                db_copy_path = previous_db_copy_path
+    
+            manifest_path = Path(self._temp_dir, "profile.json")
+            # ToastStunt resolves file I/O paths under FILE_SUBDIR, which is "files".
+            Path(self._temp_dir, "files").mkdir(exist_ok=True)
+            self._install_exec_fixtures()
+    
+            # On the initial start, or when explicitly switching suites to a
+            # different source database, refresh the managed working copy from the
+            # selected input DB. Stage the copy first so a missing source cannot
+            # overwrite the last successfully selected working database.
+            fresh_copy = created_temp_dir or db_path is not None or not db_copy_path.exists()
+            use_restart_command = self.restart_command_template is not None and not fresh_copy
+            if fresh_copy:
+                pending_copy_path = db_copy_path.with_name(db_copy_path.name + ".pending")
+                pending_copy_path.unlink(missing_ok=True)
+                shutil.copy2(selected_db_path, pending_copy_path)
+                if db_copy_path == previous_db_copy_path and db_copy_path.exists():
+                    rollback_copy_path = db_copy_path.with_name(
+                        db_copy_path.name + ".rollback"
+                    )
+                    rollback_copy_path.unlink(missing_ok=True)
+                    os.replace(db_copy_path, rollback_copy_path)
+                os.replace(pending_copy_path, db_copy_path)
+                pending_copy_path = None
+            db_dest = db_copy_path
+    
+            for checkpoint_output in self._checkpoint_output_candidates(db_dest):
+                checkpoint_output.unlink(missing_ok=True)
+    
+            # Use forward slashes so shlex.split doesn't eat backslashes
+            db_posix = db_dest.as_posix()
+    
+            # Substitute placeholders in command template
+            command_template = (
+                self.restart_command_template if use_restart_command else self.command_template
+            )
+            assert command_template is not None
+            command = command_template.format(
+                port=self._port,
+                db=db_posix,
+                manifest=manifest_path.as_posix(),
+                server_dir=Path(self._temp_dir).as_posix(),
+                log=Path(self._temp_dir, "server.log").as_posix(),
+            )
+    
+            # Open log file for server output
+            self._log_path = os.path.join(self._temp_dir, "server.log")
+            self._log_file = open(self._log_path, "a")
+            self._log_file.flush()
+            self._process_log_offset = os.path.getsize(self._log_path)
+            self._process_file_snapshot = snapshot_regular_files(self._temp_dir)
+    
+            argv = shlex.split(command)
+            argv[1:1] = arguments or []
+            if ignore_sighup:
+                if os.name != "posix":
+                    raise ValueError("ignore_sighup requires POSIX")
+                # exec preserves the managed PID and the inherited SIG_IGN.
+                # Avoid preexec_fn, which is unsafe in a threaded harness.
+                argv = [sys.executable, "-c", (
+                    "import os,signal,sys; "
+                    "signal.signal(signal.SIGHUP, signal.SIG_IGN); "
+                    "os.execvp(sys.argv[1], sys.argv[1:])"
+                ), *argv]
+    
+            # Start server process
+            self._on_restart_command = use_restart_command
+            self._process = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=self._log_file,
+                stderr=subprocess.STDOUT,
+                cwd=self._temp_dir,
+            )
+    
+            # Some canned DB fixtures are intended to start, repair, dump, and exit
+            # without staying up long enough for a socket handshake. Their exit is
+            # only a failure if a later operation requires a live transport.
+            if wait_for_port:
+                self._wait_for_port(timeout=30.0)
+    
+            if rollback_copy_path is not None:
+                rollback_copy_path.unlink(missing_ok=True)
+            if (
+                previous_db_copy_path is not None
+                and previous_db_copy_path != db_copy_path
+                and previous_db_copy_path.exists()
+            ):
+                previous_db_copy_path.unlink()
+            self.db_path = selected_db_path
+            self._db_copy_path = db_copy_path
+            self._manifest_path = manifest_path
+        except ManagedServerLifecycleError as restart_failure:
+            self.stop(preserve_temp=True)
+            restore_failed_copy()
+            if use_restart_command:
+                # The other engine rejecting this database is the restarting
+                # test's result, not the end of the session.
+                self._lifecycle_failure = None
+&gt;               raise RestartCommandError(str(restart_failure)) from restart_failure
+E               moo_conformance.server.RestartCommandError: Managed server exited before accepting connections
+E               First process return code: 1
+E               Server log: /tmp/moo_conformance_ghvswoid/server.log
+E               --- server log tail ---
+E               Nov 20 22:46:06: *** TLS: Failed to load default certificate: error:80000002:system library::No such file or directory
+E               Nov 20 22:46:06: *** TLS: Failed to load default private key: error:10080002:BIO routines::system lib
+E               Nov 20 22:46:06: *** TLS: Private key does not match the certificate: error:0A080002:SSL routines::system lib
+E               Nov 20 22:46:06:  _   __           _____                ______
+E               Nov 20 22:46:06: ( `^` ))  ___________  /_____  _________ __  /_
+E               Nov 20 22:46:06: |     ||   __  ___/_  __/_  / / /__  __ \_  __/
+E               Nov 20 22:46:06: |     ||   _(__  ) / /_  / /_/ / _  / / // /_
+E               Nov 20 22:46:06: '-----'`   /____/  \__/  \__,_/  /_/ /_/ \__/   v2.8.0_7
+E               Nov 20 22:46:06: 
+E               Nov 20 22:46:06: STARTING: Version 2.8.0_7 (64-bit) of the ToastStunt/LambdaMOO server
+E               Nov 20 22:46:06:           (Task timeouts measured in server CPU seconds.)
+E               Nov 20 22:46:06:           (Process id 133838)
+E               Nov 20 22:46:06: !!! CMDLINE: Initial port = 39925
+E               Nov 20 22:46:06: !!! NETWORK: Outbound network connections enabled.
+E               Nov 20 22:46:06: REGISTER_NETWORK: Using OpenSSL 3.0.22 25 Aug 2026
+E               Nov 20 22:46:06: REGISTER_SQLITE: Using SQLite Library v3.40.1
+E               Nov 20 22:46:06: REGISTER_PCRE: Using PCRE2 Library v10.42 2022-12-11 (JIT)
+E               Nov 20 22:46:06: REGISTER_ARGON2: Using Argon2 version 19
+E               Nov 20 22:46:06: REGISTER_SPELLCHECK: v1.0 (Aspell Library v0.60.8)
+E               Nov 20 22:46:06: REGISTER_CURL: Using libcurl version libcurl/7.88.1 OpenSSL/3.0.22 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13
+E               Nov 20 22:46:06: LOADING: /tmp/moo_conformance_ghvswoid/Test.db
+E               Nov 20 22:46:06: LOADING: Reading 8 objects ...
+E               Nov 20 22:46:06: LOADING: Done reading 8 objects ...
+E               Nov 20 22:46:06: VALIDATING the object hierarchies ...
+E               Nov 20 22:46:06: VALIDATE: Phase 1: Check for invalid objects ...
+E               Nov 20 22:46:06: VALIDATE: Phase 2: Check for cycles ...
+E               Nov 20 22:46:06: VALIDATE: Phase 3: Check for inconsistencies ...
+E               Nov 20 22:46:06: VALIDATING the object hierarchies ... finished.
+E               Nov 20 22:46:06: UPGRADING objects to new structure ...
+E               Nov 20 22:46:06: UPGRADING objects to new structure ... finished.
+E               Nov 20 22:46:06: LOADING: Reading 5 MOO verb programs ...
+E               Nov 20 22:46:06: LOADING: Done reading 5 verb programs ...
+E               Nov 20 22:46:06: LOADING: Reading forked and suspended tasks ...
+E               Nov 20 22:46:06: LOADING: Reading list of formerly active connections ...
+E               Nov 20 22:46:06: VALIDATE: Check for self-referential waifs ...
+E               Nov 20 22:46:06: LOADING: /tmp/moo_conformance_ghvswoid/Test.db done, will dump new database on /tmp/moo_conformance_ghvswoid/Test.db.new
+E               Nov 20 22:46:06: INTERN: 2 allocations saved, 18 bytes
+E               Nov 20 22:46:06: INTERN: at end, 28 entries in a 10007 bucket hash table.
+E               Nov 20 22:46:06: CACHE: Loaded protect cache for 238 builtin functions
+E               Nov 20 22:46:06: RANDOM: seeding from /dev/urandom
+E               Nov 20 22:46:06: LISTEN: #0 now listening on 0.0.0.0 [0.0.0.0], port 39925
+E               Nov 20 22:46:06: LISTEN: #0 now listening on :: [::], port 39925
+E               Nov 20 22:46:06: ACCEPT: #-2 on 0.0.0.0 [0.0.0.0], port 39925 from localhost [127.0.0.1], port 32840
+E               Nov 20 22:46:06: CLIENT DISCONNECTED: #-2 on localhost
+E               Nov 20 22:46:06: ACCEPT: #-3 on 0.0.0.0 [0.0.0.0], port 39925 from localhost [127.0.0.1], port 32854
+E               Nov 20 22:46:06: ### WIZARDED: #8 by programmer #3
+E               Nov 20 22:46:06: #0:do_login_command (this == #0), line 17:  Wizard bit set.
+E               Nov 20 22:46:06: (End of traceback)
+E               Nov 20 22:46:06: CONNECTED: #-3 is now  (#8) on localhost
+E               Nov 20 22:46:07: CONNECT: #-4 to localhost [127.0.0.1], port 39925
+E               Nov 20 22:46:07: DISCONNECTED: #-4 on localhost
+E               Nov 20 22:46:07: ACCEPT: #-5 on 0.0.0.0 [0.0.0.0], port 39925 from localhost [127.0.0.1], port 32870
+E               Nov 20 22:46:07: CLIENT DISCONNECTED: #-5 on localhost
+E               Nov 20 22:46:07: LISTEN: #8 now listening on 0.0.0.0 [0.0.0.0], port 0
+E               Nov 20 22:46:07: UNLISTEN: #8 no longer listening on 0.0.0.0
+E               Nov 20 22:46:07: CODE_CHANGE:  (#8) set verb #9:run
+E               Nov 20 22:46:07: CODE_CHANGE:  (#8) set verb #9:go
+E               Nov 20 22:46:07: CODE_CHANGE:  (#8) set verb #9:drain
+E               Nov 20 22:46:07: CODE_CHANGE:  (#8) set verb #9:snap
+E               Nov 20 22:46:07: CHECKPOINTING on /tmp/moo_conformance_ghvswoid/Test.db.new.#1# ...
+E               Nov 20 22:46:07: CLIENT DISCONNECTED:  (#8) on localhost
+E               Nov 20 22:46:07: CHECKPOINTING: Writing values pending finalization ...
+E               Nov 20 22:46:07: CHECKPOINTING: Writing forked and suspended tasks ...
+E               Nov 20 22:46:07: CHECKPOINTING: Writing list of formerly active connections ...
+E               Nov 20 22:46:07: CHECKPOINTING: Writing 12 objects ...
+E               Nov 20 22:46:07: CHECKPOINTING: Done writing 12 objects ...
+E               Nov 20 22:46:07: CHECKPOINTING: Writing 9 MOO verb programs ...
+E               Nov 20 22:46:07: CHECKPOINTING: Done writing 9 verb programs ...
+E               Nov 20 22:46:07: CHECKPOINTING on /tmp/moo_conformance_ghvswoid/Test.db.new.#1# finished
+E               Nov 20 22:46:08: ### SHUTDOWN: shutdown signal received
+E               Nov 20 22:46:08: DUMPING on /tmp/moo_conformance_ghvswoid/Test.db.new.#2# ...
+E               Nov 20 22:46:08: DUMPING: Writing values pending finalization ...
+E               Nov 20 22:46:08: DUMPING: Writing forked and suspended tasks ...
+E               Nov 20 22:46:08: DUMPING: Writing list of formerly active connections ...
+E               Nov 20 22:46:08: DUMPING: Writing 12 objects ...
+E               Nov 20 22:46:08: DUMPING: Done writing 12 objects ...
+E               Nov 20 22:46:08: DUMPING: Writing 9 MOO verb programs ...
+E               Nov 20 22:46:08: DUMPING: Done writing 9 verb programs ...
+E               Nov 20 22:46:08: DUMPING on /tmp/moo_conformance_ghvswoid/Test.db.new.#2# finished
+E               time=2026-11-20T22:46:08.166-07:00 level=INFO msg="Barn MOO Server" database=/tmp/moo_conformance_ghvswoid/Test.db listeners=tcp://127.0.0.1:39925
+E               time=2026-11-20T22:46:08.202-07:00 level=INFO msg=listening protocol=tcp port=39925 descriptor_port=39925 this=0 primary=true
+E               time=2026-11-20T22:46:08.202-07:00 level=INFO msg="debug endpoint listening" addr=127.0.0.1:44883
+E               time=2026-11-20T22:46:08.208-07:00 level=INFO msg="operator endpoint listening" addr=127.0.0.1:41989
+E               time=2026-11-20T22:46:08.237-07:00 level=WARN msg="failed to restore suspended task" task_id=963952496 verb="" verbloc=-1 this=-1 programmer=8 err="native frame 3: native builtin continuation requires conversion"
+E               time=2026-11-20T22:46:08.237-07:00 level=INFO msg="operator endpoint stopped"
+E               time=2026-11-20T22:46:08.237-07:00 level=INFO msg="debug endpoint stopped"
+E               time=2026-11-20T22:46:08.237-07:00 level=ERROR msg="Barn failed" err="load database: restore suspended tasks: suspended task 963952496: native frame 3: native builtin continuation requires conversion"
+E               
+E               --- end server log tail ---
+
+../mct-cross-engine-generated/src/moo_conformance/server.py:358: RestartCommandError</failure></testcase><testcase classname="test_conformance" name="test_yaml_conformance[cross_engine_generated.yaml::generated_8e0c5acc0a2f5318]" time="0.965" /><testcase classname="test_conformance" name="test_yaml_conformance[cross_engine_generated.yaml::generated_00d4713429e4fd21]" time="0.970" /><testcase classname="test_conformance" name="test_yaml_conformance[cross_engine_generated.yaml::generated_8855508aade16ec5]" time="1.128" /></testsuite></testsuites>

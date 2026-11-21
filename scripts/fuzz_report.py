@@ -49,11 +49,12 @@ def report(log, package, target, commit, campaign_outcome="failure"):
     check = re.search(r"^\s*(\S+\.go:\d+): .+$", text, re.M)
     saved = re.search(r"Failing input written to (testdata/fuzz/[^\s]+)", text)
     setup = re.search(r"^.*\[(?:build|setup) failed\].*$", text, re.M)
-    # scripts/fuzz_differential.py's report: the first diverging program. Its
-    # entry names the corpus lane, and for a structured input the choice
-    # bytes, as "- " lines before the program.
-    divergence = re.search(r"^(## divergence \(\d+\))\n\n### \S+ `([^`]+)`\n\n(?:- [^\n]*\n)*\n?```moo\n(.*?)\n```\n\n"
-                           r"(- toast: [^\n]*)\n(- barn: [^\n]*)", text, re.M | re.S)
+    # The first diverging program of scripts/fuzz_differential.py's or
+    # scripts/fuzz_cross_engine.py's report. Its entry names the corpus lane,
+    # and for a structured input the choice bytes, as "- " lines before the
+    # program, and the two results as "- label: " lines after it.
+    divergence = re.search(r"^(## divergence \(\d+\))\n\n### \S+ `([^`]+)`\n\n((?:- [^\n]*\n)*)\n?```moo\n(.*?)\n```\n\n"
+                           r"(- [^\n:]+: [^\n]*)\n(- [^\n:]+: [^\n]*)", text, re.M | re.S)
     # A count mismatch prevents source attribution, but the differential
     # producer still preserves explicit recovered Barn panics as JSON.
     recovered_panics = []
@@ -91,7 +92,7 @@ def report(log, package, target, commit, campaign_outcome="failure"):
     elif kind == "divergence":
         # The oracle is built in the job, so the issue names that binary.
         toast = re.search(r"^- toast binary: .*$", text, re.M)
-        first_error = "\n".join([divergence[1], divergence[4], divergence[5]] + ([toast[0]] if toast else []))
+        first_error = "\n".join([divergence[1], divergence[5], divergence[6]] + ([toast[0]] if toast else []))
     elif recovered_panics and kind == "panic":
         first_error = "\n".join(recovered_panics)
     else:
@@ -112,8 +113,11 @@ def report(log, package, target, commit, campaign_outcome="failure"):
     top = frames[0]["function"] if frames else "unavailable"
     input_path, input_text, repro = None, None, None
     if kind == "divergence":
-        # The first diverging corpus file stands in for the top frame.
-        top, input_path, input_text = divergence[2], divergence[2], divergence[3][:INLINE_LIMIT]
+        # The first diverging corpus file stands in for the top frame, unless
+        # the entry names its failure class in a "- signature: " line.
+        named = re.search(r"^- signature: (.+)$", divergence[3], re.M)
+        top = named[1] if named else divergence[2]
+        input_path, input_text = divergence[2], divergence[4][:INLINE_LIMIT]
     elif recovered_panics and kind == "panic" and not frames:
         # Deduplicate by observed native error, without assigning a source/frame.
         top = recovered_panics[0]

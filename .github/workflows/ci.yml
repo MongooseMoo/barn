@@ -301,31 +301,8 @@ jobs:
       - name: Build barn
         run: go build -o bin/barn ./cmd/barn/
 
-      # The runner user cannot read the workstation's /root Toast build, so the
-      # job builds the oracle the manifest pins: same ref, Release, and
-      # options.h checked against the manifest's config checksum.
-      - name: Read Toast oracle pin
-        id: toast-pin
-        run: |
-          python3 -c 'import json; m = json.load(open("profiles/toast/stock-wsl-testdb.json")); print("ref=" + m["implementation_ref"]); print("options=" + m["config_checksum"])' >> "$GITHUB_OUTPUT"
-
-      - name: Checkout ToastStunt
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: MongooseMoo/toaststunt
-          ref: ${{ steps.toast-pin.outputs.ref }}
-          path: toaststunt
-          persist-credentials: false
-
       - name: Build Toast oracle
-        env:
-          OPTIONS_SHA256: ${{ steps.toast-pin.outputs.options }}
-        run: |
-          echo "$OPTIONS_SHA256  toaststunt/src/include/options.h" | sha256sum -c -
-          # CMakeLists.txt generates version_options.h in cmake's working
-          # directory, which must be the build directory to be included.
-          mkdir toaststunt/build
-          (cd toaststunt/build && cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build . -j2)
+        uses: ./.github/actions/toast-oracle
 
       - name: Checkout moo-conformance-tests
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
