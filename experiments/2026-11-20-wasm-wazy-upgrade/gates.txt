@@ -1,0 +1,77 @@
+Gates run 2026-11-21T03:44:10Z, go version go1.27.1 windows/amd64, branch feat/wasm-builtins, worktree with uncommitted upgrade
+
+### test -z "$(gofmt -l $(git ls-files '*.go'))"
+started: 2026-11-21T03:44:10Z
+exit: 0
+
+### go build ./...
+started: 2026-11-21T03:44:11Z
+exit: 0
+
+### go vet ./...
+started: 2026-11-21T03:44:26Z
+exit: 0
+
+### staticcheck ./...
+started: 2026-11-21T03:44:34Z
+exit: 0
+
+### golangci-lint run ./...
+started: 2026-11-21T03:44:42Z
+0 issues.
+exit: 0
+
+### go test ./... -count=1
+started: 2026-11-21T03:45:17Z
+ok  	github.com/MongooseMoo/barn	3.082s
+ok  	github.com/MongooseMoo/barn/builtins	48.036s
+ok  	github.com/MongooseMoo/barn/bytecode	0.455s
+ok  	github.com/MongooseMoo/barn/cmd/barn	2.260s
+ok  	github.com/MongooseMoo/barn/cmd/barn_logs	0.949s
+ok  	github.com/MongooseMoo/barn/cmd/mongoose_tz	0.530s
+ok  	github.com/MongooseMoo/barn/cmd/moo	2.633s
+?   	github.com/MongooseMoo/barn/cmd/moo-fuzz-source	[no test files]
+ok  	github.com/MongooseMoo/barn/cmd/moo_client	1.649s
+?   	github.com/MongooseMoo/barn/cmd/toast_oracle	[no test files]
+ok  	github.com/MongooseMoo/barn/command	1.156s
+ok  	github.com/MongooseMoo/barn/compiler	2.701s
+ok  	github.com/MongooseMoo/barn/config	0.545s
+ok  	github.com/MongooseMoo/barn/db/format	8.046s
+ok  	github.com/MongooseMoo/barn/db/store	3.878s
+ok  	github.com/MongooseMoo/barn/engine	38.841s
+ok  	github.com/MongooseMoo/barn/engine/internal/finalization	0.262s
+ok  	github.com/MongooseMoo/barn/internal/admission	0.664s
+ok  	github.com/MongooseMoo/barn/internal/app	13.986s
+ok  	github.com/MongooseMoo/barn/internal/buildinfo	0.556s
+ok  	github.com/MongooseMoo/barn/internal/cli	2.592s
+ok  	github.com/MongooseMoo/barn/internal/commitgate	0.542s
+ok  	github.com/MongooseMoo/barn/internal/dbtool	4.112s
+?   	github.com/MongooseMoo/barn/internal/floattext	[no test files]
+ok  	github.com/MongooseMoo/barn/internal/fuzzcrash	0.874s
+ok  	github.com/MongooseMoo/barn/internal/fuzzseed	0.273s
+ok  	github.com/MongooseMoo/barn/internal/isolationprobe	0.581s
+ok  	github.com/MongooseMoo/barn/internal/leakcheck	1.267s
+ok  	github.com/MongooseMoo/barn/internal/listener	0.569s
+?   	github.com/MongooseMoo/barn/internal/mooprof	[no test files]
+ok  	github.com/MongooseMoo/barn/internal/wasmbuiltins	7.157s
+ok  	github.com/MongooseMoo/barn/ir	0.562s
+ok  	github.com/MongooseMoo/barn/logging	0.695s
+ok  	github.com/MongooseMoo/barn/metrics	0.843s
+ok  	github.com/MongooseMoo/barn/parser	2.357s
+ok  	github.com/MongooseMoo/barn/preposition	0.497s
+ok  	github.com/MongooseMoo/barn/profile	0.669s
+ok  	github.com/MongooseMoo/barn/server	18.918s
+ok  	github.com/MongooseMoo/barn/sourcekey	0.534s
+ok  	github.com/MongooseMoo/barn/task	1.029s
+ok  	github.com/MongooseMoo/barn/trace	0.530s
+ok  	github.com/MongooseMoo/barn/types	6.726s
+ok  	github.com/MongooseMoo/barn/vm	30.683s
+exit: 0
+
+### go test -race ./internal/wasmbuiltins ./builtins -count=1
+started: 2026-11-21T03:46:09Z
+ok  	github.com/MongooseMoo/barn/internal/wasmbuiltins	43.836s
+ok  	github.com/MongooseMoo/barn/builtins	159.999s
+exit: 0
+
+ALLDONE

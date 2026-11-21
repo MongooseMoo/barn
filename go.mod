@@ -22,7 +22,7 @@ require (
 	github.com/go-crypt/x v0.4.12
 	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e
 	github.com/rivo/uniseg v0.4.7
-	github.com/samyfodil/wazy v0.3.0
+	github.com/samyfodil/wazy v0.8.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
 	github.com/tetratelabs/wazero v1.12.0

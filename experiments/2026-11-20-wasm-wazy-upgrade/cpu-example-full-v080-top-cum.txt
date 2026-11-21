@@ -1,0 +1,54 @@
+File: wasm-v080.exe
+Build ID: C:\Users\Q\code\barn-wasm-builtins\.tmp\wasm-v080.exe2026-11-20 17:06:31.0017857 -0700 MST
+Type: cpu
+Time: 2026-11-20 17:14:08 MST
+Duration: 8.91s, Total samples = 8.66s (97.15%)
+Showing nodes accounting for 3.04s, 35.10% of 8.66s total
+Dropped 470 nodes (cum <= 0.04s)
+Showing top 45 nodes out of 193
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%      8.22s 94.92%  testing.(*B).run1.func1
+         0     0%     0%      8.22s 94.92%  testing.(*B).runN
+     0.03s  0.35%  0.35%      6.15s 71.02%  github.com/MongooseMoo/barn/internal/wasmbuiltins.(*Manager).Call
+         0     0%  0.35%      6.15s 71.02%  github.com/MongooseMoo/barn/internal/wasmbuiltins.BenchmarkWASMCall.func1.1
+         0     0%  0.35%      5.81s 67.09%  github.com/samyfodil/wazy/component.Instantiate (inline)
+         0     0%  0.35%      5.81s 67.09%  github.com/samyfodil/wazy/internal/component/instance.Instantiate
+     0.10s  1.15%  1.50%      5.67s 65.47%  github.com/samyfodil/wazy/internal/component/instance.instantiateGraph
+     0.01s  0.12%  1.62%      2.80s 32.33%  github.com/samyfodil/wazy/internal/component/instance.instantiateGraph.func12
+         0     0%  1.62%      2.80s 32.33%  github.com/samyfodil/wazy/internal/component/instance.instantiateGraph.func13 (inline)
+         0     0%  1.62%      2.70s 31.18%  github.com/samyfodil/wazy/internal/component/instance.instantiateCoreModule (inline)
+         0     0%  1.62%      2.70s 31.18%  github.com/samyfodil/wazy/internal/component/instance.instantiateCoreModuleCacheable
+     0.01s  0.12%  1.73%      2.65s 30.60%  github.com/samyfodil/wazy.(*runtime).InstantiateModule
+     0.01s  0.12%  1.85%      2.53s 29.21%  github.com/samyfodil/wazy/internal/wasm.(*Store).Instantiate
+     0.01s  0.12%  1.96%      2.51s 28.98%  github.com/samyfodil/wazy/internal/wasm.(*Store).instantiate
+     0.01s  0.12%  2.08%      2.49s 28.75%  github.com/samyfodil/wazy/internal/component/instance.bindImportExportsGraph
+     0.10s  1.15%  3.23%      2.45s 28.29%  github.com/samyfodil/wazy/internal/component/instance.bindFuncExportGraph
+     2.38s 27.48% 30.72%      2.38s 27.48%  runtime.memclrNoHeapPointers
+         0     0% 30.72%      2.24s 25.87%  sync.(*Once).Do (partial-inline)
+         0     0% 30.72%      2.24s 25.87%  sync.(*Once).doSlow
+         0     0% 30.72%      2.06s 23.79%  github.com/MongooseMoo/barn/internal/wasmbuiltins.BenchmarkWASMCall.func1
+         0     0% 30.72%      2.06s 23.79%  github.com/MongooseMoo/barn/internal/wasmbuiltins.benchmarkManager
+         0     0% 30.72%      2.05s 23.67%  github.com/samyfodil/wazy/internal/wasm.(*ModuleInstance).buildMemory
+     0.01s  0.12% 30.83%      2.05s 23.67%  github.com/samyfodil/wazy/internal/wasm.NewMemoryInstance
+     0.11s  1.27% 32.10%      2.04s 23.56%  github.com/samyfodil/wazy/internal/component/instance.finalizeBoundExport
+         0     0% 32.10%      2.01s 23.21%  github.com/tetratelabs/wazero.(*runtime).CompileModule
+         0     0% 32.10%      1.99s 22.98%  github.com/samyfodil/wazy/internal/wasm.getPooledMemoryBuffer
+         0     0% 32.10%      1.98s 22.86%  github.com/MongooseMoo/barn/internal/wasmbuiltins.Open
+         0     0% 32.10%      1.98s 22.86%  github.com/MongooseMoo/barn/internal/wasmbuiltins.init.func2
+         0     0% 32.10%      1.98s 22.86%  sync.OnceValue[go.shape.interface { Error string }].func1
+         0     0% 32.10%      1.98s 22.86%  sync.OnceValue[go.shape.interface { Error string }].func1.1
+         0     0% 32.10%      1.93s 22.29%  github.com/tetratelabs/wazero/internal/engine/wazevo.(*engine).CompileModule
+     0.01s  0.12% 32.22%      1.93s 22.29%  github.com/tetratelabs/wazero/internal/engine/wazevo.(*engine).compileLocalWasmFunction
+     0.01s  0.12% 32.33%      1.93s 22.29%  github.com/tetratelabs/wazero/internal/engine/wazevo.(*engine).compileModule
+     0.05s  0.58% 32.91%      1.59s 18.36%  runtime.mallocgc
+     0.01s  0.12% 33.03%      1.46s 16.86%  github.com/samyfodil/wazy/internal/wasm.(*ModuleInstance).ExportedFunction
+     0.08s  0.92% 33.95%      1.38s 15.94%  github.com/samyfodil/wazy/internal/engine/native.(*moduleEngine).NewFunction
+     0.01s  0.12% 34.06%      1.36s 15.70%  runtime.newobject
+         0     0% 34.06%      1.12s 12.93%  github.com/tetratelabs/wazero/internal/engine/wazevo/backend.(*compiler).Compile
+     0.01s  0.12% 34.18%      1.02s 11.78%  runtime.systemstack
+     0.06s  0.69% 34.87%      0.99s 11.43%  runtime.mallocgcSmallScanHeader
+         0     0% 34.87%      0.79s  9.12%  github.com/tetratelabs/wazero/internal/engine/wazevo/backend.(*compiler).RegAlloc (inline)
+         0     0% 34.87%      0.79s  9.12%  github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/amd64.(*machine).RegAlloc
+         0     0% 34.87%      0.78s  9.01%  github.com/tetratelabs/wazero/internal/engine/wazevo/backend/regalloc.(*Allocator[go.shape.*github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/amd64.instruction,go.shape.*github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/amd64.labelPosition,go.shape.*uint8]).DoAllocation
+         0     0% 34.87%      0.61s  7.04%  runtime.(*mcache).nextFree
+     0.02s  0.23% 35.10%      0.61s  7.04%  runtime.(*mcache).refill

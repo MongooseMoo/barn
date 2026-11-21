@@ -10,15 +10,38 @@ The PR is barn #464, branch `feat/wasm-builtins`, worktree
 
 ## State (2026-11-20)
 
-Plan written, no code changed. Waiting for Q's "make it so".
-
-- #464 is 1235 commits behind master, 2 ahead. Its green checks are from
-  October. Its description still says "Stacked on #462"; #462 merged
-  2026-10-11.
-- A dry-run merge with master (`git merge-tree`) conflicts in 8 files:
-  README.md, builtins/catalog.go, builtins/session_runtime.go,
-  cmd/barn/main.go, config/options.go, go.mod, go.sum,
-  internal/dbtool/dbtool.go.
+- Plan step 1 is done: the PR branch has master merged in and is pushed.
+- Plan step 2 is done: `internal/wasmbuiltins/call_bench_test.go`
+  (`BenchmarkWASMCall`: Full, InstantiateClose, ExecuteExisting for
+  `example.wasm` and `scalar.wasm`) is committed on its own. Local, not
+  pushed.
+- wazy is upgraded from v0.3.0 to v0.8.0, committed with the record
+  `experiments/2026-11-20-wasm-wazy-upgrade/README.md` and its gate output
+  `gates.txt`. Local, not pushed.
+- The upgrade does not change full-call cost: about 100 us for the Rust
+  fixture (`example.wasm`) and about 26 us for the 2-page fixture
+  (`scalar.wasm`) on Windows and Linux. Running an export on an existing
+  guest went from about 3 us to about 1 us. Native `BenchmarkVM` rows: no
+  slowdown.
+- v0.8.0 dropped the call-entry context check, so a call with an
+  already-cancelled context ran to completion and failed
+  `TestAdmissionAndGuestBudgets`. `Manager.Call` now checks `ctx.Err()`
+  before `component.Instantiate`; the test is unchanged and passes. A
+  deadline passing during a pure compiled loop still ends the call with
+  `E_QUOTA` (loop preemption checks). A call that completes after its
+  deadline returns its result on bare v0.8.0 where v0.3.0 could return
+  `E_QUOTA`; `Manager.Call` now checks `ctx.Err()` after the call too and
+  returns `E_QUOTA` (read from source; no test reaches that line).
+  Details and source lines in the record.
+- `withGraphInstantiation` is still needed on v0.8.0 (the one-instance path
+  still bypasses `CompileCache`); kept, comment corrected.
+- On v0.8.0, 94% of a Full call is `component.Instantiate`, and two sinks
+  account for most of it: clearing the guest's linear memory on every
+  instantiation (about a third of the call) and binding every export, one
+  new call engine per export, on every instantiation (about a quarter).
+  v0.8.0 has no instance reset, snapshot or clone API.
+- An instance reset is being added to a fork of wazy in
+  `C:/Users/Q/code/wazy`, branch `instance-reset`, by another agent.
 - Three local branches stacked on the PR were never pushed:
   `feat/wasm-values-host` (richer values, host imports, and a copy of the
   wazy v0.3.0 runtime in `third_party/wazy`, about 150,000 lines in 233
@@ -86,14 +109,28 @@ Target: a pure wasm call costs less than the same work as a MOO verb (under
   They are a separate feature and get their own PR against master later. The
   three setup-cost patches from `perf/wasm-instantiation` move to the fork
   only if step 5 shows they still matter once guests are reused.
+- wazy moved to v0.8.0 before the fork, so the reset patch is written
+  against current upstream. The upgrade itself bought no full-call speed;
+  the two setup sinks are unchanged, so candidate A (reset) is still the
+  path.
+- `Manager.Call` owns the call-entry and post-call context checks rather
+  than relying on the runtime, because v0.8.0 removed
+  `WithCloseOnContextDone`, checks the context only once a call yields to Go,
+  and returns success for a call that finishes after its deadline. Keeping
+  v0.3.0's `E_QUOTA` for a late call was the team lead's decision.
 
 ## Unverified
 
-- No measurement was rerun on 2026-11-20; every number above is from the
-  October records.
-- Whether master's changes since October alter the native holdout results.
-- Restore cost of candidate A, and all Linux behavior.
+- The "Why it is slow" section is from the October records; the
+  2026-11-20 measurements on v0.3.0 and v0.8.0 are in the upgrade record.
+- Linux timings in the upgrade record were taken under CI load (WSL load
+  average 9.7-20.5 on 8 CPUs).
+- Restore cost of candidate A.
+- CI has not run the upgrade (not pushed).
 
 ## Next step
 
-On Q's "make it so": step 1.
+Candidate A: once the wazy fork's `instance-reset` branch has a reset entry
+point, point go.mod at the fork and give each generation a pool of reset
+guests in Barn (a guest that trapped, timed out or failed to reset is
+discarded), then measure as in plan step 5.

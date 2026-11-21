@@ -323,7 +323,7 @@ func prepare(ctx context.Context, data []byte) (g *generation, err error) {
 	}
 	slices.SortFunc(g.info.Exports, func(a, b Export) int { return strings.Compare(a.Name, b.Name) })
 	g.info.SHA256 = fmt.Sprintf("%x", sha256.Sum256(data))
-	g.runtime = wazy.NewRuntimeWithConfig(ctx, wazy.NewRuntimeConfig().WithMemoryLimitPages(MemoryPages).WithCloseOnContextDone(true))
+	g.runtime = wazy.NewRuntimeWithConfig(ctx, wazy.NewRuntimeConfig().WithMemoryLimitPages(MemoryPages))
 	g.data = withGraphInstantiation(data)
 	g.cache = component.NewCompileCache()
 	inst, err := component.Instantiate(ctx, g.runtime, g.data, component.WithCompileCache(g.cache))
@@ -442,6 +442,11 @@ func (m *Manager) Call(ctx context.Context, principal int64, target string, args
 	}
 	ctx, cancel := context.WithTimeout(ctx, CallTimeout)
 	defer cancel()
+	// Wazy watches the context only once a call yields to Go, so a call that
+	// starts with a done context would otherwise run to completion.
+	if ctx.Err() != nil {
+		return guestError(ctx)
+	}
 	inst, err := component.Instantiate(ctx, g.runtime, g.data, component.WithCompileCache(g.cache))
 	if err != nil {
 		return guestError(ctx)
@@ -453,6 +458,10 @@ func (m *Manager) Call(ctx context.Context, principal int64, target string, args
 	}()
 	out, err := inst.Call(ctx, export, values...)
 	if err != nil {
+		return guestError(ctx)
+	}
+	// Wazy returns success for a call that finishes after its deadline; keep that E_QUOTA as on v0.3.0.
+	if ctx.Err() != nil {
 		return guestError(ctx)
 	}
 	if fn.result == nil {

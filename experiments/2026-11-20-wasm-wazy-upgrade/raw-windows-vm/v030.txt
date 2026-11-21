@@ -1,0 +1,100 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/int_arith_1M         	       6	  49547183 ns/op	   16720 B/op	      20 allocs/op
+BenchmarkVM/builtin_abs_200k     	       9	  30677767 ns/op	   16976 B/op	      29 allocs/op
+BenchmarkVM/tostr_200k           	       4	  76323350 ns/op	14135896 B/op	  399930 allocs/op
+BenchmarkVM/prop_defined_1M      	       2	 202226850 ns/op	   16864 B/op	      23 allocs/op
+PASS
+
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/int_arith_1M         	       6	  48928267 ns/op	   16720 B/op	      20 allocs/op
+BenchmarkVM/builtin_abs_200k     	       9	  30496011 ns/op	   16976 B/op	      29 allocs/op
+BenchmarkVM/tostr_200k           	       4	  76632950 ns/op	14135896 B/op	  399930 allocs/op
+BenchmarkVM/prop_defined_1M      	       2	 208998450 ns/op	   16864 B/op	      23 allocs/op
+PASS
+
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/int_arith_1M         	       5	  50013720 ns/op	   16720 B/op	      20 allocs/op
+BenchmarkVM/builtin_abs_200k     	       9	  30848800 ns/op	   16976 B/op	      29 allocs/op
+BenchmarkVM/tostr_200k           	       4	  77187750 ns/op	14135888 B/op	  399930 allocs/op
+BenchmarkVM/prop_defined_1M      	       2	 204886750 ns/op	   16864 B/op	      23 allocs/op
+PASS
+
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/int_arith_1M         	       6	  49292550 ns/op	   16720 B/op	      20 allocs/op
+BenchmarkVM/builtin_abs_200k     	       9	  30627100 ns/op	   16976 B/op	      29 allocs/op
+BenchmarkVM/tostr_200k           	       4	  75777850 ns/op	14135888 B/op	  399930 allocs/op
+BenchmarkVM/prop_defined_1M      	       2	 203829850 ns/op	   16864 B/op	      23 allocs/op
+PASS
+
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/int_arith_1M         	       6	  49163950 ns/op	   16720 B/op	      20 allocs/op
+BenchmarkVM/builtin_abs_200k     	       9	  30835611 ns/op	   16976 B/op	      29 allocs/op
+BenchmarkVM/tostr_200k           	       4	  76910325 ns/op	14135896 B/op	  399930 allocs/op
+BenchmarkVM/prop_defined_1M      	       2	 204145600 ns/op	   16864 B/op	      23 allocs/op
+PASS
+
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/int_arith_1M         	       6	  48761933 ns/op	   16720 B/op	      20 allocs/op
+BenchmarkVM/builtin_abs_200k     	       9	  30595822 ns/op	   16976 B/op	      29 allocs/op
+BenchmarkVM/tostr_200k           	       4	  76224650 ns/op	14135888 B/op	  399930 allocs/op
+BenchmarkVM/prop_defined_1M      	       2	 202919850 ns/op	   16864 B/op	      23 allocs/op
+PASS
+
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/int_arith_1M         	       6	  49065883 ns/op	   16720 B/op	      20 allocs/op
+BenchmarkVM/builtin_abs_200k     	       9	  30624611 ns/op	   16976 B/op	      29 allocs/op
+BenchmarkVM/tostr_200k           	       4	  76957350 ns/op	14135884 B/op	  399930 allocs/op
+BenchmarkVM/prop_defined_1M      	       2	 203678100 ns/op	   16864 B/op	      23 allocs/op
+PASS
+
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/int_arith_1M         	       6	  49389850 ns/op	   16720 B/op	      20 allocs/op
+BenchmarkVM/builtin_abs_200k     	       9	  30916633 ns/op	   16976 B/op	      29 allocs/op
+BenchmarkVM/tostr_200k           	       4	  77430925 ns/op	14135896 B/op	  399930 allocs/op
+BenchmarkVM/prop_defined_1M      	       2	 206238150 ns/op	   16864 B/op	      23 allocs/op
+PASS
+
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/int_arith_1M         	       6	  49310283 ns/op	   16720 B/op	      20 allocs/op
+BenchmarkVM/builtin_abs_200k     	       9	  30855278 ns/op	   16976 B/op	      29 allocs/op
+BenchmarkVM/tostr_200k           	       4	  77749050 ns/op	14135892 B/op	  399930 allocs/op
+BenchmarkVM/prop_defined_1M      	       2	 203676600 ns/op	   16864 B/op	      23 allocs/op
+PASS
+
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/int_arith_1M         	       5	  50559060 ns/op	   16720 B/op	      20 allocs/op
+BenchmarkVM/builtin_abs_200k     	       8	  31428912 ns/op	   16976 B/op	      29 allocs/op
+BenchmarkVM/tostr_200k           	       4	  81600075 ns/op	14135896 B/op	  399930 allocs/op
+BenchmarkVM/prop_defined_1M      	       2	 222315650 ns/op	   16864 B/op	      23 allocs/op
+PASS
+

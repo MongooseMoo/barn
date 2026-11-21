@@ -5,10 +5,11 @@ import (
 	"encoding/binary"
 )
 
-// Wazy's one-instance fast path bypasses CompileCache and registers the core
-// module's custom name. An inert standard inline core instance selects its
-// cached, anonymous graph path. Existing indices, imports and exports are
-// unchanged. Remove this workaround when both paths honor CompileCache.
+// Wazy's one-instance fast path bypasses CompileCache: it recompiles the core
+// module and recomputes export ABI metadata on every instantiation. An inert
+// standard inline core instance selects its cached graph path. Existing
+// indices, imports and exports are unchanged. Remove this workaround when both
+// paths honor CompileCache.
 // The caller must first validate the section envelopes with singleCore.
 func withGraphInstantiation(data []byte) []byte {
 	instances := uint64(0)
