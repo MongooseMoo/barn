@@ -12,7 +12,8 @@
 // {"path", "choices" (hex), "source"} or {"path", "error"}.
 //
 // --generator names the generator the choices belong to: structured (the
-// default, fuzzseed.Source) or suspended-stack (fuzzseed.SuspendedStack).
+// default, fuzzseed.Source), suspended-stack (fuzzseed.SuspendedStack) or
+// toast-world (fuzzseed.ToastWorld).
 package main
 
 import (
@@ -50,18 +51,20 @@ per line, and each file gives one JSON line: {"path", "choices" (hex),
 
 --generator names the generator the choices belong to: structured, the
 FuzzStructured* targets' (the default), or suspended-stack,
-FuzzSuspendedStackCheckpoint's.`
+FuzzSuspendedStackCheckpoint's, or toast-world, the world
+scripts/toast_reads_barn_db.py has Barn write and Toast load (rendered from
+FuzzWorldCheckpointEffects inputs).`
 	root.Example = `  moo-fuzz-source < choices.bin
   head -c 200 /dev/urandom | moo-fuzz-source
   ls testdata/fuzz/FuzzStructured/* | moo-fuzz-source --corpus
   moo-fuzz-source --generator suspended-stack < choices.bin`
 	root.Args = cobra.NoArgs
 	root.Flags().BoolVar(&corpus, "corpus", false, "Read corpus file paths on stdin and print one JSON line per file")
-	root.Flags().StringVar(&generator, "generator", "structured", "Generator the choices belong to: structured or suspended-stack")
+	root.Flags().StringVar(&generator, "generator", "structured", "Generator the choices belong to: structured, suspended-stack or toast-world")
 	root.RunE = cli.RunE(func(cmd *cobra.Command, _ []string) error {
 		render, ok := generators[generator]
 		if !ok {
-			return cli.UsageErrorf("unknown generator %q: want structured or suspended-stack", generator)
+			return cli.UsageErrorf("unknown generator %q: want structured, suspended-stack or toast-world", generator)
 		}
 		if corpus {
 			return renderCorpus(os.Stdin, cmd.OutOrStdout(), render)
@@ -84,6 +87,7 @@ FuzzSuspendedStackCheckpoint's.`
 var generators = map[string]func([]byte) (string, error){
 	"structured":      fuzzseed.Source,
 	"suspended-stack": func(choices []byte) (string, error) { return fuzzseed.SuspendedStack(choices), nil },
+	"toast-world":     func(choices []byte) (string, error) { return fuzzseed.ToastWorld(choices), nil },
 }
 
 type corpusRecord struct {

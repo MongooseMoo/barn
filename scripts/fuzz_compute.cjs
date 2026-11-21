@@ -64,12 +64,8 @@ async function accept({github, context, core}) {
   };
   if (fs.existsSync('.fuzz/retained')) walk('.fuzz/retained');
   const problems = [];
-  // Only the step that found something may fail; a failed upload, cache save
+  // Only a step that found something may fail; a failed upload, cache save
   // or issue report is an evidence failure.
-  const onlyFailed = (job, step) => {
-    const failed = (job.steps || []).filter(s => s.conclusion === 'failure').map(s => s.name);
-    return job.conclusion === 'success' ? failed.length === 0 : failed.length === 1 && failed[0] === step;
-  };
   const lanes = jobs.filter(job => !NOT_LANES.has(job.name));
   if (!lanes.length) problems.push('no native lanes ran');
   for (const job of lanes) {
@@ -97,21 +93,36 @@ async function accept({github, context, core}) {
     if (job.conclusion === 'failure' && failed.length === 0) problems.push(`${job.name}: failure without a failed step`);
   }
   const differential = jobs.find(job => job.name === DIFFERENTIAL);
-  const resultsFile = 'fuzz-differential/results.json';
-  const outcome = fs.existsSync(resultsFile) ? JSON.parse(fs.readFileSync(resultsFile, 'utf8')).summary?.outcome : undefined;
+  // The job runs two comparisons, each a step that may fail with a finding
+  // and each with its own results: the differ's, and Barn-written worlds
+  // loaded in Toast (scripts/toast_reads_barn_db.py).
+  const comparisons = {
+    'Compare retained public source on Barn and Toast': 'fuzz-differential/results.json',
+    'Compare Barn-written worlds in Toast': 'toast-reads-barn-db/results.json',
+  };
+  const outcomes = Object.fromEntries(Object.entries(comparisons).map(([step, file]) =>
+    [step, fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).summary?.outcome : undefined]));
+  const [outcome, worlds] = Object.values(outcomes);
   if (selected === 'native-only') {
-    if (differential?.conclusion !== 'skipped' || fs.existsSync(resultsFile)) {
+    if (differential?.conclusion !== 'skipped' || Object.values(comparisons).some(file => fs.existsSync(file))) {
       problems.push(`${DIFFERENTIAL}: native-only requires a skipped comparison with no results`);
     }
   } else if (!differential || !['success', 'failure'].includes(differential.conclusion)) {
     problems.push(`${DIFFERENTIAL}: job ${differential?.conclusion ?? 'missing'}`);
-  } else if (!onlyFailed(differential, 'Compare retained public source on Barn and Toast')) {
-    problems.push(`${DIFFERENTIAL}: a step other than the comparison failed`);
-  } else if (outcome !== (differential.conclusion === 'success' ? 'success' : 'divergence')) {
-    problems.push(`${DIFFERENTIAL}: outcome ${outcome ?? 'missing'} with job ${differential.conclusion}`);
+  } else {
+    const failed = (differential.steps || []).filter(s => s.conclusion === 'failure').map(s => s.name);
+    if (failed.some(name => !(name in comparisons)) || (differential.conclusion === 'failure') !== (failed.length > 0)) {
+      problems.push(`${DIFFERENTIAL}: a step other than the comparisons failed`);
+    }
+    for (const [step, result] of Object.entries(outcomes)) {
+      if (result !== (failed.includes(step) ? 'divergence' : 'success')) {
+        problems.push(`${DIFFERENTIAL}: ${step}: outcome ${result ?? 'missing'} with step ${failed.includes(step) ? 'failure' : 'success'}`);
+      }
+    }
   }
+  const notRun = selected === 'native-only' ? 'not-run-native-only' : null;
   core.info(JSON.stringify({campaign: selected, lanes: lanes.length,
-    differential: selected === 'native-only' ? 'not-run-native-only' : outcome ?? null, problems}));
+    differential: notRun ?? outcome ?? null, worlds: notRun ?? worlds ?? null, problems}));
   if (problems.length) throw new Error(`Cycle not accepted: ${problems.join('; ')}`);
 }
 

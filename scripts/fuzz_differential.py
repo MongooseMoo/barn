@@ -95,12 +95,15 @@ DEFERRED_COMPARISONS = {
     "0a6ccdc333f500419bbcf3364ae9183153e0365bdd3159309a68f7748df268cd",
 }
 
-PREAMBLE = (
-    'for p in ({"fg_ticks", "fg_seconds"}) '
-    "try add_property($server_options, p, 0, {$server_options.owner, \"r\"}); except (ANY) endtry endfor "
-    f"$server_options.fg_ticks = {FG_TICKS}; $server_options.fg_seconds = {FG_SECONDS}; "
-    "return load_server_options();"
-)
+def preamble(ticks: int, seconds: int) -> str:
+    """The first input: bound every later input to ticks and seconds."""
+    return ('for p in ({"fg_ticks", "fg_seconds"}) '
+            "try add_property($server_options, p, 0, {$server_options.owner, \"r\"}); except (ANY) endtry endfor "
+            f"$server_options.fg_ticks = {ticks}; $server_options.fg_seconds = {seconds}; "
+            "return load_server_options();")
+
+
+PREAMBLE = preamble(FG_TICKS, FG_SECONDS)
 
 # Toast reads each emergency-mode line with fgets into a 4096-byte buffer
 # (src/dependencies/linenoise.c LINENOISE_MAX_LINE); a longer line would be
@@ -165,13 +168,13 @@ def is_choices_record(data: bytes) -> bool:
     return len(lines) == 2 and lines[0] == "go test fuzz v1" and lines[1].startswith("[]byte(")
 
 
-def render_choices(paths: list[str]) -> dict[str, dict[str, str]]:
+def render_choices(paths: list[str], generator: str = "structured") -> dict[str, dict[str, str]]:
     """Path -> {"choices": hex, "source": MOO} or {"error": text} for each
     structured corpus file, decoded and rendered by cmd/moo-fuzz-source, the
     one owner of the choice encoding and of the generated program."""
     if not paths:
         return {}
-    proc = subprocess.run(["go", "run", "./cmd/moo-fuzz-source", "--corpus"], cwd=REPO,
+    proc = subprocess.run(["go", "run", "./cmd/moo-fuzz-source", "--corpus", "--generator", generator], cwd=REPO,
                           input="".join(path + "\n" for path in paths), capture_output=True,
                           text=True, encoding="utf-8", check=True)
     rendered = {}

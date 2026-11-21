@@ -397,6 +397,45 @@ jobs:
 
       - *failure-reporter
 
+      # Barn writes each generated world (fuzzseed.ToastWorld, from this
+      # cycle's FuzzWorldCheckpointEffects inputs and the committed seeds)
+      # through its checkpoint writer; the same pinned Toast loads the file,
+      # and both engines' whole worlds and task counts must agree. It runs
+      # after the differ whatever the differ found.
+      - name: Compare Barn-written worlds in Toast
+        id: worlds
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          logs="$RUNNER_TEMP/world-logs"
+          rm -rf "$logs"
+          mkdir -p "$logs"
+          {
+            go version
+            python3 scripts/toast_reads_barn_db.py worlds --toast "$TOAST_BIN" --barn-linux bin/barn \
+              --out toast-reads-barn-db .fuzz/retained/vm/FuzzWorldCheckpointEffects/inputs
+          } 2>&1 | tee "$logs/run-001.log"
+
+      - name: Upload Barn-written world evidence
+        id: world-artifact
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fuzz-failure-ToastReadsBarnDatabase
+          path: toast-reads-barn-db/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Open world failure issues
+        if: ${{ failure() && steps.worlds.outcome == 'failure' }}
+        env:
+          ARTIFACT_URL: ${{ steps.world-artifact.outputs.artifact-url }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/fuzz_report.py --log "$RUNNER_TEMP/world-logs/run-001.log" --package ./scripts \
+            --target ToastReadsBarnDatabase --commit "$GITHUB_SHA" --campaign-outcome failure \
+            --artifact-url "$ARTIFACT_URL" --publish
+
   accept:
     needs: [route, fuzz, differential]
     # Findings keep their jobs red. This job instead judges whether the cycle
@@ -422,6 +461,11 @@ jobs:
         with:
           name: fuzz-failure-ToastDifferential
           path: fuzz-differential
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.route.outputs.campaign == 'native-and-toast'
+        with:
+          name: fuzz-failure-ToastReadsBarnDatabase
+          path: toast-reads-barn-db
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           FUZZ_CAMPAIGN: ${{ needs.route.outputs.campaign }}

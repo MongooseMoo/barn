@@ -23,6 +23,9 @@ ACCEPTED = [{"name": "Accept discovery cycle", "conclusion": "success"}]
 DEDICATED_CYCLE = {"id": 11, "display_title": "Nightly fuzz / dedicated-continuous"}
 LEGACY_CYCLE = {"id": 12, "display_title": "Nightly fuzz / legacy"}
 COMPARE = "Compare retained public source on Barn and Toast"
+WORLDS = "Compare Barn-written worlds in Toast"
+# accept() writes the worlds comparison's results with the differ's unless told.
+SAME = object()
 
 
 def node_binary():
@@ -35,8 +38,8 @@ def node_binary():
 
 def job(name, conclusion="success", failed=None):
     steps = [{"name": "Upload retained corpus and native evidence", "conclusion": "success"}]
-    if failed:
-        steps.append({"name": failed, "conclusion": "failure"})
+    for step in [failed] if isinstance(failed, str) else failed or []:
+        steps.append({"name": step, "conclusion": "failure"})
     return {"name": name, "conclusion": conclusion, "steps": steps}
 
 
@@ -262,7 +265,8 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertIn("group: nightly-fuzz-controller-${{ github.event_name }}", controller)
         self.assertIn("    if: github.event_name == 'schedule' && vars.FUZZ_CONTINUOUS_ENABLED == 'true'", controller)
 
-    def accept(self, jobs, lanes, outcome="success", campaign="native-and-toast", memories=None):
+    def accept(self, jobs, lanes, outcome="success", campaign="native-and-toast", memories=None, worlds=SAME):
+        worlds = ("success" if outcome is not None else None) if worlds is SAME else worlds
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for target, census in lanes.items():
@@ -274,6 +278,9 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
             if outcome is not None:
                 (root / "fuzz-differential").mkdir()
                 (root / "fuzz-differential/results.json").write_text(json.dumps({"summary": {"outcome": outcome}}))
+            if worlds is not None:
+                (root / "toast-reads-barn-db").mkdir()
+                (root / "toast-reads-barn-db/results.json").write_text(json.dumps({"summary": {"outcome": worlds}}))
             return self.execute("accept", env={**CONFIG, "FUZZ_CAMPAIGN": campaign}, jobs=jobs, cwd=root)
 
     def test_native_only_accepts_measured_clean_work_and_saved_findings(self):
@@ -330,6 +337,13 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
                  "FuzzB": {"completed_executions": 9, "campaign": "finding"}}
         self.assertNotIn("error", self.accept(jobs, lanes, "divergence"))
         self.assertNotIn("error", self.accept(jobs[:3] + [job("ToastDifferential")], lanes))
+        # A world Toast reads differently fails its own step, alone or with the differ's.
+        self.assertNotIn("error", self.accept(jobs[:3] + [job("ToastDifferential", "failure", WORLDS)], lanes,
+                                              worlds="divergence"))
+        both = self.accept(jobs[:3] + [job("ToastDifferential", "failure", [COMPARE, WORLDS])], lanes,
+                           "divergence", worlds="divergence")
+        self.assertNotIn("error", both)
+        self.assertEqual(json.loads(both["info"][-1])["worlds"], "divergence")
 
     def test_incomplete_or_unmeasured_cycle_is_rejected(self):
         good = {"completed_executions": 5, "campaign": "clean"}
@@ -357,6 +371,16 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         for name, (jobs, lanes, outcome) in cases.items():
             with self.subTest(name):
                 self.assertIn("error", self.accept(jobs, lanes, outcome))
+        worlds_cases = {
+            "inconclusive worlds": ("failure", WORLDS, "inconclusive"),
+            "missing worlds results": ("success", None, None),
+            "worlds divergence with a green step": ("success", None, "divergence"),
+            "failed worlds upload": ("failure", [WORLDS, "Upload Barn-written world evidence"], "divergence"),
+        }
+        for name, (conclusion, failed, worlds) in worlds_cases.items():
+            with self.subTest(name):
+                self.assertIn("error", self.accept([job("FuzzA"), job("ToastDifferential", conclusion, failed)],
+                                                   {"FuzzA": good}, "success", worlds=worlds))
 
     def test_controller_completion_failure_wrong_mode_and_foreign_repo_cannot_replenish(self):
         for field, value in [("event", "workflow_run"), ("conclusion", "cancelled"),
