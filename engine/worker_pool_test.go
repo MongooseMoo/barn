@@ -274,8 +274,10 @@ func TestSuspendedCommandFlushesSuffixOnlyOnce(t *testing.T) {
 	if got := s.ProcessReadyTasks(); got != 1 || queued.GetState() != task.TaskCompleted {
 		t.Fatalf("resume count=%d state=%s; want one completed task", got, queued.GetState())
 	}
-	if len(flushed) != 2 || flushed[0] != "end" || flushed[1] != "" {
-		t.Fatalf("flush suffixes = %#v; want [end empty]", flushed)
+	// The suffix goes out once, at the suspend hand-off before the task is
+	// requeued; each slice's settle then flushes with no suffix.
+	if len(flushed) != 3 || flushed[0] != "end" || flushed[1] != "" || flushed[2] != "" {
+		t.Fatalf("flush suffixes = %#v; want [end empty empty]", flushed)
 	}
 }
 

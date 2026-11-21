@@ -932,6 +932,13 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 	if !s.ShutdownRequested() {
 		bcVM.PruneSuspendedPendingFinalizations()
 	}
+	// Toast do_command_task sends the output suffix after the command task's
+	// first run returns or suspends, before any resumption can run. Once the
+	// task is requeued and its lease released a worker may resume it, so a
+	// suffix still pending is sent here, ahead of the resumed slice's output.
+	if t.CommandOutputSuffix != "" {
+		s.flushTaskOutput(t)
+	}
 	// Save VM state for later Resume() via the thread-safe setter, so a
 	// concurrently running sibling scanning saved VMs for orphan GC never races
 	// the write. Lock order is s.mu then the task lock taken inside SetVM,
