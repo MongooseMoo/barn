@@ -157,7 +157,7 @@ func TestOfflineCheckpointToastLoadableOmitsOnlyBarnFormTasks(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := WriteOfflineCheckpoint(&out, source, config.DefaultOptions(), false, true); err != nil {
+	if err := WriteOfflineCheckpoint(&out, source, config.DefaultOptions(), false, true, ""); err != nil {
 		t.Fatalf("toast-loadable checkpoint: %v", err)
 	}
 	var omitted []int64
@@ -215,7 +215,7 @@ func TestOfflineCheckpointToastLoadableOmitsOnlyBarnFormTasks(t *testing.T) {
 		}
 	}
 
-	if err := WriteOfflineCheckpoint(&out, source, config.DefaultOptions(), false, false); err != nil {
+	if err := WriteOfflineCheckpoint(&out, source, config.DefaultOptions(), false, false, ""); err != nil {
 		t.Fatalf("plain checkpoint: %v", err)
 	}
 	all, err := dbformat.LoadDatabaseReadOnly(source + ".new")

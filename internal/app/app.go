@@ -188,7 +188,7 @@ type Config struct {
 	EvalFile                                                                   string
 	StartLine, StartScript                                                     *string
 	StartScriptFirst                                                           bool
-	DumpPath                                                                   string
+	DumpPath, OfflineRun                                                       string
 	OfflineCheckpoint, OmitSuspended, ToastLoadable                            bool
 	MemoryReport                                                               bool
 	MemoryProfile                                                              string
@@ -254,7 +254,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 		return dbtool.DumpDatabase(cfg.DatabasePath, cfg.DumpPath)
 	}
 	if cfg.OfflineCheckpoint {
-		return dbtool.WriteOfflineCheckpoint(out, cfg.DatabasePath, options, cfg.OmitSuspended, cfg.ToastLoadable)
+		return dbtool.WriteOfflineCheckpoint(out, cfg.DatabasePath, options, cfg.OmitSuspended, cfg.ToastLoadable, cfg.OfflineRun)
 	}
 	if cfg.MemoryReport {
 		return dbtool.MemoryReport(out, cfg.DatabasePath, cfg.MemoryProfile)

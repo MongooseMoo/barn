@@ -225,13 +225,18 @@ func (b *barnCommand) offlineCheckpointCommand() *cobra.Command {
 		Use:   "offline-checkpoint",
 		Short: "Write the database as a full checkpoint without running anything",
 		Long: `Write the database as a full checkpoint (the --db path plus .new, with its tasks,
-connections and WAIF sidecar) without running any MOO code.`,
+connections and WAIF sidecar) without running any MOO code.
+
+With --run, first run the program in that file as a background task of the
+database's first wizard, and every task that comes due within a second, until
+none does; the checkpoint then holds the tasks still waiting.`,
 		GroupID: "files",
 		Args:    cobra.NoArgs,
-		Example: "  barn offline-checkpoint --db game.db --omit-suspended",
+		Example: "  barn offline-checkpoint --db game.db --omit-suspended\n  barn offline-checkpoint --db game.db --run world.moo",
 	}
 	cmd.Flags().BoolVar(&b.cfg.OmitSuspended, "omit-suspended", false, "Leave suspended and interrupted tasks out of the written file")
 	cmd.Flags().BoolVar(&b.cfg.ToastLoadable, "toast-loadable", false, "Leave out only the tasks with no Toast form, so ToastStunt can load the file, and print each")
+	cmd.Flags().StringVar(&b.cfg.OfflineRun, "run", "", "Run the MOO program in this `file` before writing")
 	b.addOptionFlags(cmd.Flags())
 	cmd.RunE = b.run(func(*cobra.Command, []string) error {
 		b.cfg.OfflineCheckpoint = true
