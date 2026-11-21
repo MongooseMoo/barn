@@ -111,7 +111,7 @@ func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(E
 	if onStart != nil {
 		onStart(running.ID)
 	}
-	if err := s.runTaskAdmitted(running, scope, true); err != nil {
+	if _, err := s.runTaskAdmitted(running, scope, true); err != nil {
 		finish(EvalOutcome{Panic: fmt.Errorf("%s", strings.TrimPrefix(err.Error(), "internal panic: "))})
 	}
 	return running

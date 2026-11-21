@@ -143,11 +143,15 @@ func (s *Runtime) runServerVerbTask(objID types.ObjID, verbName string, args []t
 		onStart(t.ID)
 	}
 
-	if err := s.runTaskAdmitted(t, scope, ownsScope); err != nil {
-		return t.Result, err
+	// Decide on this slice's own outcome, as Toast's run_server_task does: once
+	// a suspended hook releases its execution lease, a scheduler worker may
+	// resume and finish it, replacing t.Result with the later return value.
+	result, err := s.runTaskAdmitted(t, scope, ownsScope)
+	if err != nil {
+		return result, err
 	}
 	s.settleTaskResult(t, nil)
-	return t.Result, nil
+	return result, nil
 }
 
 // CreateLoginHookTask runs a login-hook verb (do_login_command and friends) as
@@ -219,7 +223,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 		onStart(t.ID)
 	}
 
-	if err := s.runTaskAdmitted(t, scope, true); err != nil {
+	if _, err := s.runTaskAdmitted(t, scope, true); err != nil {
 		return t.ID, err
 	}
 	return t.ID, nil
@@ -407,7 +411,7 @@ func (s *Runtime) ResumeReadingTask(player types.ObjID, line string) bool {
 	if !t.ResumeAndClaim(types.NewStr(line)) {
 		return false
 	}
-	if err := s.runTaskAdmitted(t, scope, true); err != nil {
+	if _, err := s.runTaskAdmitted(t, scope, true); err != nil {
 		slog.Error("task resume error",
 			slog.Int64("task_id", t.ID),
 			slog.Int64("this", int64(t.This)),
