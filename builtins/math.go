@@ -143,66 +143,55 @@ func builtinRandom(ctx *Execution, args []types.Value) types.Result {
 	}
 }
 
+// mathFuncResult maps a math result to what Toast's MATH_FUNC macro
+// (src/numbers.cc) returns: E_INVARG when the C library reports a domain
+// error (EDOM), E_FLOAT on a range error or a non-finite result. MOO floats
+// are always finite, so a NaN result is exactly a domain error and an
+// infinite result exactly an overflow or pole.
+func mathFuncResult(result float64) types.Result {
+	if math.IsNaN(result) {
+		return types.Err(types.E_INVARG)
+	}
+	if math.IsInf(result, 0) {
+		return types.Err(types.E_FLOAT)
+	}
+	return types.Ok(types.NewFloat(result))
+}
+
 // builtinSqrt returns square root
 // sqrt(value) -> float
 func builtinSqrt(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-	if f < 0 {
-		return types.Err(types.E_INVARG)
-	}
-
-	return types.Ok(types.NewFloat(math.Sqrt(f)))
+	return mathFuncResult(math.Sqrt(numberFloat(args[0])))
 }
 
 // builtinSin returns sine of angle (radians)
 // sin(angle) -> float
 func builtinSin(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-
-	return types.Ok(types.NewFloat(math.Sin(f)))
+	return mathFuncResult(math.Sin(numberFloat(args[0])))
 }
 
 // builtinCos returns cosine of angle (radians)
 // cos(angle) -> float
 func builtinCos(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-
-	return types.Ok(types.NewFloat(math.Cos(f)))
+	return mathFuncResult(math.Cos(numberFloat(args[0])))
 }
 
 // builtinTan returns tangent of angle (radians)
 // tan(angle) -> float
 func builtinTan(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-
-	result := math.Tan(f)
-	if math.IsInf(result, 0) {
-		return types.Err(types.E_FLOAT)
-	}
-
-	return types.Ok(types.NewFloat(result))
+	return mathFuncResult(math.Tan(numberFloat(args[0])))
 }
 
 // builtinAsin returns arc sine
 // asin(value) -> float
 func builtinAsin(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-	if f < -1 || f > 1 {
-		return types.Err(types.E_INVARG)
-	}
-
-	return types.Ok(types.NewFloat(math.Asin(f)))
+	return mathFuncResult(math.Asin(numberFloat(args[0])))
 }
 
 // builtinAcos returns arc cosine
 // acos(value) -> float
 func builtinAcos(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-	if f < -1 || f > 1 {
-		return types.Err(types.E_INVARG)
-	}
-
-	return types.Ok(types.NewFloat(math.Acos(f)))
+	return mathFuncResult(math.Acos(numberFloat(args[0])))
 }
 
 // builtinAtan returns arc tangent
@@ -218,85 +207,54 @@ func builtinAtan(ctx *Execution, args []types.Value) types.Result {
 // builtinSinh returns hyperbolic sine
 // sinh(value) -> float
 func builtinSinh(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-
-	return types.Ok(types.NewFloat(math.Sinh(f)))
+	return mathFuncResult(mathSinh(numberFloat(args[0])))
 }
 
 // builtinCosh returns hyperbolic cosine
 // cosh(value) -> float
 func builtinCosh(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-
-	return types.Ok(types.NewFloat(math.Cosh(f)))
+	return mathFuncResult(mathCosh(numberFloat(args[0])))
 }
 
 // builtinTanh returns hyperbolic tangent
 // tanh(value) -> float
 func builtinTanh(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-
-	return types.Ok(types.NewFloat(math.Tanh(f)))
+	return mathFuncResult(math.Tanh(numberFloat(args[0])))
 }
 
 // builtinExp returns e raised to power
 // exp(value) -> float
 func builtinExp(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-
-	// Toast delegates to the platform libm exp(), whose last-bit result differs
-	// from Go's architecture-specific Exp implementation for some inputs (for
-	// example 1.5). Exp2(x*log2(e)) follows the same correctly rounded values for
-	// Toast's observable 15-digit float formatting while remaining pure Go.
-	result := math.Exp2(f * math.Log2E)
-	if math.IsInf(result, 0) || (result == 0 && f != 0) {
+	result := mathExp(numberFloat(args[0]))
+	if result == 0 {
+		// The C library sets ERANGE when exp underflows to zero.
 		return types.Err(types.E_FLOAT)
 	}
-	return types.Ok(types.NewFloat(result))
+	return mathFuncResult(result)
 }
 
 // builtinLog returns natural logarithm
 // log(value) -> float
 func builtinLog(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-	if f <= 0 {
-		if f == 0 {
-			return types.Err(types.E_FLOAT)
-		}
-		return types.Err(types.E_INVARG)
-	}
-
-	return types.Ok(types.NewFloat(math.Log(f)))
+	return mathFuncResult(mathLog(numberFloat(args[0])))
 }
 
 // builtinLog10 returns base-10 logarithm
 // log10(value) -> float
 func builtinLog10(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-	if f <= 0 {
-		if f == 0 {
-			return types.Err(types.E_FLOAT)
-		}
-		return types.Err(types.E_INVARG)
-	}
-
-	return types.Ok(types.NewFloat(math.Log10(f)))
+	return mathFuncResult(mathLog10(numberFloat(args[0])))
 }
 
 // builtinCeil rounds up to nearest integer
 // ceil(float) -> float
 func builtinCeil(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-
-	return types.Ok(types.NewFloat(math.Ceil(f)))
+	return mathFuncResult(math.Ceil(numberFloat(args[0])))
 }
 
 // builtinFloor rounds down to nearest integer
 // floor(float) -> float
 func builtinFloor(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-
-	return types.Ok(types.NewFloat(math.Floor(f)))
+	return mathFuncResult(math.Floor(numberFloat(args[0])))
 }
 
 // builtinTrunc truncates towards zero
@@ -342,27 +300,15 @@ func builtinFloatstr(ctx *Execution, args []types.Value) types.Result {
 // toNumericFloat converts a value to float64 for math operations
 // Returns NaN if not numeric
 func builtinAcosh(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-	if f < 1 {
-		return types.Err(types.E_INVARG)
-	}
-	return types.Ok(types.NewFloat(math.Acosh(f)))
+	return mathFuncResult(math.Acosh(numberFloat(args[0])))
 }
 
 func builtinAsinh(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-	return types.Ok(types.NewFloat(math.Asinh(f)))
+	return mathFuncResult(math.Asinh(numberFloat(args[0])))
 }
 
 func builtinAtanh(ctx *Execution, args []types.Value) types.Result {
-	f := numberFloat(args[0])
-	if f == -1 || f == 1 {
-		return types.Err(types.E_FLOAT)
-	}
-	if f < -1 || f > 1 {
-		return types.Err(types.E_INVARG)
-	}
-	return types.Ok(types.NewFloat(math.Atanh(f)))
+	return mathFuncResult(math.Atanh(numberFloat(args[0])))
 }
 
 func builtinAtan2(ctx *Execution, args []types.Value) types.Result {
@@ -370,7 +316,7 @@ func builtinAtan2(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinCbrt(ctx *Execution, args []types.Value) types.Result {
-	return types.Ok(types.NewFloat(math.Cbrt(numberFloat(args[0]))))
+	return mathFuncResult(math.Cbrt(numberFloat(args[0])))
 }
 
 func builtinRound(ctx *Execution, args []types.Value) types.Result {
