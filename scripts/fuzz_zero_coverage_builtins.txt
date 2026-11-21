@@ -1,0 +1,3 @@
+# Builtins the pinned Toast registers that no compared generated program
+# and no conformance test calls. Kept by scripts/fuzz_builtin_census.py: the
+# nightly fuzz cycle fails when this list and its census differ.

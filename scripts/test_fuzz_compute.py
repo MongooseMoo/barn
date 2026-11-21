@@ -23,6 +23,7 @@ ACCEPTED = [{"name": "Accept discovery cycle", "conclusion": "success"}]
 DEDICATED_CYCLE = {"id": 11, "display_title": "Nightly fuzz / dedicated-continuous"}
 LEGACY_CYCLE = {"id": 12, "display_title": "Nightly fuzz / legacy"}
 COMPARE = "Compare retained public source on Barn and Toast"
+CLEAN_BUILTIN_CENSUS = {"newly_zero": [], "newly_covered": []}
 
 
 def node_binary():
@@ -262,7 +263,8 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertIn("group: nightly-fuzz-controller-${{ github.event_name }}", controller)
         self.assertIn("    if: github.event_name == 'schedule' && vars.FUZZ_CONTINUOUS_ENABLED == 'true'", controller)
 
-    def accept(self, jobs, lanes, outcome="success", campaign="native-and-toast", memories=None):
+    def accept(self, jobs, lanes, outcome="success", campaign="native-and-toast", memories=None,
+               builtins=CLEAN_BUILTIN_CENSUS):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for target, census in lanes.items():
@@ -274,6 +276,8 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
             if outcome is not None:
                 (root / "fuzz-differential").mkdir()
                 (root / "fuzz-differential/results.json").write_text(json.dumps({"summary": {"outcome": outcome}}))
+                if builtins is not None:
+                    (root / "fuzz-differential/builtin-census.json").write_text(json.dumps(builtins))
             return self.execute("accept", env={**CONFIG, "FUZZ_CAMPAIGN": campaign}, jobs=jobs, cwd=root)
 
     def test_native_only_accepts_measured_clean_work_and_saved_findings(self):
@@ -330,6 +334,19 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
                  "FuzzB": {"completed_executions": 9, "campaign": "finding"}}
         self.assertNotIn("error", self.accept(jobs, lanes, "divergence"))
         self.assertNotIn("error", self.accept(jobs[:3] + [job("ToastDifferential")], lanes))
+
+    def test_builtin_census_change_rejects_the_cycle(self):
+        jobs, lanes = [job("FuzzA"), job("ToastDifferential")], {"FuzzA": {"completed_executions": 5, "campaign": "clean"}}
+        for builtins, message in (
+                (None, "ToastDifferential: no builtin census"),
+                ({"newly_zero": ["trunc"]}, "ToastDifferential: no builtin census"),
+                ({"newly_zero": ["trunc"], "newly_covered": []},
+                 "builtin census: no compared program or conformance test calls trunc"),
+                ({"newly_zero": [], "newly_covered": ["curl"]},
+                 "builtin census: curl gained coverage; remove from scripts/fuzz_zero_coverage_builtins.txt")):
+            with self.subTest(builtins=builtins):
+                result = self.accept(jobs, lanes, builtins=builtins)
+                self.assertIn(message, result.get("error", ""))
 
     def test_incomplete_or_unmeasured_cycle_is_rejected(self):
         good = {"completed_executions": 5, "campaign": "clean"}
@@ -395,6 +412,15 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertNotIn("\n    strategy:", differential)
         self.assertIn("FUZZ_TARGET: ToastDifferential", differential)
         self.assertIn("FUZZ_PACKAGE: ./scripts", differential)
+
+    def test_builtin_census_is_written_into_the_uploaded_evidence(self):
+        fuzz = (ROOT / ".github/workflows/fuzz.yml").read_text()
+        differential = fuzz.split("\n  differential:\n")[1].split("\n  accept:\n")[0]
+        census = differential.index("scripts/fuzz_builtin_census.py")
+        self.assertLess(differential.index(f"name: {COMPARE}"), census)
+        self.assertLess(census, differential.index("name: Upload differential evidence"))
+        self.assertIn("--out fuzz-differential", differential[census:])
+        self.assertIn("repository: MongooseMoo/moo-conformance-tests", differential)
 
     def test_changed_dedicated_configuration_prevents_replenishment(self):
         result = self.execute(env={**CONFIG, "FUZZ_RUNNER_LABELS": ""})
