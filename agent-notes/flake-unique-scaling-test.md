@@ -49,4 +49,4 @@ gofmt clean, `go vet ./builtins` ok, `go test ./builtins -count=1` ok (48.4s, Wi
 Committed on fix/flake-unique-scaling-test (local only; lead publishes).
 
 ## Next step
-Push and PR (lead).
+Push and PR (lead). Results reported to team-lead; nothing left on this branch.
