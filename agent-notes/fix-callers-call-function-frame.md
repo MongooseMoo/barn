@@ -21,7 +21,9 @@ Done, committed locally (not pushed). Suite test
 committed on `test/callers-call-function-frame` in the suite worktree; Barn
 fix, lane change, tests and this note on `fix/callers-call-function-frame`.
 All 50 cases pass on Toast unchanged and on Barn; cross-engine move
-checkpoint passes in both directions.
+checkpoint passes in both directions. Follow-up (eval callers() across a
+restart) done too: suite test `server/suspended_eval_callers_checkpoint.yaml`
+committed; Barn branch merged with origin/master after PR 1031 landed.
 
 ## Toast source readings
 
@@ -246,6 +248,14 @@ Runs for the follow-up:
      "capability_admission or suspended_eval_callers_checkpoint"`): Barn
      writes/Toast resumes `3 passed`; Toast writes/Barn resumes `3 passed`;
      Barn writes/Barn resumes `3 passed`.
+   - Barn, `make conformance ... K="call_function_callback_frames or suspended_eval_callers_checkpoint"`:
+     `53 passed, 14091 deselected in 478.51s`.
+10. PR 1031 merged; this branch merged origin/master (no conflicts), then the
+    export's literal was replaced by 1031's `nativeCallFunctionEvalState` and
+    1031's comment that export writes a plain eval mark was corrected. Every
+    .go file then matched the trial tree except that constant swap. Same
+    focused go test command: vm, engine, builtins ok. The trial worktree was
+    removed.
 
 ## Not verified
 
