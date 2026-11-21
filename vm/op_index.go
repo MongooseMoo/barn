@@ -205,44 +205,24 @@ func (vm *VM) executeRangeSet() error {
 		newColl = types.NewStr(s[:prefixEnd] + newStr.Str() + s[suffixStart:])
 
 	case types.TYPE_MAP:
-		switch start.Type() {
-		case types.TYPE_LIST, types.TYPE_MAP:
+		// Toast execute.cc EOP_RANGESET: the value type, then the bound
+		// types, then the keys. There is no from > to check.
+		if value.Type() != types.TYPE_MAP {
+			return newMooError(types.E_TYPE, "map range assignment requires a map value")
+		}
+		newMap := value
+		if !types.IsValidMapKey(start) || !types.IsValidMapKey(end) {
 			return newMooError(types.E_TYPE, "range indices must be integers or map keys")
 		}
 		startIdx := coll.KeyPosition(start)
 		if startIdx == 0 {
 			return newMooError(types.E_RANGE, "map range start key not found")
 		}
-		switch end.Type() {
-		case types.TYPE_LIST, types.TYPE_MAP:
-			return newMooError(types.E_TYPE, "range indices must be integers or map keys")
-		}
 		endIdx := coll.KeyPosition(end)
 		if endIdx == 0 {
 			return newMooError(types.E_RANGE, "map range end key not found")
 		}
-
-		// Value must be a map
-		if value.Type() != types.TYPE_MAP {
-			return newMooError(types.E_TYPE, "map range assignment requires a map value")
-		}
-		newMap := value
-
 		length := coll.Len()
-		isInverted := startIdx > endIdx
-
-		// Bounds check
-		if startIdx < 1 || startIdx > int64(length)+1 {
-			return newMooError(types.E_RANGE, "map range start out of bounds")
-		}
-		if endIdx < 0 || endIdx > int64(length) {
-			return newMooError(types.E_RANGE, "map range end out of bounds")
-		}
-		if isInverted {
-			if startIdx > int64(length) || endIdx < 1 {
-				return newMooError(types.E_RANGE, "map range inverted out of bounds")
-			}
-		}
 
 		// Build new map: pairs[1..start-1] + newMap + pairs[end+1..$]
 		pairs := coll.Pairs()
@@ -355,35 +335,23 @@ func (vm *VM) executeRange() error {
 		return nil
 
 	case types.TYPE_MAP:
-		if start.Type() == types.TYPE_INT && end.Type() == types.TYPE_INT && start.Int() > end.Int() {
+		// Toast execute.cc OP_RANGE_REF: the bound types, then compare()
+		// on the bounds. from sorting after to gives [] whatever the keys;
+		// otherwise a missing key raises E_RANGE.
+		if !types.IsValidMapKey(start) || !types.IsValidMapKey(end) {
+			return newMooError(types.E_TYPE, "range indices must be integers or map keys")
+		}
+		if types.CompareMapKeys(start, end) > 0 {
 			vm.Push(types.NewEmptyMap())
 			return nil
-		}
-		if !types.IsValidMapKey(start) {
-			return newMooError(types.E_TYPE, "range indices must be integers or map keys")
 		}
 		startIdx := collection.KeyPosition(start)
 		if startIdx == 0 {
 			return newMooError(types.E_RANGE, "map range start key not found")
 		}
-		if !types.IsValidMapKey(end) {
-			return newMooError(types.E_TYPE, "range indices must be integers or map keys")
-		}
 		endIdx := collection.KeyPosition(end)
 		if endIdx == 0 {
 			return newMooError(types.E_RANGE, "map range end key not found")
-		}
-		length := int64(collection.Len())
-
-		if startIdx > endIdx {
-			vm.Push(types.NewEmptyMap())
-			return nil
-		}
-		if startIdx < 1 || startIdx > length {
-			return newMooError(types.E_RANGE, "map range start out of range")
-		}
-		if endIdx < 1 || endIdx > length {
-			return newMooError(types.E_RANGE, "map range end out of range")
 		}
 
 		pairs := collection.Pairs()
