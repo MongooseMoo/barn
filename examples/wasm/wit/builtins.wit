@@ -1,0 +1,19 @@
+package barn:example@1.0.0;
+
+world builtins {
+    record greeting { text: string, count: u32 }
+    enum color { red, green, blue }
+    variant choice { empty, number(s64), text(string) }
+
+    export add: func(a: s64, b: s64) -> s64;
+    export greet: func(name: string) -> string;
+    export echo: func(values: list<s64>) -> list<s64>;
+    export record-echo: func(value: greeting) -> greeting;
+    export color-echo: func(value: color) -> color;
+    export choice-echo: func(value: choice) -> choice;
+    export option-echo: func(value: option<s64>) -> option<s64>;
+    export checked: func(value: s64) -> result<s64, string>;
+    export counter: func() -> u32;
+    export spin: func() -> s64;
+    export trap: func() -> s64;
+}

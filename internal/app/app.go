@@ -173,6 +173,7 @@ func printProfiles(out, errOut io.Writer, registry profile.Registry) {
 // Config describes one Barn invocation independently of command-line parsing.
 type Config struct {
 	DatabasePath                                                               string
+	WASMDirectory                                                              string
 	Port                                                                       int
 	Listen                                                                     []string
 	PortProvided                                                               bool
@@ -236,6 +237,9 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}
 	if cfg.PromoteNumbers {
 		options.PromoteNumbers = true
+	}
+	if cfg.WASMDirectory != "" {
+		options.WASMDirectory = cfg.WASMDirectory
 	}
 	if err := options.Validate(); err != nil {
 		return fmt.Errorf("invalid config: %w", err)

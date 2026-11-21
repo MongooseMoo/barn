@@ -74,6 +74,7 @@ func newRootCommand() *cobra.Command {
 func (b *barnCommand) addOptionFlags(flags *pflag.FlagSet) {
 	flags.StringVar(&b.cfg.ConfigPath, "config", "", "Server config `file`")
 	flags.BoolVar(&b.cfg.PromoteNumbers, "promote-numbers", false, "Enable numeric promotion")
+	flags.StringVar(&b.cfg.WASMDirectory, "wasm-dir", "", "Operator `dir`ectory of pure WIT builtin components")
 	flags.BoolVarP(&b.cfg.Outbound, "outbound", "o", false, "Enable outbound network connections, overriding --config")
 	flags.BoolVarP(&b.cfg.NoOutbound, "no-outbound", "O", false, "Disable outbound network connections, overriding --config")
 }

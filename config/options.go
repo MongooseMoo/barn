@@ -16,6 +16,8 @@ type Options struct {
 	// ValidIncarnation admits valid(object, expected incarnation_id), the
 	// Mongoose ToastStunt fork's two-argument valid. Stock Toast takes one.
 	ValidIncarnation bool
+	// Operator-owned directory of pure WIT components. Empty disables loading.
+	WASMDirectory string
 	// Zero selects the runtime default; these affect scheduling, not MOO semantics.
 	AdmissionLimit, AdmissionPrincipalLimit         int
 	AdmissionInputWeight, AdmissionBackgroundWeight int

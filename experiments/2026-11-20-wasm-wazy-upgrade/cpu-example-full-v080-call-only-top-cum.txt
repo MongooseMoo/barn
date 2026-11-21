@@ -1,0 +1,41 @@
+File: wasm-v080.exe
+Build ID: C:\Users\Q\code\barn-wasm-builtins\.tmp\wasm-v080.exe2026-11-20 17:06:31.0017857 -0700 MST
+Type: cpu
+Time: 2026-11-20 17:14:08 MST
+Duration: 8.91s, Total samples = 8.66s (97.15%)
+Active filters:
+   focus=wasmbuiltins.\(\*Manager\).Call
+Showing nodes accounting for 2.97s, 34.30% of 8.66s total
+Dropped 222 nodes (cum <= 0.04s)
+Showing top 30 nodes out of 137
+      flat  flat%   sum%        cum   cum%
+     0.03s  0.35%  0.35%      6.15s 71.02%  github.com/MongooseMoo/barn/internal/wasmbuiltins.(*Manager).Call
+         0     0%  0.35%      6.15s 71.02%  github.com/MongooseMoo/barn/internal/wasmbuiltins.BenchmarkWASMCall.func1.1
+         0     0%  0.35%      6.15s 71.02%  testing.(*B).run1.func1
+         0     0%  0.35%      6.15s 71.02%  testing.(*B).runN
+         0     0%  0.35%      5.79s 66.86%  github.com/samyfodil/wazy/component.Instantiate (inline)
+         0     0%  0.35%      5.79s 66.86%  github.com/samyfodil/wazy/internal/component/instance.Instantiate
+     0.10s  1.15%  1.50%      5.65s 65.24%  github.com/samyfodil/wazy/internal/component/instance.instantiateGraph
+     0.01s  0.12%  1.62%      2.78s 32.10%  github.com/samyfodil/wazy/internal/component/instance.instantiateGraph.func12
+         0     0%  1.62%      2.78s 32.10%  github.com/samyfodil/wazy/internal/component/instance.instantiateGraph.func13 (inline)
+         0     0%  1.62%      2.68s 30.95%  github.com/samyfodil/wazy/internal/component/instance.instantiateCoreModule (inline)
+         0     0%  1.62%      2.68s 30.95%  github.com/samyfodil/wazy/internal/component/instance.instantiateCoreModuleCacheable
+     0.01s  0.12%  1.73%      2.65s 30.60%  github.com/samyfodil/wazy.(*runtime).InstantiateModule
+     0.01s  0.12%  1.85%      2.53s 29.21%  github.com/samyfodil/wazy/internal/wasm.(*Store).Instantiate
+     0.01s  0.12%  1.96%      2.51s 28.98%  github.com/samyfodil/wazy/internal/wasm.(*Store).instantiate
+     0.01s  0.12%  2.08%      2.49s 28.75%  github.com/samyfodil/wazy/internal/component/instance.bindImportExportsGraph
+     0.10s  1.15%  3.23%      2.45s 28.29%  github.com/samyfodil/wazy/internal/component/instance.bindFuncExportGraph
+     2.34s 27.02% 30.25%      2.34s 27.02%  runtime.memclrNoHeapPointers
+         0     0% 30.25%      2.05s 23.67%  github.com/samyfodil/wazy/internal/wasm.(*ModuleInstance).buildMemory
+     0.01s  0.12% 30.37%      2.05s 23.67%  github.com/samyfodil/wazy/internal/wasm.NewMemoryInstance
+     0.11s  1.27% 31.64%      2.04s 23.56%  github.com/samyfodil/wazy/internal/component/instance.finalizeBoundExport
+         0     0% 31.64%      1.99s 22.98%  github.com/samyfodil/wazy/internal/wasm.getPooledMemoryBuffer
+     0.05s  0.58% 32.22%      1.58s 18.24%  runtime.mallocgc
+     0.01s  0.12% 32.33%      1.46s 16.86%  github.com/samyfodil/wazy/internal/wasm.(*ModuleInstance).ExportedFunction
+     0.08s  0.92% 33.26%      1.38s 15.94%  github.com/samyfodil/wazy/internal/engine/native.(*moduleEngine).NewFunction
+     0.01s  0.12% 33.37%      1.36s 15.70%  runtime.newobject
+     0.06s  0.69% 34.06%      0.99s 11.43%  runtime.mallocgcSmallScanHeader
+         0     0% 34.06%      0.73s  8.43%  runtime.systemstack
+         0     0% 34.06%      0.61s  7.04%  runtime.(*mcache).nextFree
+     0.02s  0.23% 34.30%      0.61s  7.04%  runtime.(*mcache).refill
+         0     0% 34.30%      0.56s  6.47%  runtime.(*mcentral).cacheSpan

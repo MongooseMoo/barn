@@ -1,0 +1,29 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                    │  v030.txt   │              v080.txt              │
+                    │   sec/op    │   sec/op     vs base               │
+VM/int_arith_1M       49.30m ± 1%   49.40m ± 3%       ~ (p=0.684 n=10)
+VM/builtin_abs_200k   30.76m ± 1%   28.65m ± 1%  -6.85% (p=0.000 n=10)
+VM/tostr_200k         76.93m ± 1%   75.37m ± 2%  -2.04% (p=0.000 n=10)
+VM/prop_defined_1M    204.0m ± 2%   204.8m ± 2%       ~ (p=0.436 n=10)
+geomean               69.84m        68.37m       -2.12%
+
+                    │   v030.txt   │               v080.txt                │
+                    │     B/op     │     B/op      vs base                 │
+VM/int_arith_1M       16.33Ki ± 0%   16.33Ki ± 0%       ~ (p=1.000 n=10) ¹
+VM/builtin_abs_200k   16.58Ki ± 0%   16.58Ki ± 0%       ~ (p=1.000 n=10) ¹
+VM/tostr_200k         13.48Mi ± 0%   13.48Mi ± 0%       ~ (p=0.628 n=10)
+VM/prop_defined_1M    16.47Ki ± 0%   16.47Ki ± 0%       ~ (p=1.000 n=10) ¹
+geomean               88.57Ki        88.57Ki       +0.00%
+¹ all samples are equal
+
+                    │  v030.txt   │               v080.txt               │
+                    │  allocs/op  │  allocs/op   vs base                 │
+VM/int_arith_1M        20.00 ± 0%    20.00 ± 0%       ~ (p=1.000 n=10) ¹
+VM/builtin_abs_200k    29.00 ± 0%    29.00 ± 0%       ~ (p=1.000 n=10) ¹
+VM/tostr_200k         399.9k ± 0%   399.9k ± 0%       ~ (p=1.000 n=10) ¹
+VM/prop_defined_1M     23.00 ± 0%    23.00 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                270.3         270.3       +0.00%
+¹ all samples are equal

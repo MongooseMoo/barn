@@ -271,6 +271,10 @@ var builtinLayout = []string{
 	"verb_ast",
 	"validate_ast",
 	"unparse_ast",
+	"wasm_call",
+	"wasm_modules",
+	"wasm_load",
+	"wasm_unload",
 }
 
 // Descriptors assembles the native catalog with owner-supplied functions such
@@ -309,6 +313,7 @@ func Descriptors(additional ...Descriptor) []Descriptor {
 		unicodeDescriptors(),
 		tzOffsetDescriptors(),
 		astDescriptors(),
+		wasmDescriptors(),
 	}
 	byName := make(map[string]Descriptor)
 	add := func(d Descriptor) {

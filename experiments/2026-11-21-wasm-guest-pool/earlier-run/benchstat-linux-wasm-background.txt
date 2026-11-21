@@ -1,0 +1,41 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                                  │ raw-linux-wasm/base.txt │       raw-linux-wasm/final.txt       │
+                                  │         sec/op          │    sec/op     vs base                │
+WASMCall/example/Full                          93.26µ ± 37%   31.42µ ±  4%  -66.31% (p=0.000 n=10)
+WASMCall/example/InstantiateClose              90.08µ ± 17%   95.66µ ±  6%        ~ (p=0.143 n=10)
+WASMCall/example/ExecuteExisting               966.7n ±  2%   935.5n ±  2%   -3.23% (p=0.002 n=10)
+WASMCall/scalar/Full                          24.872µ ± 16%   5.579µ ±  3%  -77.57% (p=0.000 n=10)
+WASMCall/scalar/InstantiateClose               22.72µ ±  3%   22.97µ ±  6%        ~ (p=0.529 n=10)
+WASMCall/scalar/ExecuteExisting                982.2n ±  2%   989.6n ±  2%        ~ (p=0.353 n=10)
+WASMCall/example/FullSettled                                  3.572µ ± 33%
+WASMCall/scalar/FullSettled                                   2.289µ ±  7%
+geomean                                        12.85µ         6.428µ        -34.48%
+
+                                  │ raw-linux-wasm/base.txt │        raw-linux-wasm/final.txt        │
+                                  │          B/op           │     B/op      vs base                  │
+WASMCall/example/Full                          47598.0 ± 0%     361.0 ± 0%  -99.24% (p=0.000 n=10)
+WASMCall/example/InstantiateClose              46.43Ki ± 0%   46.79Ki ± 0%   +0.78% (p=0.000 n=10)
+WASMCall/example/ExecuteExisting                 288.0 ± 0%     288.0 ± 0%        ~ (p=1.000 n=10) ¹
+WASMCall/scalar/Full                           22010.0 ± 0%     360.0 ± 0%  -98.36% (p=0.000 n=10)
+WASMCall/scalar/InstantiateClose               21.45Ki ± 0%   21.46Ki ± 0%   +0.05% (p=0.000 n=10)
+WASMCall/scalar/ExecuteExisting                  288.0 ± 0%     288.0 ± 0%        ~ (p=1.000 n=10) ¹
+WASMCall/example/FullSettled                                    360.0 ± 0%
+WASMCall/scalar/FullSettled                                     360.0 ± 0%
+geomean                                        6.546Ki        1.025Ki       -77.64%
+¹ all samples are equal
+
+                                  │ raw-linux-wasm/base.txt │       raw-linux-wasm/final.txt       │
+                                  │        allocs/op        │ allocs/op   vs base                  │
+WASMCall/example/Full                          150.000 ± 0%   8.000 ± 0%  -94.67% (p=0.000 n=10)
+WASMCall/example/InstantiateClose                149.0 ± 0%   148.0 ± 0%   -0.67% (p=0.000 n=10)
+WASMCall/example/ExecuteExisting                 5.000 ± 0%   5.000 ± 0%        ~ (p=1.000 n=10) ¹
+WASMCall/scalar/Full                           123.000 ± 0%   8.000 ± 0%  -93.50% (p=0.000 n=10)
+WASMCall/scalar/InstantiateClose                 121.0 ± 0%   121.0 ± 0%        ~ (p=1.000 n=10) ¹
+WASMCall/scalar/ExecuteExisting                  5.000 ± 0%   5.000 ± 0%        ~ (p=1.000 n=10) ¹
+WASMCall/example/FullSettled                                  8.000 ± 0%
+WASMCall/scalar/FullSettled                                   8.000 ± 0%
+geomean                                          45.01        14.39       -61.14%
+¹ all samples are equal
