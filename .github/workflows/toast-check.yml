@@ -19,7 +19,7 @@ on:
     paths:
       - .github/workflows/toast-check.yml
       - .github/workflows/goodput-series.yml
-      - .github/actions/toast-oracle/action.yml
+      - scripts/build-toast-oracle.sh
       - scripts/toast-check.sh
       - internal/dbtool/toast_check.go
       - profiles/toast/mongoose-0ff6fd7-wsl-testdb.json
@@ -44,9 +44,7 @@ jobs:
           cache: ${{ runner.environment == 'github-hosted' }}
 
       - name: Build Toast
-        uses: ./.github/actions/toast-oracle
-        with:
-          manifest: profiles/toast/mongoose-0ff6fd7-wsl-testdb.json
+        run: bash scripts/build-toast-oracle.sh profiles/toast/mongoose-0ff6fd7-wsl-testdb.json
 
       - name: Build barn
         run: go build -o bin/barn ./cmd/barn/

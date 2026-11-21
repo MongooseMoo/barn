@@ -26,9 +26,10 @@ with origin/master on 2026-11-21:
 - `scripts/fuzz_report.py`: the divergence regex accepts any two
   `- label: ` result lines, and an entry's `- signature: ` line replaces the
   input path as the issue signature (one issue per failure class).
-- `.github/actions/toast-oracle`: the pinned Toast build, used by ci.yml's
-  cross-engine job, the differential job, the new job, and (since the merge,
-  with its `manifest` input) toast-check.yml.
+- `scripts/build-toast-oracle.sh [MANIFEST]`: the pinned Toast build, run by
+  ci.yml's cross-engine job, the differential job, the new job and
+  toast-check.yml (with `mongoose-0ff6fd7-wsl-testdb.json`). It replaced the
+  `.github/actions/toast-oracle` composite action; see Surprises.
 - `.github/workflows/fuzz.yml` job `cross-engine` (name
   `ToastCrossEngineCheckpoint`), and `scripts/fuzz_compute.cjs` accept judges
   it like the differential (COMPARISONS list).
@@ -100,7 +101,7 @@ with origin/master on 2026-11-21:
   defaults to `structured-ascii`) and `test_fuzz_compute.py` (the accept
   helper takes both `cross_engine` and master's `builtins`). Master's new
   `toast-check.yml` held a third copy of the Toast build; the
-  `toast-oracle` action now takes a `manifest` input and toast-check.yml
+  Toast build is shared (now `scripts/build-toast-oracle.sh`) and toast-check.yml
   uses it with `mongoose-0ff6fd7-wsl-testdb.json`.
   Unit tests after the merge: Windows `python -m unittest test_fuzz_compute`
   36 OK; WSL `bash -lc` (go on PATH only in a login shell)
@@ -169,6 +170,32 @@ with origin/master on 2026-11-21:
 
 ## Surprises
 
+- PR 1032's "Audit discovery workflows" step (ci.yml:140-143) went red, exit
+  12: zizmor 1.32.0's `self-repository` audit flagged `uses:
+  ./.github/actions/toast-oracle` at fuzz.yml:346 and :446 and wants
+  `$/.github/actions/toast-oracle` (its own `--fix=all` writes that). GitHub
+  shipped `$/` in July 2026 and per secondary sources it needs runner
+  2.336.0+; every workstation runner's newest `_diag` log reports 2.338.2.
+  But the same CI step runs actionlint v1.7.12, the newest release, which
+  rejects `$/` ("specifying action \"$/.github/actions/toast-oracle\" in
+  invalid format because ref is missing", exit 1; rhysd/actionlint issues
+  711 and 780 are open). No `uses:` form passes both, and neither check may
+  be loosened, so the composite action became
+  `scripts/build-toast-oracle.sh`, run by a `run:` step in all four places.
+  It fetches the manifest's ref with `git fetch --depth 1` (the repository is
+  public) and checks HEAD equals the ref. 2026-11-21 results: the script in
+  a WSL scratch directory, WSL load 8.47, built `toaststunt/build/moo` in
+  76 s with `options.h: OK` (exit 0, binary sha256 `e49c8a09...`; the
+  workstation's `/root` build is a different binary, `61dd1799...`, so the
+  build is not byte-reproducible across machines); `uvx --from
+  zizmor==1.32.0 zizmor --offline --no-progress .github/workflows/fuzz.yml
+  .github/workflows/fuzz-controller.yml` exit 0 ("No findings to report");
+  `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12` exit 0 on
+  fuzz.yml + fuzz-controller.yml and exit 0 on ci.yml + toast-check.yml;
+  `python -m unittest test_fuzz_compute` 36 OK. Other workflows still
+  use `./` actions (tested-tree, elle-cli, conformance-test); those files are
+  not audited by zizmor and I did not change them.
+
 - A new job in `fuzz.yml` would be counted as a native lane by
   `scripts/fuzz_compute.cjs` accept (`NOT_LANES`, line 41) and fail the cycle
   with "no census"; the accept logic must learn about the lane either way.
@@ -196,7 +223,7 @@ not captured (a second run to capture it was refused by the permission
 system).
 
 Not verified: the job on a real GitHub runner (the corpus artifact download,
-the toast-oracle action with an input, the failure reporter publishing
+the failure reporter publishing
 issues, accept on a real cycle); toast-check.yml with the action; the
 lane over more than these 8 programs on the merged branch.
 

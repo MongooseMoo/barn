@@ -343,7 +343,7 @@ jobs:
           path: .fuzz/retained
 
       - name: Build Toast oracle
-        uses: ./.github/actions/toast-oracle
+        run: bash scripts/build-toast-oracle.sh
 
       - name: Build Barn
         run: |
@@ -443,7 +443,7 @@ jobs:
           path: .fuzz/retained
 
       - name: Build Toast oracle
-        uses: ./.github/actions/toast-oracle
+        run: bash scripts/build-toast-oracle.sh
 
       - name: Build Barn
         run: |
