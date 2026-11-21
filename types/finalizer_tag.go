@@ -109,10 +109,10 @@ func (t *FinalizerTag) ConfinedTo(taskID int64, grantSeq uint64) bool {
 	}
 	for {
 		old := t.state.Load()
-		switch {
-		case old == tagConfined:
+		switch old {
+		case tagConfined:
 			return true
-		case old == tagEscaped:
+		case tagEscaped:
 			return false
 		}
 		next := uint64(tagEscaped)

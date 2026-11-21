@@ -611,6 +611,9 @@ command run before its completion is delivered.
 
 ### State
 
+All six steps done; not pushed (the lead's instruction). The PR body is at the
+end of this note.
+
 - Step 1 done: the four #1040 tests (`engine/suspend_finalization_order_test.go`,
   unchanged) fail on master (`k.hits ... = 0, want 1`, all four).
 - Step 2 done: the mechanism; the four tests pass (30 runs each), and
@@ -762,4 +765,156 @@ marked when written there):
 
 ### Gates
 
+Load is the WSL 1-minute/5-minute/15-minute load average (`/proc/loadavg`) on
+the 8-CPU workstation, which also runs the CI runners.
+
+- `go test -race ./db/store ./engine`: pass (store 10.4 s, engine 461 s);
+  load 5.05/10.19/13.02 before, 5.84/7.76/10.81 after. With
+  `-tags finalizationoracle`: pass (store 11.8 s, engine 498 s); load
+  6.33/7.80/10.79 before, 5.84/11.99/12.77 after.
+- Elle, as `.github/workflows/elle.yml` runs it (test_check_elle.py,
+  `TestElleRecorder`, `check_elle.py --seeds 412 395 396 --rounds 40`), on a
+  copy of the branch head in WSL, checker built from the pinned elle-cli
+  commit, Java 21: every healthy history (list-append and rw-register for
+  each seed) valid, every fault case rejected as expected, lifecycle cases as
+  expected; load 8.46 at start, 28.32 at end. Again with the oracle tag
+  (`check_elle.py`'s `-tags elle` changed to `elle,finalizationoracle` in the
+  copy only): same verdicts; load 28.32 at start, 11.13 at end. (Java 17,
+  the WSL default, cannot run the pinned checker.)
+- Managed conformance, suite main at its head (fresh clone in WSL, toastcore
+  submodule initialised), Barn built with `-tags finalizationoracle`, the
+  CLAUDE.md canonical invocation narrowed with `-k "capability_admission or
+  (anonymous_held_only_by_recycled_object_is_destroyed or
+  waif_recycle_verb_called_on_release)"`:
+  - Toast first (`make conformance-toast`, same selection): 3 passed.
+  - Barn, 20 runs at the workstation's own load (7.2-10.6): 3 passed each.
+  - Barn, 20 runs with 12 extra CPU-bound shell loops (load 16.1-40.1):
+    3 passed each.
+- Full managed suite, oracle build, after merging origin/master (an earlier
+  run on the pre-merge head failed
+  `server/task_timeout_traceback_lines.yaml::forked_tick_abort_reports_ticks_and_current_lines`,
+  which passes on Toast and on master: the suite's newest test needs master's
+  #1039, which the branch had not merged yet): 13854 passed, 327 skipped,
+  0 failed; load 16.55 at start, 13.52 at end.
+- Lint: `gofmt -l` clean, `go vet ./...` (and `-tags finalizationoracle
+  ./engine`) clean, `staticcheck ./...` clean after one tagged-switch fix in
+  `types/finalizer_tag.go`, `golangci-lint run ./...` 0 issues.
+- Real workload (`TestMongooseRealWorkload`, Windows, go1.27.1,
+  `BARN_MONGOOSE_DB=C:/Users/Q/code/barn/mongoose.db.new`, sound catalog
+  `C:/Users/Q/code/files/sqlite/sound.sqlite`, players 1 and 16, warmup 5 s,
+  measure 30 s, `BARN_MONGOOSE_GOGC=400`), precompiled test binaries from
+  detached worktrees of origin/master and of the branch head (origin/master
+  plus this work), five rounds each running master, branch, and branch with
+  `-tags finalizationoracle` in turn. Load is Windows CPU % and the WSL
+  1-minute load average before each run; raw logs in the session scratchpad
+  `perf/` folder. 30 s windows, so the spread is wide.
+
+| round | load before (cpu, wsl 1m) | arm | 1p goodput | 1p p50 / p99 (ms) | 16p goodput | 16p p50 / p99 (ms) |
+|---|---|---|---|---|---|---|
+| 1 | 52 %, 18.1 | master | 56 | 8.74 / 225.5 | 383 | 13.81 / 381.1 |
+| 1 | 46 %, 17.7 | branch | 67 | 7.64 / 157.0 | 306 | 15.44 / 512.2 |
+| 1 | 58 %, 16.4 | oracle | 71 | 7.17 / 147.6 | 308 | 15.04 / 588.2 |
+| 2 | 46 %, 17.5 | master | 85 | 6.43 / 125.8 | 366 | 13.32 / 413.4 |
+| 2 | 48 %, 12.0 | branch | 78 | 7.08 / 131.3 | 389 | 14.19 / 423.3 |
+| 2 | 49 %, 16.8 | oracle | 77 | 7.03 / 128.1 | 309 | 15.66 / 524.5 |
+| 3 | 47 %, 14.3 | master | 89 | 6.30 / 54.5 | 376 | 13.31 / 463.0 |
+| 3 | 51 %, 11.9 | branch | 85 | 6.33 / 109.1 | 364 | 12.88 / 376.2 |
+| 3 | 34 %, 17.4 | oracle | 96 | 5.79 / 99.4 | 316 | 14.30 / 537.1 |
+| 4 | 41 %, 9.2 | master | 76 | 7.29 / 119.2 | 329 | 14.83 / 495.5 |
+| 4 | 73 %, 17.2 | branch | 74 | 6.96 / 135.4 | 337 | 13.67 / 542.3 |
+| 4 | 74 %, 24.4 | oracle | 62 | 8.12 / 173.6 | 293 | 16.62 / 548.5 |
+| 5 | 45 %, 32.4 | master | 70 | 7.24 / 142.0 | 293 | 15.58 / 662.1 |
+| 5 | 48 %, 21.2 | branch | 68 | 7.64 / 152.7 | 308 | 15.58 / 496.7 |
+| 5 | 44 %, 20.3 | oracle | 75 | 7.07 / 140.2 | 313 | 14.40 / 559.4 |
+
+  Medians, master vs branch: 1p goodput 76 vs 74/s (pairwise branch minus
+  master +11, -7, -4, -2, -2; master's own range 56-89), p50 7.24 vs
+  7.08 ms, p99 125.8 vs 135.4 ms; 16p goodput 366 vs 337/s (pairwise -77,
+  +23, -12, +8, +15, median +8; master's range 293-383), p50 13.81 vs
+  14.19 ms, p99 463.0 vs 496.7 ms (pairwise +131, +10, -87, +47, -165,
+  median +10). Every difference is inside the spread of master's own runs;
+  no failed or uncaught command in any run. The oracle build is slower at
+  16p (it keeps a sweep due after every verdict); it is a test build only.
+- Oracle on the real workload: 0 disagreements in all five runs. Its
+  counters are per process and cumulative (the 16p line includes the 1p
+  window and both warmups): recorded / checked at the end of each run
+  9376 / 9361, 9546 / 9492, 9967 / 9822, 8773 / 8748, 9627 / 9627 (47,289
+  fast "dead" verdicts, 47,050 re-checked by a later sweep; the rest came
+  after the run's last sweep). At the end of the 1p window alone: 2120 /
+  2014, 2169 / 2169, 2576 / 2563, 1836 / 1786, 2120 / 2088.
+- Not run: the Jepsen checkpoint workflow (design section 8 item 5 lists it;
+  the lead's gate list does not).
+
 ### Next step
+
+The lead pushes the branch and replaces PR 1092's body with the one below (or
+opens the PR), and decides D2's hold for unknown values. Separate issues named
+in this note, untouched here: the release sites that record nothing, the
+sweep's missing roots, compiler temporaries that keep an assignment's base
+alive, anonymous objects reachable by number, and the engine test harness not
+running a resumed threaded-builtin task.
+
+### PR body
+
+Fixes #1083
+
+A WAIF or anonymous object whose last reference a task slice drops now has its
+`:recycle` verb run before that task resumes, and before a completing
+command's completion is delivered, when only that task could have held it.
+ToastStunt runs every such recycle before the next task slice (`server.cc`
+main loop: `recycle_anonymous_objects(); recycle_waifs();` before
+`run_ready_tasks()`). Barn left them to the batched sweep, which runs later and
+skips while sweeps are expensive or other VMs are running, so
+`recycle_keeps_shared_anonymous::anonymous_held_only_by_recycled_object_is_destroyed`
+and `waif_recycle_verb_called_on_release` failed intermittently.
+
+How (design C2 in `agent-notes/fix-finalization-order-released-cost.md`):
+- Each WAIF and anonymous object records its creating task and whether it may
+  be held elsewhere (`types.FinalizerTag`). Every channel that hands a value to
+  another holder marks it: publication to a numbered object's property
+  (`refreshDirectRefs`), writes into an anonymous object or a WAIF, fork,
+  `resume`, `set_connection_option`, `task_stack` / `queued_tasks` /
+  `finished_tasks` and the finished-tasks record, server hook arguments and
+  standalone verb calls, `move`, threaded builtins, `listen`.
+- A publication made under the slice's own exclusive commit grant is
+  tentative: if no numbered object holds the value after the slice commits, no
+  other task can have kept it (other commits were excluded, and readers of the
+  publication must validate after it).
+- After a slice commits, released values confined to the task and not held by
+  its own VM are recycled on the task's goroutine, each in its own transaction
+  as the sweep does it. Everything else goes to the sweep unchanged. No other
+  VM has to park and nothing waits in the scheduler.
+
+Known difference from Toast: other tasks that are already running are not
+ordered against a task's recycle verbs; they can run while those verbs run.
+Toast's single-threaded loop runs the verbs before any other slice. Values the
+boundary cannot decide (held inside another WAIF or anonymous object, or
+shared through a property and dropped by another task) still go to the sweep,
+unordered.
+
+Tests: the four tests of #1040 (fail on master, pass here); one Go test per
+reachable escape channel for a WAIF and an anonymous object, each shown to fail
+when its channel's mark is removed; an oracle (`-tags finalizationoracle`) that
+re-checks every boundary recycle against the next full sweep and fails the run
+on a disagreement.
+
+Gates (load = WSL load average on the 8-CPU workstation):
+- `go test -race ./db/store ./engine`: pass, also with the oracle tag.
+- Elle as `elle.yml` runs it, seeds 412 395 396: every healthy history valid,
+  every fault case rejected; the same with the oracle tag.
+- Managed conformance: the two tests on Toast first (pass), then on Barn with
+  the oracle 20 times at load 7-11 and 20 times at load 16-40: all pass. Full
+  suite with the oracle: 13854 passed, 327 skipped, 0 failed.
+- `TestMongooseRealWorkload`, five interleaved rounds (30 s windows, load
+  9-32):
+
+| | master median | branch median | pairwise branch - master |
+|---|---|---|---|
+| 1p goodput | 76/s | 74/s | +11, -7, -4, -2, -2 |
+| 1p p50 / p99 | 7.24 / 125.8 ms | 7.08 / 135.4 ms | |
+| 16p goodput | 366/s | 337/s | -77, +23, -12, +8, +15 |
+| 16p p50 / p99 | 13.81 / 463.0 ms | 14.19 / 496.7 ms | p99: +131, +10, -87, +47, -165 |
+
+  All within the spread of master's own runs (1p 56-89/s, 16p 293-383/s).
+  With the oracle on: 0 disagreements over 47,050 re-checked verdicts.
+- gofmt, go vet, staticcheck, golangci-lint clean.
