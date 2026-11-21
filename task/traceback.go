@@ -39,6 +39,13 @@ func FormatTraceback(stack []types.ActivationFrame, message string) []string {
 			verbName = "Input to EVAL"
 		}
 
+		// A builtin's entry below its callback (execute.cc
+		// print_error_backtrace prints it by the builtin's name).
+		if frame.IsBuiltinFrame {
+			lines = append(lines, fmt.Sprintf("... called from built-in function %s()", frame.Verb))
+			continue
+		}
+
 		var line string
 		if i == len(stack)-1 {
 			// Top frame - where the error occurred - include error message
@@ -60,7 +67,8 @@ func FormatTraceback(stack []types.ActivationFrame, message string) []string {
 
 		// Toast inserts a synthetic bf_eval marker beneath the eval'd-code
 		// activation, since the error propagated out through the eval() builtin.
-		if frame.IsEvalFrame {
+		// An eval() call's own builtin entry, below it, prints that line.
+		if frame.IsEvalFrame && (i == 0 || !stack[i-1].IsBuiltinFrame) {
 			lines = append(lines, "... called from built-in function eval()")
 		}
 	}
