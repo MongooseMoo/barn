@@ -2,8 +2,8 @@
   "compared_programs": 5728,
   "conformance_count": "upper bound: test code naming the builtin before '('",
   "conformance_roots": [
-    "C:\\Users\\Q\\AppData\\Local\\Temp\\claude\\655669a3d1b9c796\\ea6e86d2-9d20-42c3-abeb-b77523e31b37\\scratchpad\\suite\\src\\moo_conformance\\_tests",
-    "C:\\Users\\Q\\code\\barn-fuzz-builtin-census\\tests\\mongoose-conformance"
+    "src/moo_conformance/_tests",
+    "tests/mongoose-conformance"
   ],
   "conformance_suite_commit": "8816b3f090fb30b609a6d906a5d5102f402d6422",
   "covered_by_conformance": 238,

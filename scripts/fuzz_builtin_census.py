@@ -182,7 +182,8 @@ def main() -> int:
         "differential_rows": len(results["rows"]), "compared_programs": len(sources),
         "unparsed_programs": result["unparsed_programs"],
         "conformance_suite_commit": suite_commit,
-        "conformance_roots": [str(root) for root in roots],
+        # Each root relative to the checkout it belongs to: the suite's, then Barn's.
+        "conformance_roots": [roots[0].relative_to(args.suite).as_posix(), roots[1].relative_to(REPO).as_posix()],
         "conformance_count": "upper bound: test code naming the builtin before '('",
         "covered_by_programs": sum(1 for programs, _ in result["builtins"].values() if programs),
         "covered_by_conformance": sum(1 for _, conformance in result["builtins"].values() if conformance),
