@@ -52,6 +52,10 @@ type BinaryTransport interface {
 	// WaitInput blocks until input bytes are buffered, without consuming them.
 	WaitInput() error
 	ReadChunk() (string, error)
+	// ReadBufferedInput is ReadInput limited to bytes already buffered. With
+	// none buffered it waits for bytes and reports no input (complete false)
+	// without interpreting them, so the caller chooses the mode again.
+	ReadBufferedInput() (line string, isOutOfBand bool, complete bool, err error)
 }
 
 // OutputValidator checks transport-specific payload constraints before buffering.
@@ -106,28 +110,57 @@ func (t *TCPTransport) ReadLine() (string, error) {
 // Telnet commands are returned as out-of-band input immediately, without
 // waiting for a CR/LF terminator.
 func (t *TCPTransport) ReadInput() (string, bool, error) {
+	line, isOutOfBand, _, err := t.readInput(false)
+	return line, isOutOfBand, err
+}
+
+// ReadBufferedInput interprets as text only the bytes already read from the
+// socket. Toast tests h->binary on the bytes each read() returns (network.cc
+// pull_input); a text read that waited for more bytes here could return bytes
+// sent after set_connection_option(player, "binary", 1) and keep them as text.
+func (t *TCPTransport) ReadBufferedInput() (string, bool, bool, error) {
+	if t.reader.Buffered() == 0 {
+		if err := t.WaitInput(); err != nil {
+			if err == io.EOF && t.lineBuf.Len() > 0 {
+				line := t.lineBuf.String()
+				t.lineBuf.Reset()
+				return line, false, true, nil
+			}
+			return "", false, false, err
+		}
+		return "", false, false, nil
+	}
+	return t.readInput(true)
+}
+
+// readInput returns complete false only when bufferedOnly stops it at the end
+// of the buffered bytes.
+func (t *TCPTransport) readInput(bufferedOnly bool) (string, bool, bool, error) {
 	for {
+		if bufferedOnly && t.reader.Buffered() == 0 {
+			return "", false, false, nil
+		}
 		b, err := t.reader.ReadByte()
 		if err != nil {
 			// If we have partial data and hit EOF, return what we have
 			if err == io.EOF && t.lineBuf.Len() > 0 {
 				line := t.lineBuf.String()
 				t.lineBuf.Reset()
-				return line, false, nil
+				return line, false, true, nil
 			}
-			return "", false, err
+			return "", false, true, err
 		}
 		// Toast closes a connection whose pending line or telnet command
 		// reaches MAX_LINE_BYTES when more input arrives (network.cc).
 		if t.lineBuf.Len() >= maxLineBytes {
 			slog.Warn("connection closed for exceeding MAX_LINE_BYTES!",
 				slog.String("remote", t.conn.RemoteAddr().String()), slog.Int("bytes", t.lineBuf.Len()))
-			return "", false, errMaxLineBytes
+			return "", false, true, errMaxLineBytes
 		}
 		if len(t.tCommand) >= maxLineBytes {
 			slog.Warn("connection exceeded MAX_LINE_BYTES in telnet command!",
 				slog.String("remote", t.conn.RemoteAddr().String()), slog.Int("bytes", len(t.tCommand)))
-			return "", false, errMaxLineBytes
+			return "", false, true, errMaxLineBytes
 		}
 
 		switch t.tState {
@@ -141,7 +174,7 @@ func (t *TCPTransport) ReadInput() (string, bool, error) {
 				t.lastWasCR = true
 				line := t.lineBuf.String()
 				t.lineBuf.Reset()
-				return line, false, nil
+				return line, false, true, nil
 			} else if b == '\n' {
 				if t.lastWasCR {
 					// LF after CR - ignore (CR already delivered the line)
@@ -151,7 +184,7 @@ func (t *TCPTransport) ReadInput() (string, bool, error) {
 				// Bare LF also terminates a line
 				line := t.lineBuf.String()
 				t.lineBuf.Reset()
-				return line, false, nil
+				return line, false, true, nil
 			} else {
 				t.lastWasCR = false
 				// Normal printable character or high byte - add to line
@@ -181,7 +214,7 @@ func (t *TCPTransport) ReadInput() (string, bool, error) {
 				oob := formatTelnetCommand(t.tCommand)
 				t.tCommand = t.tCommand[:0]
 				t.tState = telnetStateNormal
-				return oob, true, nil
+				return oob, true, true, nil
 			}
 
 		case telnetStateCommand:
@@ -191,7 +224,7 @@ func (t *TCPTransport) ReadInput() (string, bool, error) {
 			oob := formatTelnetCommand(t.tCommand)
 			t.tCommand = t.tCommand[:0]
 			t.tState = telnetStateNormal
-			return oob, true, nil
+			return oob, true, true, nil
 
 		case telnetStateSubneg:
 			t.tCommand = append(t.tCommand, b)
@@ -209,7 +242,7 @@ func (t *TCPTransport) ReadInput() (string, bool, error) {
 				oob := formatTelnetCommand(t.tCommand)
 				t.tCommand = t.tCommand[:0]
 				t.tState = telnetStateNormal
-				return oob, true, nil
+				return oob, true, true, nil
 			case tnIAC:
 				// Escaped IAC within subnegotiation - stay in subneg
 				t.tState = telnetStateSubneg

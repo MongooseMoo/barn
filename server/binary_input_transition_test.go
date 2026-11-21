@@ -179,6 +179,77 @@ func TestStatementAfterBinaryOffIsTextWhenBinaryReadReturnsIt(t *testing.T) {
 	}
 }
 
+// Toast tests h->binary on the bytes each read() returns (network.cc
+// pull_input), so bytes sent after binary is turned on are one binary chunk
+// even when the text read that was waiting returns them.
+func TestChunkAfterBinaryOnIsBinaryWhenTextReadReturnsIt(t *testing.T) {
+	rt, cm, processor := connectionOptionIdentityFixture(t)
+	socket, peer := net.Pipe()
+	t.Cleanup(func() {
+		_ = socket.Close()
+		_ = peer.Close()
+	})
+	observed := &deadlinePassedConn{binaryTransitionConn{Conn: socket, reads: make(chan struct{}, 8)}}
+	conn := cm.NewConnectionFromTransport(NewTCPTransport(observed))
+	if err := cm.SwitchPlayer(types.ObjID(-conn.ID), 2); err != nil {
+		t.Fatal(err)
+	}
+
+	lines := make(chan string, 16)
+	outputDone := make(chan struct{})
+	readerDone := make(chan struct{})
+	t.Cleanup(func() {
+		_ = conn.Close()
+		_ = peer.Close()
+		for name, done := range map[string]<-chan struct{}{
+			"input reader":  readerDone,
+			"output reader": outputDone,
+		} {
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				t.Errorf("%s did not join after connection close", name)
+			}
+		}
+	})
+	go func() {
+		defer close(outputDone)
+		defer close(lines)
+		scanner := bufio.NewScanner(peer)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+	}()
+	processor.Start()
+	go func() {
+		defer close(readerDone)
+		processor.HandleConnection(conn)
+	}()
+
+	select {
+	case <-observed.reads:
+	case <-time.After(3 * time.Second):
+		t.Fatal("text reader never reached the actual socket")
+	}
+	// The text read is in flight. Turning binary on cannot stop it here, so
+	// the bytes sent next, with no line terminator, are returned by that read.
+	requireConnectionOptionEval(t, rt, `set_connection_option(#2, "binary", 1); return 1;`, "1")
+	if err := peer.SetWriteDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(peer, "; return 42;"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case line, ok := <-lines:
+		if !ok || line != "{1, 42}" {
+			t.Fatalf("chunk sent after binary on produced %q, open=%v; want {1, 42}", line, ok)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("chunk sent after binary on was not dispatched")
+	}
+}
+
 type binaryTransitionWSConn struct {
 	reads  chan context.Context
 	input  chan []byte
