@@ -68,6 +68,15 @@ class FileTest(unittest.TestCase):
             path.write_bytes(b"header\n#7\n#0\n#0\nname\n# 1 recycled\n#2\n#0:0\n#3\r\n#5\n")
             self.assertEqual(object_count(path), 3)
 
+    def test_object_count_includes_anonymous_batches(self):
+        # write_db_file writes the permanent objects ("2", #0, #1), then each
+        # batch of anonymous objects numbered on from them ("1", #2), then "0".
+        # The Mongoose dump's Barn checkpoint has such a batch of 2072.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "x.db"
+            path.write_bytes(b"2\n#0\nname\n#1\nname\n1\n#2\nname\n0\n0\n")
+            self.assertEqual(object_count(path), 2)
+
     def test_barn_form_tasks_read_from_the_json_log(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "latest.jsonl"

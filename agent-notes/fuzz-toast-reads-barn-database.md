@@ -170,3 +170,69 @@ Classified privately by shape only:
 ## Next step
 
 Unit tests, fuzz.yml step, accept job, Mongoose workflow and run, two copies.
+
+## Resumed 2026-11-21
+
+Resumed by a new agent after the previous one hit a usage limit. Plan: merge
+origin/master, read both commits, finish what Next step lists.
+
+- On resuming, the fuzz.yml steps, the accept change, the Mongoose workflow
+  and the unit tests already existed in the two commits; "Next step" above was
+  stale. What remained: the merge, the Mongoose pin, a Mongoose run with the
+  final walk, and a two-copies check covering the Mongoose step.
+- Merged origin/master (merge commit). Conflicts, both sides kept:
+  cmd/moo-fuzz-source (master's structured-ascii generator and --builtins,
+  this branch's toast-world generator); fuzz_differential.render_choices keeps
+  this branch's generator parameter with master's structured-ascii as its
+  default, so the differ's call is master's; fuzz_compute.cjs accept keeps
+  master's builtin census check and this branch's two-comparison check;
+  test_fuzz_compute.accept() takes both `builtins` and `worlds`. Verified:
+  `go build ./...`; `go test ./cmd/moo-fuzz-source ./internal/fuzzseed`;
+  `go test ./internal/dbtool -run OfflineCheckpoint` ok;
+  `python -m unittest discover -s scripts -p test_fuzz_compute.py` 34 OK,
+  `-p test_toast_reads_barn_db.py` 11 OK, `-p test_fuzz_differential.py` 38 OK.
+- Toast pin for the Mongoose workflow changed from mongoose-wsl-mongoose.json
+  (72e3c7f, the plan's line 46) to mongoose-0ff6fd7-wsl-testdb.json: the lead's
+  brief names it, docs/mongoose-conformance.md:63 calls 0ff6fd7 "the commit the
+  live game runs", and toast-check.yml checks the same dump against it. Finding 3
+  was seen on 72e3c7f, which lacks the AST builtins (0ff6fd7's manifest has
+  `feature.ast: true`); it is rechecked on 0ff6fd7 below. WSL build present:
+  `/root/src/toaststunt-mongoose-0ff6fd7/build-release/moo`, HEAD 0ff6fd77...,
+  options.h sha256 `d9739c2d...` = manifest. Load then: `6.42, 9.20, 5.85` (8 CPUs).
+- Two copies, database mode (the Mongoose workflow's command): two
+  `toast_reads_barn_db.py database Test_conf.db --toast <0ff6fd7 moo>
+  --barn-linux .tmp/trbd-bin/barn_linux --out .tmp/trbd-db-copy-{a,b}` started
+  together as PowerShell jobs, while the Mongoose run below was also running
+  (three at once; load after `11.14, 9.81, 6.35`). Both: `outcome: success`,
+  `findings: []`, 8 objects, 25 records, tasks [0,0] on all three counts, 0
+  repairs, identical file digests, EXIT 0. The dump itself was not run twice
+  at once (too heavy for a loaded workstation); the code path is the same and
+  every engine process works in its own mktemp directory under a per-run --out.
+  Toast 0ff6fd7 binary sha256 `1c0e5128...5a53`, version `ToastStunt version 2.8.0_1`.
+- Merged branch, generated worlds (`toast_reads_barn_db.py worlds --barn-linux
+  .tmp/trbd-bin/barn_linux --out .tmp/trbd-merged`, stock Toast, load before
+  `10.51, 9.83, 6.50`): `outcome: success`, `worlds: 11; compared: 11; failed: 0`, EXIT 0.
+- Seen on the dump run: Barn's writer also writes `barn.db.new.waifids`
+  (db/format/waif_identity_sidecar.go:15, read back only when its header
+  digest matches the database). The machine copies only `barn.db.new` to every
+  reader, so Barn's walk and readback load without the sidecar, as Toast does:
+  the comparison is like for like, and whatever the sidecar carries is not compared.
+- Mongoose run 1 on 0ff6fd7 (`toast_reads_barn_db.py database <goodput-series
+  FIXTURE> --toast /root/src/toaststunt-mongoose-0ff6fd7/build-release/moo
+  --barn-linux .tmp/trbd-bin/barn_linux --out .tmp/trbd-mongoose-0ff6fd7`,
+  01:27-01:41, EXIT 2): input sha256 `626bd284...25e7` (= FIXTURE_SHA256), Barn
+  wrote 432301704 bytes, all three copies the same digest; tasks barn wrote /
+  barn read / toast read all `[93, 12]`; 0 Toast repairs; `outcome:
+  inconclusive`, harness error `barn's max_object() is not #289697, the file's
+  last object header`. Cause (harness, not engines): both engines' max_object()
+  is #287625; the file's header run goes on to #289697 because write_db_file
+  (0ff6fd7 src/db_file.cc 1060-1072) writes the anonymous objects after the
+  permanent ones as further batches numbered on from them, and the line
+  before `#287626` in Barn's file is the batch count `2072`. object_count()
+  counted those too. Fix: object_count() is the walk's upper bound (anonymous
+  numbers read as invalid on both engines), the harness check is now "Barn's
+  max_object() is not past the last header", Toast's M0 record is compared
+  like every other record, and the report gives `object headers` and
+  `objects` (Barn's max_object()+1) separately. New unit test
+  test_object_count_includes_anonymous_batches; 12 OK. Anonymous objects
+  themselves are not walked (no number reaches them).

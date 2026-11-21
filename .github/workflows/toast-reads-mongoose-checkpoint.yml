@@ -8,8 +8,9 @@ name: Toast reads Barn's Mongoose checkpoint
 # the file, when anything differs, or when Barn kept a task in its own frame
 # form, which Toast cannot load. Going back to Toast depends on this.
 #
-# The Toast is the Mongoose build (profiles/toast/mongoose-wsl-mongoose.json),
-# the plan's oracle for the Mongoose database (PROMOTE_NUMBERS on), not stock.
+# The Toast is the build the live game runs (profiles/toast/mongoose-0ff6fd7-wsl-testdb.json;
+# docs/mongoose-conformance.md names that commit; PROMOTE_NUMBERS on), not
+# stock, the same pin toast-check.yml checks the dump's builtins against.
 #
 # The dump holds real players' data and this repository's logs are public.
 # Everything is kept in the runner's temporary directory; the step prints only
@@ -24,6 +25,7 @@ on:
       - .github/workflows/toast-reads-mongoose-checkpoint.yml
       - scripts/toast_reads_barn_db.py
       - internal/dbtool/offline_checkpoint.go
+      - profiles/toast/mongoose-0ff6fd7-wsl-testdb.json
 
 permissions:
   contents: read
@@ -56,7 +58,7 @@ jobs:
       - name: Read Mongoose Toast pin
         id: toast-pin
         run: |
-          python3 -c 'import json; m = json.load(open("profiles/toast/mongoose-wsl-mongoose.json")); print("ref=" + m["implementation_ref"]); print("options=" + m["config_checksum"])' >> "$GITHUB_OUTPUT"
+          python3 -c 'import json; m = json.load(open("profiles/toast/mongoose-0ff6fd7-wsl-testdb.json")); print("ref=" + m["implementation_ref"]); print("options=" + m["config_checksum"])' >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

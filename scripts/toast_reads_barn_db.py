@@ -6,7 +6,8 @@ writes (``barn offline-checkpoint``: Runtime.TaskSnapshots, then
 dbformat.WriteCheckpoint, as the running server does). Barn and Toast then
 each load an identical copy of the written file, with no server: Barn through
 ``barn eval --file``, Toast in emergency mode (scripts/bench_differ.py
-lane_scripts). Both walk every object #0..max_object() and print, per object:
+lane_scripts). Both walk every object header number in the file (#0 to the last,
+anonymous objects' numbers included, which read as invalid) and print, per object:
 
 - O: name, owner, player/programmer/wizard/r/w/f flags, parents, location,
   contents;
@@ -106,8 +107,12 @@ def walk_inputs(max_object: int) -> list[str]:
 
 
 def object_count(path: Path) -> int:
-    """The highest object number in a database file: the run of object
-    headers "#0", "#1", ... ("# N recycled" for a recycled slot) in order."""
+    """The highest object header number in a database file: the run of object
+    headers "#0", "#1", ... ("# N recycled" for a recycled slot) in order.
+    Anonymous objects are written after the permanent ones as further
+    batches numbered on from them (Toast db_file.cc write_db_file), so this
+    can exceed max_object(); the walk then reads those numbers as invalid
+    on both engines."""
     expect = 0
     with path.open("rb") as f:
         for line in f:
@@ -234,7 +239,7 @@ def run_case(name: str, source_db: Path, work: Path, barn_bin: Path, toast: str,
 
     max_object = object_count(checkpoint)
     lines = walk_inputs(max_object)
-    case["objects"] = max_object + 1
+    case["object headers"] = max_object + 1
     write_inputs(work / "barn_in.txt", lines, "barn")
     write_inputs(work / "toast_in.txt", [";;" + line for line in lines], "toast")
     scripts = {lane: lane_scripts(work / f"{lane}-in.db", barn_bin, toast, work / "barn_in.txt",
@@ -274,9 +279,12 @@ def run_case(name: str, source_db: Path, work: Path, barn_bin: Path, toast: str,
         case["error"] = (f"result records: toast {len(records['toast'])}, barn {len(records['barn'])}, "
                          f"inputs {len(lines)}")
         return case
-    if records["barn"][1] != f'=> {{"M0", #{max_object}}}':
-        case["error"] = f"barn's max_object() is not #{max_object}, the file's last object header"
+    # Toast's max_object() is compared with the other records below.
+    m0 = re.fullmatch(r'=> \{"M0", #(-?\d+)\}', records["barn"][1])
+    if not m0 or int(m0[1]) > max_object:
+        case["error"] = f"barn's max_object() is past #{max_object}, the file's last object header"
         return case
+    case["objects"] = int(m0[1]) + 1
     differing = []
     for index, (t, b) in enumerate(zip(records["toast"][1:], records["barn"][1:]), 1):
         if t != b:
@@ -421,7 +429,7 @@ def database_main(args, barn_bin: Path, header: list[str]) -> int:
         lines.append(f"- written by Barn: {case['file']['size']} bytes, sha256 `{case['file']['sha256']}`")
         for reader, copy in case.get("copies", {}).items():
             lines.append(f"- {reader} loaded a copy: {copy['size']} bytes, sha256 `{copy['sha256']}`")
-    counts: dict = {"objects": case.get("objects"), "records compared": case.get("records"),
+    counts: dict = {"object headers": case.get("object headers"), "objects": case.get("objects"), "records compared": case.get("records"),
                     "tasks": case.get("tasks"), "toast repairs": case.get("toast_repairs")}
     for finding in case["findings"]:
         if finding["kind"] == "walk":
