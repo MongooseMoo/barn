@@ -880,6 +880,11 @@ func (v Value) GetWithCase(key Value, caseSensitive bool) (Value, bool) {
 	return None, false
 }
 
+// CompareMapKeys orders two map keys as Toast's compare(a, b, 0) does
+// (utils.cc): values of different types by type, strings ignoring case.
+// A map range read uses it to decide whether from sorts after to.
+func CompareMapKeys(a, b Value) int { return toastMapCompare(a, b, false) }
+
 // KeyPosition returns the 1-based position of key, or 0 if not found.
 func (v Value) KeyPosition(key Value) int64 {
 	for i, p := range v.goMap().pairsList() {
