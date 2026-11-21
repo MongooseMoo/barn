@@ -44,6 +44,23 @@ in #13 with stack={"move", "start", ""}, result={0}, finished=1. Because the
 verbs' owner is not a wizard, the accept checkpoint moves the object only if
 move() receives the 1 that accept returns after the restart.
 
+## call_function("move", ...)
+
+`toast-suspended-call-function-move-accept.db` (SHA256
+363d56392a024d99522536a5dbf710426af450d0cc8f835b9f0050c2bdbff5d1) was written
+the same way, on 2026-11-20, by the same Toast build (binary SHA256
+61dd1799d82f75e33cb9c42fe48bd1966199ad83fda2f6298e3a7f872cc613dd) from the same
+Test.db, by producer suspended_call_function_move_accept_checkpoint.yaml (Toast:
+2 passed). It is the accept producer with `start` calling
+`call_function("move", this.thing, this.dest)`, and accept storing the verb
+names from `callers()` in `stack` before it suspends instead of after. The
+same objects are #9 to #13. The accept frame ends with the pc line `47 2 45`,
+`call_function`, `bf_call_function data: fname = move` and
+`bf_move data: what = 11, where = 13, position = 0`. The checkpoint holds
+log={"accept"}, stack={"call_function", "start", ""}, #11 in #12, result=0,
+finished=0; resuming must give the accept log above, #11 in #13, result={0},
+finished=1.
+
 Only the test-owned public Test.db objects and producer code are present. No
 Mongoose or ChatMUD database or player data is included. The tests change only
 the task's absolute wake deadline, to make the saved task due.
