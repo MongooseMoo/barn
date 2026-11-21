@@ -429,30 +429,30 @@ func builtinIsClearProperty(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(types.E_INVARG)
-	}
-
 	propName := nameVal.Str()
-
-	// Check if it's a built-in property - return 0
+	txn := readTxn(ctx)
 	if bytecode.IsBuiltinPropertyName(propName) {
+		if err := txn.ObjectExists(objID); err != types.E_NONE {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Ok(types.NewInt(0))
 	}
 
-	// Find where property is defined in chain
-	definingProp, err := findPropertyForRead(ctx, objID, propName)
+	definingProp, err := txn.FindLiveProperty(objID, propName)
+	if err == types.E_INVIND {
+		return types.Err(types.E_INVARG)
+	}
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
 
-	isClear, clearErr := propertyClearStateForRead(ctx, objID, propName)
+	isClear, clearErr := txn.PropertyClearState(objID, propName)
 	if clearErr != types.E_NONE {
 		return types.Err(clearErr)
 	}
 
 	// NOW check read permission (unless wizard or owner)
-	hasWizard, errCode := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagWizard)
+	hasWizard, errCode := txn.HasObjectFlag(ctx.Programmer, dbstore.FlagWizard)
 	isWizard := errCode == types.E_NONE && hasWizard
 	isOwner := ctx.Programmer == definingProp.Owner
 	hasReadPerm := definingProp.Perms.Has(dbstore.PropRead)
