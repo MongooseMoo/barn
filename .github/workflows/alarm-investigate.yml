@@ -43,7 +43,8 @@ env:
 
 jobs:
   investigate:
-    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    # FIXTURE and SOUND_DB live on the workstation's C: drive.
+    runs-on: ${{ fromJSON(vars.WORKSTATION_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 300
     permissions:
       contents: write
