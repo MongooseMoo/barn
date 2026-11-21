@@ -285,8 +285,9 @@ func convertNativeSnapshot(snapshot *task.VMSnapshot, store *dbstore.Store, sess
 // eval activation returns, Toast calls the builtin its mark names with the
 // value (execute.cc unwind_stack, the bi_func_pc branch of a return), and
 // bf_call_function only calls bf_eval(next=2), so that mark is dropped as a
-// direct eval()'s. ExportNativeSnapshot writes the plain eval mark there,
-// which Toast resumes to the same {1, value}.
+// direct eval()'s. convertNativeSnapshot keeps the outer name as the eval
+// activation's BuiltinCaller, and ExportNativeSnapshot writes the same
+// call_function record back.
 func withoutEvalReturnContinuation(saved task.VMFrameSnapshot) task.VMFrameSnapshot {
 	builtin := saved.Native.Builtin
 	if builtin != nil && builtin.Name == "call_function" && builtin.State == nativeCallFunctionEvalState && builtin.Inner != nil {
@@ -427,7 +428,7 @@ func ExportNativeSnapshot(snapshot *task.VMSnapshot, callStack []types.Activatio
 			if evalBuiltin == "call_function" {
 				// bf_call_function_write: its line naming eval; bf_eval has no
 				// data. Toast resumed from it names the entry call_function.
-				native.Builtin = &task.NativeBuiltinSnapshot{Name: "call_function", State: "bf_call_function data: fname = eval", Inner: native.Builtin}
+				native.Builtin = &task.NativeBuiltinSnapshot{Name: "call_function", State: nativeCallFunctionEvalState, Inner: native.Builtin}
 			}
 			frame.Native = &native
 			frame.BuiltinPC = 2
