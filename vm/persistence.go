@@ -279,14 +279,19 @@ func convertNativeSnapshot(snapshot *task.VMSnapshot, store *dbstore.Store, sess
 // mark at another pc or with saved data, is left for ConvertNativeFrame to
 // refuse.
 //
-// Under call_function("eval", ...) Toast records call_function with eval's
-// state inside it (execute.cc bf_call_function), which is still refused.
-// ExportNativeSnapshot writes the plain eval mark there too: when the eval
-// activation returns, Toast calls the builtin its mark names with the value
-// (execute.cc run, the bi_func_pc branch of a return), and bf_call_function
-// would only have passed bf_eval's {1, value} through.
+// Under call_function("eval", ...) Toast records builtin call_function with
+// the same pc, its line naming eval, and no eval data after it (execute.cc
+// bf_call_function, bf_call_function_write; bf_eval has no writer). When the
+// eval activation returns, Toast calls the builtin its mark names with the
+// value (execute.cc unwind_stack, the bi_func_pc branch of a return), and
+// bf_call_function only calls bf_eval(next=2), so that mark is dropped as a
+// direct eval()'s. ExportNativeSnapshot writes the plain eval mark there,
+// which Toast resumes to the same {1, value}.
 func withoutEvalReturnContinuation(saved task.VMFrameSnapshot) task.VMFrameSnapshot {
 	builtin := saved.Native.Builtin
+	if builtin != nil && builtin.Name == "call_function" && builtin.State == nativeCallFunctionEvalState && builtin.Inner != nil {
+		builtin = builtin.Inner
+	}
 	if saved.BuiltinPC != 2 || builtin == nil || builtin.Name != "eval" || builtin.State != "" || builtin.Inner != nil {
 		return saved
 	}
@@ -296,6 +301,10 @@ func withoutEvalReturnContinuation(saved task.VMFrameSnapshot) task.VMFrameSnaps
 	saved.BuiltinPC = 0
 	return saved
 }
+
+// Toast's state line for call_function("eval", ...) (execute.cc
+// bf_call_function_write).
+const nativeCallFunctionEvalState = "bf_call_function data: fname = eval"
 
 // Toast's state line for a move() continuation (objects.cc bf_move_write).
 const nativeMoveState = "bf_move data: what = %d, where = %d, position = %d"

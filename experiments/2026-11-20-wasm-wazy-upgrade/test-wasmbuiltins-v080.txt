@@ -1,0 +1,24 @@
+--- PASS: TestRejectUnboundedShapes (0.00s)
+--- PASS: TestValueBudgetsAndRanges (0.00s)
+--- PASS: TestCanonicalOptionAdmission (0.00s)
+--- PASS: TestBinaryAllocationAdmission (0.00s)
+--- PASS: TestMalformedScalarListResult (1.94s)
+--- PASS: TestCoreAllocationBombsRejectedBeforeRuntime (0.00s)
+--- PASS: TestParserOutputBoundIncludesCopyFastPaths (0.00s)
+--- PASS: TestStandardWITComponent (0.08s)
+--- PASS: TestReplacementUnloadAndFailedAdmission (0.15s)
+    runtime_test.go:147: cancel: {Val:3 Flow:0 Error:E_NONE Reason:unknown Unreported:false Label: ForkInfo:<nil> CallStack:[]}
+--- FAIL: TestAdmissionAndGuestBudgets (0.33s)
+    --- PASS: TestAdmissionAndGuestBudgets/add (0.00s)
+    --- PASS: TestAdmissionAndGuestBudgets/add#01 (0.00s)
+    --- PASS: TestAdmissionAndGuestBudgets/record-echo (0.00s)
+    --- PASS: TestAdmissionAndGuestBudgets/color-echo (0.00s)
+    --- PASS: TestAdmissionAndGuestBudgets/trap (0.00s)
+    --- PASS: TestAdmissionAndGuestBudgets/spin (0.25s)
+--- PASS: TestConcurrentCallsAndGenerationRetirement (0.58s)
+--- PASS: TestNamedScalarComponentConcurrencyAndLimits (0.11s)
+--- PASS: TestModuleAndFileAdmissionLimits (1.90s)
+--- PASS: TestPerPrincipalGuestAdmission (0.33s)
+FAIL
+FAIL	github.com/MongooseMoo/barn/internal/wasmbuiltins	5.647s
+FAIL

@@ -1,0 +1,33 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                                  │   v030.txt    │               v080.txt                │
+                                  │    sec/op     │    sec/op      vs base                │
+WASMCall/example/Full               105.15µ ± 24%   98.55µ ±  57%        ~ (p=0.631 n=10)
+WASMCall/example/InstantiateClose    97.00µ ± 43%   95.29µ ±  26%        ~ (p=0.971 n=10)
+WASMCall/example/ExecuteExisting    2850.5n ± 20%   995.2n ±  22%  -65.09% (p=0.000 n=10)
+WASMCall/scalar/Full                 28.52µ ± 45%   27.02µ ± 110%        ~ (p=0.218 n=10)
+WASMCall/scalar/InstantiateClose     23.84µ ± 38%   24.61µ ±  61%        ~ (p=0.353 n=10)
+WASMCall/scalar/ExecuteExisting      2.731µ ± 55%   1.009µ ±  93%  -63.05% (p=0.000 n=10)
+geomean                              19.44µ         13.58µ         -30.15%
+
+                                  │   v030.txt   │               v080.txt               │
+                                  │     B/op     │     B/op      vs base                │
+WASMCall/example/Full               41.72Ki ± 0%   46.48Ki ± 0%  +11.42% (p=0.000 n=10)
+WASMCall/example/InstantiateClose   41.32Ki ± 0%   46.43Ki ± 0%  +12.36% (p=0.000 n=10)
+WASMCall/example/ExecuteExisting      623.0 ± 1%     288.0 ± 0%  -53.77% (p=0.000 n=10)
+WASMCall/scalar/Full                17.30Ki ± 0%   21.49Ki ± 0%  +24.26% (p=0.000 n=10)
+WASMCall/scalar/InstantiateClose    16.97Ki ± 0%   21.45Ki ± 0%  +26.38% (p=0.000 n=10)
+WASMCall/scalar/ExecuteExisting       578.5 ± 1%     288.0 ± 0%  -50.22% (p=0.000 n=10)
+geomean                             7.471Ki        6.546Ki       -12.38%
+
+                                  │  v030.txt  │              v080.txt              │
+                                  │ allocs/op  │ allocs/op   vs base                │
+WASMCall/example/Full               144.0 ± 0%   150.0 ± 0%   +4.17% (p=0.000 n=10)
+WASMCall/example/InstantiateClose   138.0 ± 0%   149.0 ± 0%   +7.97% (p=0.000 n=10)
+WASMCall/example/ExecuteExisting    9.000 ± 0%   5.000 ± 0%  -44.44% (p=0.000 n=10)
+WASMCall/scalar/Full                130.0 ± 0%   123.0 ± 0%   -5.38% (p=0.000 n=10)
+WASMCall/scalar/InstantiateClose    124.0 ± 0%   121.0 ± 0%   -2.42% (p=0.000 n=10)
+WASMCall/scalar/ExecuteExisting     9.000 ± 0%   5.000 ± 0%  -44.44% (p=0.000 n=10)
+geomean                             54.41        45.01       -17.28%
