@@ -137,8 +137,11 @@ def proposal(root, stage, number, report, user, codex):
             git(work / "moo-conformance-tests", "submodule", "update", "--init", "--recursive", user=user)
         baseline = git(barn, "rev-parse", "HEAD", user=user).strip()
         prompt = (root / ".github" / "repair-prompts" / f"{stage}.md").read_text(encoding="utf-8")
-        (work / "finding.json").write_text(json.dumps(report), encoding="utf-8")
-        (work / "result-schema.json").write_text(json.dumps(RESULT), encoding="utf-8")
+        for name, contents in (("finding.json", report), ("result-schema.json", RESULT)):
+            with (work / name).open("x", encoding="utf-8") as output:
+                os.fchmod(output.fileno(), 0o600)
+                os.fchown(output.fileno(), account.pw_uid, account.pw_gid)
+                json.dump(contents, output)
         try:
             stream = run(codex, "-a", "never", *codex_profile(account.pw_dir),
                          "exec", "--json", "--add-dir", str(work),
@@ -270,12 +273,15 @@ def process(args, stage, item):
     result, patch, head = proposal(args.root, stage, number, report, args.user, args.codex)
     outcome = result["outcome"]
     print(f"{stage} #{number}: {outcome}", flush=True)
-    if outcome in {"usage-limit", "authentication", "provider-unavailable", "unknown"}:
+    if outcome in {"policy-block", "unknown"}:
+        label(number, "needs-decision" if stage == "conformance" else "repair-needs-attention", True)
+        return True
+    if outcome in {"usage-limit", "authentication", "provider-unavailable"}:
         print(f"Codex availability: {outcome}, reset {result['retry_at'] or 'unknown'}", flush=True)
         if result["retry_at"].isdigit():
             args.retry_at = int(result["retry_at"])
         labels = {item["name"] for item in api(f"repos/{BARN}/issues/{number}/labels")}
-        if outcome != "unknown" and "claude-unavailable" not in labels:
+        if "claude-unavailable" not in labels:
             label(number, "codex-unavailable", True)
             label(number, f"codex-{stage}", False)
             workflow = "alarm-investigate.yml" if stage == "investigation" else "claude-fix.yml"

@@ -18,6 +18,12 @@ class RepairProviderTests(unittest.TestCase):
         transcript = '{"type":"thread.started"}\n{"type":"error","message":"You have hit your usage limit"}'
         self.assertEqual(classify(transcript, "codex"), ("usage-limit", ""))
 
+    def test_codex_cyber_policy_error_is_terminal(self):
+        transcript = json.dumps({"type": "turn.failed", "error": {
+            "message": "This content was flagged for possible cybersecurity risk.",
+            "codex_error_info": "cyber_policy"}})
+        self.assertEqual(classify(transcript, "codex"), ("policy-block", ""))
+
     def test_normal_model_output_cannot_set_provider_state(self):
         transcript = '{"type":"result","is_error":false,"result":"The usage limit was hit"}'
         self.assertEqual(classify(transcript, "claude"), ("unknown", ""))

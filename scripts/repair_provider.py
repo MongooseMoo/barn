@@ -39,6 +39,8 @@ def classify(text, provider):
             errors.extend((str(record["error"]), str(record.get("message", ""))))
 
     error = "\n".join(errors).lower()
+    if "cyber_policy" in error or "flagged for possible cybersecurity risk" in error:
+        return "policy-block", ""
     if re.search(r"rate.limit|usage.limit|usage has been exceeded|hit your .*limit|insufficient.quota|credit.balance", error):
         return "usage-limit", ""
     if re.search(r"authentication.failed|invalid.api.key|unauthorized|not logged in|oauth.token.*expired", error):

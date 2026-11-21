@@ -49,7 +49,7 @@ runs:
             source=$(git show "$GITHUB_SHA:scripts/repair_provider.py")
             details=$(python3 - claude "$EXECUTION_FILE" <<< "$source")
             printf '%s\n' "$details" >> "$GITHUB_STEP_SUMMARY"
-            if [[ "$CODEX_ENABLED" != true ]] || grep -Fxq reason=unknown <<< "$details"; then
+            if [[ "$CODEX_ENABLED" != true ]] || grep -Eq "^reason=(unknown|policy-block)$" <<< "$details"; then
               exit 0
             fi
             if grep -Fxq codex-unavailable <<< "$labels"; then

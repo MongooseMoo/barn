@@ -10,6 +10,7 @@ Run Barn repair, conformance and alarm work using Claude or Q's Codex subscripti
 - `scripts/run_repair_worker.sh` runs the publisher and starts Codex under the separate WSL `barn-codex` account. The worker requests ChatGPT authentication and sends no API key to Codex. It checks the recorded PR head, scope and required checks before requesting the merge queue.
 - Open work is visible in `docs/live/`, including Codex repair, conformance and alarm queue labels. The live Actions link opens the provider and stage dispatch controls.
 - The WSL Codex account completed a subscription-backed smoke turn. Q confirmed the private App installation on the two repositories. Its token returned exactly those repositories, and worker label initialization succeeded.
+- The live dispatch added `codex-repair` to #987 and the worker took it. Codex recorded `cyber_policy` and produced no repair. #987 is held with `repair-needs-attention`; the queue label was removed. Policy and unclassified outcomes now stop the attempt without provider fallback.
 
 ## Decisions and why
 
@@ -22,7 +23,8 @@ Run Barn repair, conformance and alarm work using Claude or Q's Codex subscripti
 - Claude repair run 44882831976 reported `is_error:true`, `modelUsage:{}`, and no downloadable artifact. That output does not establish a usage limit.
 - GitHub's self-repository action syntax uses the workflow revision, including when the PR's head is checked out. The repository's existing actionlint release predates the syntax. The affected action and workflow audit uses zizmor.
 - This WSL installation places the target of `/etc/resolv.conf` under `/mnt/wsl`. The launcher snapshots that resolver into its private namespace so detaching `/mnt/wsl` no longer breaks App authentication. The Claude actions explicitly allow the installed App bot to dispatch fallback work.
+- The scheduled launcher uses `umask 077`. The private input and schema files are created exclusively with mode 0600 and assigned to the model account so the same job can start from the scheduled launcher.
 
 ## Next step
 
-Dispatch issue #987 or #1003 with `provider=codex`, verify the worker's result and resulting PR checks, and verify resuming managed conformance at the exact PR head. Keep default-branch routing pending until the pilot works.
+Verify the conformance stage on the ordinary compiler repair in merged PR #919. Its already-merged companion is MongooseMoo/moo-conformance-tests #231. Verify an eligible live repair before enabling default-branch routing and finishing the integration PR.
