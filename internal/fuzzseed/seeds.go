@@ -88,6 +88,10 @@ func Add(f *testing.F) {
 		"fork child (0) return 1; endfork return child;",
 		"suspend(0); fork (0) suspend(); endfork return {1, \"a\\\"\", [2 -> #-1], E_TYPE};",
 		"/* one *//* two */ return \"a\\\"b\\\\c\xff\";",
+		// expr.:name, token-separating form feed and vertical tab, and a byte
+		// above 127 ending the program text (Toast parser.y).
+		"x.:a = #0 . : b; return x.:a.:c;", "return\v1\f;",
+		"x = 1; \xc3\xa9 = 2; return x;", "return \"\xc3\xa9\"; /* \xc3\xa9 */",
 		"return 9223372036854775807;", "return -9223372036854775808;",
 		"return 18446744073709551616;", "return 1e309;", "return 1e-400;",
 		"return " + strings.Repeat("(", 256) + "1" + strings.Repeat(")", 256) + ";",

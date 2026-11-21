@@ -304,11 +304,9 @@ func (vm *VM) getWaifProp(waif types.Value, propName string) error {
 		return newMooErrorf(types.E_PROPNF, "property not found: %s", propName)
 	}
 
-	classPropName := propName
-	if !strings.HasPrefix(classPropName, ":") {
-		classPropName = ":" + classPropName
-	}
-	prop, errCode := findPropertyForRead(txn, classID, classPropName)
+	// Toast waif_get_prop prefixes every name, one already starting with a
+	// colon included: w.(":foo") and w.:foo read the class property "::foo".
+	prop, errCode := findPropertyForRead(txn, classID, ":"+propName)
 	if errCode != types.E_NONE {
 		return newMooErrorf(types.E_PROPNF, "property not found: %s", propName)
 	}
