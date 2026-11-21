@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"encoding/hex"
 	"math/rand/v2"
 	"strings"
 	"testing"
@@ -86,6 +87,35 @@ func TestStructuredSourceLaneRunsGeneratedSQLitePrograms(t *testing.T) {
 	}
 	if ran == 0 {
 		t.Fatal("no generated program called a SQLite builtin")
+	}
+}
+
+// A generated SQLite program's outcome carries what its SQLite calls return,
+// so the Toast differential, which compares only outcomes, sees a changed
+// query result. These choices give a program whose first body statement is
+// sqlite_query(db, "SELECT 1"), whose value the program itself drops; the
+// same program with "SELECT 2" must end differently.
+func TestStructuredSQLiteResultsReachTheOutcome(t *testing.T) {
+	choices, err := hex.DecodeString("1f23974a95ec65be2ebc5836ea239f723e58cde5b8b463781a84d7be1f6adcc75061b89517c0d9d1eb78abb9f11047e79201f45b9c34926868017a341c4ba257edac2eb712e2308abe1ad798552a527c74cebdd6d1540f13af8314454fb6bc9dcb3f56b8240721466497f267366b86f287446d76c8c8c894")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := fuzzseed.StructuredSource(t, choices)
+	if !strings.Contains(source, `sqlite_query(db, "SELECT 1")`) {
+		t.Fatalf("choices no longer give a program that queries SELECT 1:\n%s", source)
+	}
+	world := newSourceFuzzWorld(t)
+	run := func(source string) types.Result {
+		registry, program, diagnostics := compileFuzzSource(t, source, structuredFuzzCapabilities)
+		if len(diagnostics) != 0 {
+			t.Fatalf("does not compile: %v\n%s", diagnostics, source)
+		}
+		return runSourceFuzzProgram(t, world, registry, program, sourceFuzzPrincipals[0])[0]
+	}
+	one := run(source)
+	two := run(strings.ReplaceAll(source, `"SELECT 1"`, `"SELECT 2"`))
+	if one.Flow == two.Flow && one.Val.Equal(two.Val) {
+		t.Fatalf("SELECT 1 and SELECT 2 give the same outcome %s:\n%s", describeTaskResult(one), source)
 	}
 }
 

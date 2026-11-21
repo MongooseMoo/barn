@@ -158,15 +158,50 @@ func TestStructuredSQLiteProgramsAreWrapped(t *testing.T) {
 		if call, ok := first.Expr.(*ir.BuiltinCallExpr); !ok || call.Name != "set_thread_mode" {
 			t.Fatalf("SQLite program does not begin with set_thread_mode(0):\n%s", source)
 		}
-		if len(body) != 5 {
-			t.Fatalf("SQLite program has %d top-level statements after the prologue, want 5:\n%s", len(body), source)
+		if len(body) != 6 {
+			t.Fatalf("SQLite program has %d top-level statements after the prologue, want 6:\n%s", len(body), source)
 		}
-		if try, ok := body[4].(*ir.TryStmt); !ok || try.Finalizer == nil || len(try.Handlers) != 0 {
-			t.Fatalf("SQLite program does not end in try ... finally:\n%s", source)
+		try, ok := body[5].(*ir.TryStmt)
+		if !ok || try.Finalizer == nil || len(try.Handlers) != 0 || len(try.Body) != 2 {
+			t.Fatalf("SQLite program does not end in try ... finally around its outcome:\n%s", source)
+		}
+		if inner, ok := try.Body[0].(*ir.TryStmt); !ok || len(inner.Handlers) != 1 || !inner.Handlers[0].IsAny {
+			t.Fatalf("SQLite program body is not caught into its outcome:\n%s", source)
+		}
+		// Every SQLite call after the preamble's is recorded in the log.
+		bodySource := source[strings.Index(source, "\ntry\n"):]
+		bare := regexp.MustCompile(`sqlite_\w+\(`).FindAllStringIndex(bodySource, -1)
+		recorded := strings.Count(bodySource, "{sqlr = `{sqlite_")
+		if want := len(bare) - 2; recorded != want { // the finalizer's sqlite_handles and sqlite_close
+			t.Fatalf("SQLite program records %d of %d calls:\n%s", recorded, want, source)
 		}
 	}
 	if wrapped == 0 {
 		t.Fatal("no generated program called a SQLite builtin")
+	}
+}
+
+// Some SQLite programs run a script of recorded, caught SQLite calls before
+// their body, and choices that run out after the body give none.
+func TestStructuredSQLiteScriptPrecedesBody(t *testing.T) {
+	rng := rand.New(rand.NewPCG(9, 10))
+	scripted := 0
+	for i := 0; i < 2000; i++ {
+		choices := make([]byte, 300)
+		for j := range choices {
+			choices[j] = byte(rng.Uint32())
+		}
+		source := StructuredSource(t, choices)
+		if strings.Contains(source, "\n    `{sqlr = `{sqlite_") || strings.Contains(source, "\n    db = `{sqlr = `{sqlite_") {
+			scripted++
+		}
+	}
+	if scripted == 0 {
+		t.Fatal("no SQLite program ran a script before its body")
+	}
+	g := &generator{budget: maxNodes, scope: initializedVariables}
+	if script := g.sqliteScript(); len(script) != 0 {
+		t.Fatalf("exhausted choices gave a script of %d calls", len(script))
 	}
 }
 
