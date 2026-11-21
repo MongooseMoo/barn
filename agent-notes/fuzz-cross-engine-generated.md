@@ -78,7 +78,7 @@ with origin/master on 2026-11-21:
   Barn resumes: Barn did not boot, `load database: restore suspended tasks:
   suspended task 1288614929: native frame 3: native builtin continuation
   requires conversion` (PR 886's import bug). The verb seed matched both ways.
-- Master (branch base 298be467's Barn, `bin/barn` sha256 `9a903def...`), same
+- Master (Barn at the branch's base, the merge of PR 972, `bin/barn` sha256 `9a903def...`), same
   four seeds, load 2.08: `{"divergence": 1, "match": 7}`. FINDING 1: Toast
   writes, Barn resumes, choices `0000010200`, program
   `r1 = call_function("eval", "suspend(); v = 0; return {1, v};");` (the full
