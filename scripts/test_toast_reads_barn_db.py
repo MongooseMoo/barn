@@ -55,6 +55,7 @@ class WalkTest(unittest.TestCase):
     def test_repair_lines_exclude_phase_banners(self):
         self.assertIsNone(REPAIR_RE.search("Nov 20 22:45:12: VALIDATE: Phase 1: Check for invalid objects ..."))
         self.assertIsNone(REPAIR_RE.search("Nov 20 22:45:12: VALIDATE: Check for self-referential waifs ..."))
+        self.assertIsNone(REPAIR_RE.search("Nov 20 23:01:02: VALIDATE: Done through #10000 ..."))
         self.assertIsNotNone(REPAIR_RE.search("VALIDATE: #3 not in it's location's (#2) contents."))
 
 

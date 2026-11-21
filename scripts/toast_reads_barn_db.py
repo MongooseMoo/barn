@@ -66,7 +66,7 @@ BARN_FORM = "Toast could not load this checkpoint: task kept in Barn's frame for
 WROTE_RE = re.compile(r"^wrote .*: (\d+) queued, (\d+) suspended or interrupted tasks", re.M)
 READ_RE = re.compile(r"^read: (\d+) queued, (\d+) suspended or interrupted tasks", re.M)
 TOAST_TASKS_RE = re.compile(r"^TOAST TASKS (\d+) (queued|suspended|interrupted) tasks$", re.M)
-REPAIR_RE = re.compile(r"VALIDATE: (?!Phase \d|Check for )")
+REPAIR_RE = re.compile(r"VALIDATE: (?!Phase \d|Check for |Done through #)")
 RECORD_RE = re.compile(r'=> \{"([OPV])(\d+)", (.*)\}', re.DOTALL)
 
 # Choice records that always run, so a cycle with no retained corpus still
@@ -85,9 +85,18 @@ def walk_inputs(max_object: int) -> list[str]:
     for n in range(max_object + 1):
         lines.append(guarded(f"O{n}", f'return {{"O{n}", o.name, o.owner, {{is_player(o), o.programmer, '
                                        'o.wizard, o.r, o.w, o.f}, parents(o), o.location, o.contents};'))
-        lines.append(guarded(f"P{n}", 'r = {}; for a in ({o, @ancestors(o)}) for p in (properties(a)) '
+        # Definers are sorted: Barn's ancestors() order is not Toast's for
+        # an object with several parents (a builtin difference, not the
+        # file's). Not with sort(): Toast runs it in a thread, so in
+        # emergency mode the input suspends. Values go through toliteral():
+        # barn eval prints a WAIF as <waif #N> where Toast prints its literal.
+        lines.append(guarded(f"P{n}", 'd = {}; for a in ({o, @ancestors(o)}) i = 1; '
+                                       'while (i <= length(d) && d[i] < a) i = i + 1; endwhile '
+                                       'd = listinsert(d, a, i); endfor '
+                                       'r = {}; for a in (d) for p in (properties(a)) '
                                        'c = is_clear_property(o, p); '
-                                       'r = {@r, {a, p, property_info(o, p), c, c ? 0 | o.(p)}}; endfor endfor '
+                                       'r = {@r, {a, p, property_info(o, p), c, c ? 0 | toliteral(o.(p))}}; '
+                                       'endfor endfor '
                                        f'return {{"P{n}", r}};'))
         lines.append(guarded(f"V{n}", 'r = {}; for i in [1..length(verbs(o))] '
                                        'r = {@r, {verb_info(o, i), verb_args(o, i), verb_code(o, i)}}; endfor '
@@ -251,8 +260,9 @@ def run_case(name: str, source_db: Path, work: Path, barn_bin: Path, toast: str,
             counts = {kind: int(n) for n, kind in reversed(TOAST_TASKS_RE.findall(proc.stdout))}
             case["tasks"]["toast read"] = [counts.get("queued"), (counts.get("suspended") or 0)
                                            + (counts.get("interrupted") or 0)]
-            # Toast's load prints its VALIDATE phase banners every time; any
-            # other VALIDATE line is a repair of what Barn wrote (db_file.cc).
+            # Toast's load prints VALIDATE phase banners and "Done through #N"
+            # progress every time; any other VALIDATE line is a repair of
+            # what Barn wrote (db_file.cc).
             repairs = [l for l in proc.stderr.splitlines() if REPAIR_RE.search(l)]
             case["toast_repairs"] = len(repairs)
             if repairs:
@@ -403,8 +413,8 @@ def worlds_main(args, barn_bin: Path, header: list[str]) -> int:
 def database_main(args, barn_bin: Path, header: list[str]) -> int:
     """Counts only: nothing from the database's contents is printed or kept
     outside args.out's case directory."""
+    formats = go_formats()  # before the long run, so a failure here costs nothing
     case = run_case("database", args.path, args.out / "case", barn_bin, args.toast, None)
-    formats = go_formats()
     lines = ["# Toast reads the Barn-written checkpoint of one database", "",
              f"- input: {args.path.stat().st_size} bytes, sha256 `{sha256(args.path)}`"]
     if "file" in case:
