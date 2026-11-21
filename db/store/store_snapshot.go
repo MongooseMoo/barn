@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/MongooseMoo/barn/internal/commitgate"
 	"sort"
+	"strconv"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -396,6 +397,12 @@ func snapshotObjectValue(obj *Object) *SnapshotObject {
 	return so
 }
 
+// shadowedSlotPlaceholder is the name db/format's reader gives positional slot
+// i when its ancestry name repeats an earlier slot's (inheritedSlotPlaceholder).
+func shadowedSlotPlaceholder(i int) string {
+	return "_inherited_" + strconv.Itoa(i)
+}
+
 // snapshotPropertyNamesLocked returns the writer's ordered name list in the
 // LOADER's canonical order: this object's own propdefs, then each ancestor's,
 // depth-first self-first — exactly db/format's propertyNamesSelfFirst. The
@@ -423,10 +430,18 @@ func (s *Store) snapshotPropertyNamesLocked(obj *Object) []string {
 		for i := 0; i < localCount; i++ {
 			name := o.propOrder[i]
 			key := propertyNameKey(name)
-			if !seen[key] {
-				names = append(names, name)
-				seen[key] = true
+			if seen[key] {
+				// A name an earlier slot already carries (a loaded database
+				// defined it on this object and on an ancestor). The reader
+				// names this position by placeholder (db/format
+				// distinctSlotNames) and keeps its value there, so emit it
+				// at its position under that name. Leaving it to the sorted
+				// extras moved later values between slots on every reload.
+				name = shadowedSlotPlaceholder(len(names))
+				key = propertyNameKey(name)
 			}
+			names = append(names, name)
+			seen[key] = true
 		}
 		for _, parentID := range o.parents {
 			walk(s.parentObjectLocked(parentID))
