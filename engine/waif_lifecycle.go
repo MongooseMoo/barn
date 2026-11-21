@@ -61,9 +61,11 @@ const (
 //
 // ownVM is the deferring task's own VM, walked here on the goroutine that owns it
 // so its references survive as roots after the VM is released.
-func (s *Runtime) deferPendingWaifs(ctx *task.Context, pending []types.Value, ownVM *vm.VM) {
+//
+// It returns the queue number of the batch it joined, or 0 if it queued nothing.
+func (s *Runtime) deferPendingWaifs(ctx *task.Context, pending []types.Value, ownVM *vm.VM) uint64 {
 	if len(pending) == 0 || ctx == nil {
-		return
+		return 0
 	}
 	var ownRefs []types.Value
 	if ownVM != nil {
@@ -85,7 +87,7 @@ func (s *Runtime) deferPendingWaifs(ctx *task.Context, pending []types.Value, ow
 		if published {
 			s.appendPendingFinalizations(shutdownRoots)
 		}
-		return
+		return 0
 	}
 	for _, waif := range pending {
 		var owner *task.State
@@ -96,8 +98,9 @@ func (s *Runtime) deferPendingWaifs(ctx *task.Context, pending []types.Value, ow
 			Waif: waif, Ctx: ctx, Task: owner, OwnRefs: ownRefs, DirectRoots: direct,
 		})
 	}
-	s.noteDeferredGCQueuedLocked()
+	seq := s.noteDeferredGCQueuedLocked()
 	s.lifecycle.Mu.Unlock()
+	return seq
 }
 
 // deferAnonGC queues an orphan-anonymous collection request for the next
@@ -108,9 +111,10 @@ func (s *Runtime) deferPendingWaifs(ctx *task.Context, pending []types.Value, ow
 // ownVM is the deferring task's own VM (nil when the task is suspending, since its
 // VM stays registered and the flush reads it directly). When non-nil it is walked
 // here, on the goroutine that owns it, so its references survive the VM's release.
-func (s *Runtime) deferAnonGC(ctx *task.Context, minID types.ObjID, ownVM *vm.VM) {
+// It returns the queue number of the batch it joined, or 0 if it queued nothing.
+func (s *Runtime) deferAnonGC(ctx *task.Context, minID types.ObjID, ownVM *vm.VM) uint64 {
 	if ctx == nil {
-		return
+		return 0
 	}
 	var ownRefs map[types.ObjID]struct{}
 	var owner *task.State
@@ -130,13 +134,55 @@ func (s *Runtime) deferAnonGC(ctx *task.Context, minID types.ObjID, ownVM *vm.VM
 		if ownVM != nil && published {
 			s.appendPendingFinalizations(roots)
 		}
-		return
+		return 0
 	}
 	s.lifecycle.PendingAnonGC = append(s.lifecycle.PendingAnonGC, vm.AnonGCRequest{
 		Ctx: s.gcRecycleContext(ctx), MinID: minID, OwnRefs: ownRefs, TaskOwned: ownVM == nil, Task: owner,
 	})
-	s.noteDeferredGCQueuedLocked()
+	seq := s.noteDeferredGCQueuedLocked()
 	s.lifecycle.Mu.Unlock()
+	return seq
+}
+
+// holdForFinalization keeps a suspending task from resuming until the sweep
+// that drains request seq has run. Toast queues an orphan when its last
+// reference goes and runs the queued :recycle verbs (server.cc
+// recycle_anonymous_objects, recycle_waifs) before the next run_ready_tasks(),
+// so a task resumed from suspend(0) observes them.
+func (s *Runtime) holdForFinalization(t *Task, seq uint64) {
+	if seq == 0 {
+		return
+	}
+	s.lifecycle.Mu.Lock()
+	if seq > s.lifecycle.WaitSeq {
+		s.lifecycle.WaitSeq = seq
+	}
+	// A back-off armed before anyone waited must not delay this task. The
+	// slice-boundary flush that follows every hand-off sweeps first; only if it
+	// cannot does flushDeferredGC wake the maintenance worker.
+	s.lifecycle.RetryAfter = time.Time{}
+	s.lifecycle.Mu.Unlock()
+	t.HoldForFinalization(&s.lifecycle.SweptSeq, seq)
+}
+
+// finalizationAwaitedLocked reports whether a held task waits on a queued batch.
+func (s *Runtime) finalizationAwaitedLocked() bool {
+	return s.lifecycle.WaitSeq > s.lifecycle.SweptSeq.Load()
+}
+
+// markFinalizationSweptLocked records that every request up to seq has been
+// settled and wakes the scheduler for tasks held on them.
+func (s *Runtime) markFinalizationSweptLocked(seq uint64) {
+	if seq <= s.lifecycle.SweptSeq.Load() {
+		return
+	}
+	s.lifecycle.SweptSeq.Store(seq)
+	if !s.finalizationAwaitedLocked() {
+		s.lifecycle.WaiterUnserved = false
+	}
+	if s.taskManager != nil {
+		s.taskManager.NotifyScheduleChange()
+	}
 }
 
 // settleCompletedTaskFinalizations chooses exactly one owner for a terminal
@@ -203,7 +249,16 @@ func (s *Runtime) gcRecycleContext(parent *task.Context) *task.Context {
 // against persistent state plus all live task VMs, so deferral only changes
 // WHEN an orphan's :recycle runs: immediately while sweeps stay cheap, on
 // gcSweepInterval once they become expensive.
-func (s *Runtime) flushDeferredGC() { s.flushDeferredGCBarrier(0, false) }
+func (s *Runtime) flushDeferredGC() {
+	s.flushDeferredGCBarrier(0, false)
+	// A task held on a batch this flush could not sweep waits for the worker.
+	s.lifecycle.Mu.Lock()
+	if s.finalizationAwaitedLocked() {
+		s.lifecycle.WaiterUnserved = true
+		s.wakeDeferredGCMaintenanceLocked()
+	}
+	s.lifecycle.Mu.Unlock()
+}
 
 // maintenanceBarrierPatience is how long the maintenance worker keeps trying
 // for the sweep barrier. A finishing task's flush holds it for the length of
@@ -278,7 +333,7 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration, handshake bool)
 		s.lifecycle.Mu.Unlock()
 		return
 	}
-	due := time.Since(s.lifecycle.LastGCSweep) >= gcSweepInterval
+	due := time.Since(s.lifecycle.LastGCSweep) >= gcSweepInterval || s.finalizationAwaitedLocked()
 	if !due && s.lifecycle.LastGCCost >= cheapGCSweep {
 		s.lifecycle.Mu.Unlock()
 		return
@@ -297,6 +352,7 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration, handshake bool)
 	s.lifecycle.Mu.Lock()
 	waifBatch := s.lifecycle.PendingWaifs
 	anonBatch := s.lifecycle.PendingAnonGC
+	drained := s.lifecycle.QueuedSeq
 	s.lifecycle.PendingWaifs = nil
 	s.lifecycle.PendingAnonGC = nil
 	s.lifecycle.PendingSince = time.Time{}
@@ -314,6 +370,7 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration, handshake bool)
 		s.lifecycle.Mu.Lock()
 		s.lifecycle.LastGCCost = cost
 		s.lifecycle.GCRunning = false
+		s.markFinalizationSweptLocked(drained)
 		s.wakeDeferredGCMaintenanceLocked()
 		publish := s.canPublishShutdownLocked()
 		if publish {
@@ -433,6 +490,7 @@ func (s *Runtime) takeDeferredFinalizationRootsLocked() []types.Value {
 	}
 	s.lifecycle.PendingWaifs = nil
 	s.lifecycle.PendingAnonGC = nil
+	s.markFinalizationSweptLocked(s.lifecycle.QueuedSeq)
 	return values
 }
 

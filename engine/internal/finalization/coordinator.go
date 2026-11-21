@@ -5,6 +5,7 @@ package finalization
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/MongooseMoo/barn/task"
@@ -53,6 +54,16 @@ type Coordinator struct {
 	RetryAfter                  time.Time
 	MaintenanceWake             chan struct{}
 	MaintenanceDone             chan struct{}
+	// QueuedSeq numbers each deferred request as it is queued; SweptSeq is the
+	// highest number a completed sweep (or shutdown hand-off) has drained.
+	// WaitSeq is the highest number a suspended task is held for, so the
+	// sweepers run without the cheap-sweep throttle until SweptSeq reaches it.
+	// WaiterUnserved is set when a slice-boundary flush left such a task held;
+	// the maintenance worker then sweeps at once instead of on its cadence.
+	QueuedSeq      uint64
+	WaitSeq        uint64
+	SweptSeq       atomic.Uint64
+	WaiterUnserved bool
 }
 
 // NewCoordinator creates an empty coordinator.

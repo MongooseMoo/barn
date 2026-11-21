@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/MongooseMoo/barn/bytecode"
@@ -137,6 +138,11 @@ type State struct {
 	pendingInput     int  // injected events that have not finished their first slice
 	waitingForInput  bool // only a zero-delay continuation observes this fence
 	cancelRequested  bool // explicit kill, distinct from an uncaught MOO exception
+	// finalizationSwept and finalizationSeq hold a task whose suspend queued
+	// deferred finalization until the sweep draining that queue has run, as
+	// Toast runs the queued :recycle verbs before its next run_ready_tasks().
+	finalizationSwept *atomic.Uint64
+	finalizationSeq   uint64
 	// wokenUnrun marks a queued task woken from a suspension whose slice has not
 	// started. Toast still finds it suspended (tasks.cc do_resume searches the
 	// background queues), so resume() only replaces its WakeValue.
@@ -455,6 +461,9 @@ func (t *State) ReadyDeadline(now time.Time) time.Time {
 
 func (t *State) readyDeadlineLocked(now time.Time) time.Time {
 	if t.executionActive || t.admissionPending || t.waitingForInput {
+		return time.Time{}
+	}
+	if t.finalizationSwept != nil && t.finalizationSwept.Load() < t.finalizationSeq {
 		return time.Time{}
 	}
 	if t.Status == TaskSuspended {
@@ -781,6 +790,15 @@ func (t *State) JoinForkFamily(parent *State) {
 }
 
 // SetReadier records the task whose fork made this task ready.
+// HoldForFinalization keeps the task from being ready until swept reaches seq.
+// The sweep that advances swept notifies the scheduler.
+func (t *State) HoldForFinalization(swept *atomic.Uint64, seq uint64) {
+	t.Mu.Lock()
+	t.finalizationSwept = swept
+	t.finalizationSeq = seq
+	t.Mu.Unlock()
+}
+
 func (t *State) SetReadier(readier *State) {
 	t.Mu.Lock()
 	defer t.Mu.Unlock()

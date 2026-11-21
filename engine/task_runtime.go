@@ -880,15 +880,19 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 	// boundary. Values overwritten before the yield are no longer live in the
 	// saved VM, so queue them now; the flush-time scan of the registered VM
 	// protects any waifs that remain reachable when execution resumes.
-	s.deferPendingWaifs(ctx, bcVM.TakePendingWaifs(), nil)
+	finalizationSeq := s.deferPendingWaifs(ctx, bcVM.TakePendingWaifs(), nil)
 	// Match Toast lifecycle semantics more closely: a scheduler yield/suspend
 	// is a GC boundary for newly-created orphan anonymous objects. The sweep is
 	// deferred to the next quiescent flush; the suspended task's VM is registered
 	// below (SetVM), so the flush-time root scan still sees its locals.
 	// Released references may belong to objects created before this slice.
 	if floor, needed := bcVM.AnonymousGCFloor(anonGCFloor, s.store.AnonCreationCount() != anonFloor); needed {
-		s.deferAnonGC(ctx, floor, nil)
+		if seq := s.deferAnonGC(ctx, floor, nil); seq > finalizationSeq {
+			finalizationSeq = seq
+		}
 	}
+	// The task resumes only after the sweep that settles what it just queued.
+	s.holdForFinalization(t, finalizationSeq)
 	// A terminal commit failure makes HasWrites false without discarding the
 	// private view, preventing completion cleanup from recommitting it.
 	if ctx.StoreTxn.HasWrites() {

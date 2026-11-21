@@ -11,11 +11,13 @@ func (s *Runtime) wakeDeferredGCMaintenanceLocked() {
 	}
 }
 
-func (s *Runtime) noteDeferredGCQueuedLocked() {
+func (s *Runtime) noteDeferredGCQueuedLocked() uint64 {
 	if s.lifecycle.PendingSince.IsZero() {
 		s.lifecycle.PendingSince = time.Now()
 	}
+	s.lifecycle.QueuedSeq++
 	s.wakeDeferredGCMaintenanceLocked()
+	return s.lifecycle.QueuedSeq
 }
 
 func (s *Runtime) deferredGCDeadline() time.Time {
@@ -31,6 +33,11 @@ func (s *Runtime) deferredGCDeadline() time.Time {
 	deadline := s.lifecycle.PendingSince.Add(gcSweepInterval)
 	if s.lifecycle.LastGCCost >= cheapGCSweep {
 		deadline = s.lifecycle.LastGCSweep.Add(gcSweepInterval)
+	}
+	// A suspended task is held until its batch is swept, and its own slice
+	// boundary could not sweep it: sweep now.
+	if s.lifecycle.WaiterUnserved && s.finalizationAwaitedLocked() {
+		deadline = time.Now()
 	}
 	if deadline.Before(s.lifecycle.RetryAfter) {
 		deadline = s.lifecycle.RetryAfter
@@ -75,7 +82,11 @@ func (s *Runtime) rendezvousDeferredGC() {
 	// have parked. Give up instead of spinning or blocking cancellation; the
 	// next deadline retries that pending batch.
 	if len(s.lifecycle.PendingWaifs) != 0 || len(s.lifecycle.PendingAnonGC) != 0 {
-		s.lifecycle.RetryAfter = time.Now().Add(gcSweepInterval)
+		retry := gcSweepInterval
+		if s.lifecycle.WaiterUnserved && s.finalizationAwaitedLocked() {
+			retry = maintenanceBarrierPatience
+		}
+		s.lifecycle.RetryAfter = time.Now().Add(retry)
 	}
 	s.lifecycle.Mu.Unlock()
 }
