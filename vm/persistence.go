@@ -290,6 +290,10 @@ func withoutEvalReturnContinuation(saved task.VMFrameSnapshot) task.VMFrameSnaps
 // Toast's state line for a move() continuation (objects.cc bf_move_write).
 const nativeMoveState = "bf_move data: what = %d, where = %d, position = %d"
 
+// Toast's state line for call_function("move", ...) (execute.cc
+// bf_call_function_write).
+const nativeCallFunctionMoveState = "bf_call_function data: fname = move"
+
 // Toast's bf_move calls where:accept, oldloc:exitfunc and where:enterfunc as
 // verb activations and records builtin move on each one, with the pc do_move
 // continues at when that verb returns (2, 3, 4) and its what, where and
@@ -300,8 +304,17 @@ const nativeMoveState = "bf_move data: what = %d, where = %d, position = %d"
 // builtinMove gives a task that has not yet mutated the live store, which a
 // task restored from a checkpoint has not. A move mark with another pc or
 // other state is left for ConvertNativeFrame to refuse.
+//
+// Under call_function("move", ...) Toast records builtin call_function with
+// the same pc, its line naming move, and move's data line inside it
+// (execute.cc bf_call_function, bf_call_function_write). When the hook
+// returns, bf_call_function only calls bf_move with that pc and data, so the
+// inner mark is converted as a direct move()'s.
 func withoutMoveContinuation(saved task.VMFrameSnapshot) (task.VMFrameSnapshot, *task.MoveContinuationSnapshot) {
 	builtin := saved.Native.Builtin
+	if builtin != nil && builtin.Name == "call_function" && builtin.State == nativeCallFunctionMoveState && builtin.Inner != nil {
+		builtin = builtin.Inner
+	}
 	if builtin == nil || builtin.Name != "move" || builtin.Inner != nil || saved.BuiltinPC <= moveAwaitAccept || saved.BuiltinPC > moveAwaitEnter+1 {
 		return saved, nil
 	}
