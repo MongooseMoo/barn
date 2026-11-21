@@ -628,6 +628,17 @@ command run before its completion is delivered.
   before resume, a plain confined value recycled at suspend and before
   completion is delivered. Each channel test was checked by removing its
   mark (`mutcheck.py`, outside the repo): every one then fails.
+- Step 4 done: the oracle, `-tags finalizationoracle`
+  (`engine/finalization_oracle_on.go`; the default build compiles the no-op
+  `finalization_oracle_off.go`). Every fast "dead" verdict (whose recycle verb
+  did not suspend) is recorded and keeps a sweep due; the next sweep, after
+  capturing its roots, checks each against them (WAIFs: `liveWaifs` over the
+  captured roots; anonymous objects: `Store.ReferencedAnonymousIDs`, which
+  keeps ids of recycled objects) and panics on a disagreement. Tests:
+  `engine/finalization_oracle_test.go` (catches a held WAIF; agrees on
+  confined values). `TestMongooseRealWorkload` logs the counts per window.
+  Build the server with it: `go build -tags finalizationoracle -o bin/ ./cmd/barn`.
+  `go test -tags finalizationoracle ./engine ./builtins ./vm` passes.
 
 Where the mechanism lives:
 - `types/finalizer_tag.go`: `FinalizerTag` (creator task id; state confined /
