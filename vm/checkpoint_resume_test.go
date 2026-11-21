@@ -152,7 +152,8 @@ func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpoi
 	return strings.Join(differences, "; "), ""
 }
 
-// newCheckpointResumeRegistry is newSourceFuzzRegistry, except that a call
+// newCheckpointResumeRegistry is newSourceFuzzRegistry with
+// structuredFuzzCapabilities, for generated programs, except that a call
 // whose result unrepeatableCall names as differing between two runs of the
 // same program skips the case in place of the builtin. Such a result differs
 // between the uninterrupted and the checkpointed run with or without the
@@ -169,7 +170,7 @@ func newCheckpointResumeRegistry(t *testing.T) *builtins.Registry {
 			return call(ctx, args)
 		}
 	}
-	return newRegistryOrFatal(t, descriptors)
+	return newRegistryOrFatal(t, structuredFuzzCapabilities, descriptors)
 }
 
 // unrepeatableCall returns why a call of the named builtin with argc

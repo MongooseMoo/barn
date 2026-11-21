@@ -12,7 +12,9 @@
 // {"path", "choices" (hex), "source"} or {"path", "error"}.
 //
 // --generator names the generator the choices belong to: structured (the
-// default, fuzzseed.Source) or suspended-stack (fuzzseed.SuspendedStack).
+// default, fuzzseed.Source), structured-ascii (fuzzseed.ASCIISource, the
+// same program with its string pieces spelled in ASCII, which the Toast
+// differential compares) or suspended-stack (fuzzseed.SuspendedStack).
 //
 // With --builtins, stdin instead holds MOO programs, one JSON string per line,
 // and each gives one JSON line: {"builtins": [names]} or {"error"}. The names
@@ -57,8 +59,9 @@ per line, and each file gives one JSON line: {"path", "choices" (hex),
 "source"} or {"path", "error"}.
 
 --generator names the generator the choices belong to: structured, the
-FuzzStructured* targets' (the default), or suspended-stack,
-FuzzSuspendedStackCheckpoint's.
+FuzzStructured* targets' (the default); structured-ascii, the same program
+with its string pieces spelled in ASCII, as the Toast differential compares
+it; or suspended-stack, FuzzSuspendedStackCheckpoint's.
 
 With --builtins, stdin holds MOO programs, one JSON string per line, and each
 gives one JSON line: {"builtins": [names]} or {"error"}. The names are the
@@ -72,11 +75,11 @@ literal name counts as a call to that name.`
 	root.Args = cobra.NoArgs
 	root.Flags().BoolVar(&corpus, "corpus", false, "Read corpus file paths on stdin and print one JSON line per file")
 	root.Flags().BoolVar(&builtins, "builtins", false, "Read JSON-quoted MOO programs on stdin and print the builtins each calls")
-	root.Flags().StringVar(&generator, "generator", "structured", "Generator the choices belong to: structured or suspended-stack")
+	root.Flags().StringVar(&generator, "generator", "structured", "Generator the choices belong to: structured, structured-ascii or suspended-stack")
 	root.RunE = cli.RunE(func(cmd *cobra.Command, _ []string) error {
 		render, ok := generators[generator]
 		if !ok {
-			return cli.UsageErrorf("unknown generator %q: want structured or suspended-stack", generator)
+			return cli.UsageErrorf("unknown generator %q: want structured, structured-ascii or suspended-stack", generator)
 		}
 		if builtins {
 			return listBuiltinCalls(os.Stdin, cmd.OutOrStdout())
@@ -100,8 +103,9 @@ literal name counts as a call to that name.`
 
 // generators maps a --generator name to the renderer of its choice bytes.
 var generators = map[string]func([]byte) (string, error){
-	"structured":      fuzzseed.Source,
-	"suspended-stack": func(choices []byte) (string, error) { return fuzzseed.SuspendedStack(choices), nil },
+	"structured":       fuzzseed.Source,
+	"structured-ascii": fuzzseed.ASCIISource,
+	"suspended-stack":  func(choices []byte) (string, error) { return fuzzseed.SuspendedStack(choices), nil },
 }
 
 type corpusRecord struct {

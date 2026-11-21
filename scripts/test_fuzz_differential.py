@@ -24,10 +24,10 @@ VM_RECORD = FIXTURES / "FuzzStructuredSourceExecution" / "e58adbf989baa13f"
 COMPILER_RECORD = FIXTURES / "FuzzStructuredCompileVerifiable" / "0c4d4bbfffc14e70"
 
 
-def go_owner_source(choices: bytes) -> str:
+def go_owner_source(choices: bytes, generator: str = "structured-ascii") -> str:
     """The program cmd/moo-fuzz-source prints for raw choice bytes on stdin."""
-    return subprocess.run(["go", "run", "./cmd/moo-fuzz-source"], cwd=REPO, input=choices,
-                          capture_output=True, check=True).stdout.decode("utf-8").removesuffix("\n")
+    return subprocess.run(["go", "run", "./cmd/moo-fuzz-source", "--generator", generator], cwd=REPO,
+                          input=choices, capture_output=True, check=True).stdout.decode("utf-8").removesuffix("\n")
 
 # Excerpts of real lane output from the first local run (2026-11-06).
 TOAST_STDOUT = """
@@ -296,6 +296,19 @@ class StructuredCorpusTests(unittest.TestCase):
             self.assertEqual(record["source"], go_owner_source(bytes.fromhex(record["choices"])))
         # Go's %q leaves printable UTF-8 runs raw among \x escapes.
         self.assertIn("de9a", rendered[str(VM_RECORD)]["choices"])
+
+    def test_structured_records_are_compared_in_their_ascii_spelling(self):
+        # Choice bytes whose program has a string piece "é" (structured.go
+        # stringPieces): the Go lanes run it; the differential compares the
+        # same program with "e", since it excludes non-ASCII source.
+        choices = bytes([0, 0, 1, 5])
+        self.assertIn("é", go_owner_source(choices, "structured"))
+        with tempfile.TemporaryDirectory() as directory:
+            record = Path(directory, "record")
+            record.write_bytes(b'go test fuzz v1\n[]byte("\\x00\\x00\\x01\\x05")\n')
+            source = render_choices([str(record)])[str(record)]["source"]
+        self.assertEqual(source, go_owner_source(choices, "structured").replace("é", "e"))
+        self.assertIsNone(exclusion(source))
 
     def test_lanes_keep_choices_and_count_undecodable_records(self):
         with tempfile.TemporaryDirectory() as directory:
