@@ -426,7 +426,8 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 			p.nextToken() // consume '.'
 
 			// Check for dynamic property access: obj.(expr)
-			if p.current.Type == TOKEN_LPAREN {
+			switch p.current.Type {
+			case TOKEN_LPAREN:
 				p.nextToken() // consume '('
 				propExpr, err := p.ParseExpression(PREC_LOWEST)
 				if err != nil {
@@ -442,7 +443,7 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 					Expr:         left,
 					PropertyExpr: propExpr,
 				}
-			} else if p.current.Type == TOKEN_COLON {
+			case TOKEN_COLON:
 				// expr.:name is expr.(":name"), the WAIF property prefix
 				// (Toast parser.y rule expr '.' ':' tID).
 				p.nextToken() // consume ':'
@@ -459,7 +460,7 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 					},
 				}
 				p.nextToken()
-			} else {
+			default:
 				// Static property access: expr.identifier
 				if p.current.Type != TOKEN_IDENTIFIER {
 					return nil, fmt.Errorf("expected property name after '.', got %s", p.current.Type)
