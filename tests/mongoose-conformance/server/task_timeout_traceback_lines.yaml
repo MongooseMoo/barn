@@ -1,0 +1,32 @@
+name: task_timeout_traceback_lines
+requires:
+  builtins: [add_property, add_verb, create, delete_property, recycle, set_verb_code, suspend, verb_code]
+tests:
+  - name: forked_tick_abort_reports_ticks_and_current_lines
+    permission: wizard
+    statement: |
+      saved = verb_code(#0, "handle_task_timeout");
+      o = create($nothing);
+      add_property(o, "seen", 0, {player, "rw"});
+      add_property(#0, "zz_timeout_probe", o, {player, "rw"});
+      set_verb_code(#0, "handle_task_timeout", {"p = $zz_timeout_probe;", "lines = {};", "for f in (args[2])", "  lines = {@lines, {f[2], f[6]}};", "endfor", "p.seen = {args[1], args[3], lines};", "return 1;"});
+      add_verb(o, {player, "xd", "burn"}, {"this", "none", "this"});
+      set_verb_code(o, "burn", {"x = 0;", "while (1)", "  x = x + 1;", "endwhile"});
+      add_verb(o, {player, "xd", "outer"}, {"this", "none", "this"});
+      set_verb_code(o, "outer", {"y = 1;", "try", "  this:burn();", "except (ANY)", "  return \"caught\";", "endtry"});
+      fork (0)
+        o:outer();
+      endfork
+      for i in [1..50]
+        suspend(0.1);
+        if (o.seen)
+          break;
+        endif
+      endfor
+      seen = o.seen;
+      set_verb_code(#0, "handle_task_timeout", saved);
+      delete_property(#0, "zz_timeout_probe");
+      recycle(o);
+      return seen ? {seen[1], strsub(seen[2][1], tostr(o), "#X"), seen[3][1..2]} | "no timeout seen";
+    expect:
+      value: ["ticks", "#X:burn (this == #X), line 2:  Task ran out of ticks", [["burn", 2], ["outer", 3]]]
