@@ -3,8 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fuzz_cross_engine import (CHUNK, DIRECTIONS, TEST_PREFIX, classify, failure_class, junit_results,
-                               load_programs, render_report, suite, summary_line, test_case)
+from fuzz_cross_engine import (CHUNK, CONVERTED, DIRECTIONS, TEST_PREFIX, classify, converted_case, failure_class,
+                               junit_results, load_programs, omissions, render_report, suite, summary_line,
+                               test_case, toast_did_not_boot)
 from fuzz_report import report
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "fuzz"
@@ -14,6 +15,15 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "fuzz"
 # Barn resuming, where the call_function("eval", ...) seed does not boot.
 PRE886_BARN_FIRST = FIXTURES / "cross-engine" / "pre886-barn-first.xml"
 MASTER_TOAST_FIRST = FIXTURES / "cross-engine" / "master-toast-first.xml"
+# Real output of one local run on master (2026-11-21) over the two programs of
+# the lane's findings 2 and 3 (choices 000010e38d53bab33300, recreate's hook;
+# c9c9b1cfa79e9e9eff6dc9c9c9640090, call_function("create")) and the two
+# programs of CORPUS: Barn writing, Toast not booting on two of them; the
+# converted session on those two; and what the conversions printed.
+MASTER_BARN_FIRST = FIXTURES / "cross-engine" / "master-barn-first.xml"
+MASTER_CONVERTED = FIXTURES / "cross-engine" / "master-barn-first-toast-loadable.xml"
+MASTER_CONVERSION_LOG = FIXTURES / "cross-engine" / "master-barn-first-toast-loadable-conversions.txt"
+DID_NOT_BOOT = ["generated_f24a887c0db08fa9", "generated_b36735a4330d379f"]
 # Byte-for-byte records from Go's fuzz cache for FuzzSuspendedStackCheckpoint;
 # two of them render the same program.
 CORPUS = FIXTURES / "FuzzSuspendedStackCheckpoint"
@@ -108,6 +118,69 @@ class ResultTests(unittest.TestCase):
         self.assertEqual(failure_class("toast-first", "Test 'step '\"1 install\";\nh = cre...'' got"),
                          "toast-first: the program did not install")
         self.assertEqual(failure_class("barn-first", "something else"), "barn-first: the test failed")
+
+
+class ConvertedTests(unittest.TestCase):
+    def test_converted_case_runs_up_to_the_restart_then_checks_the_world(self):
+        full = test_case("generated_a", EVAL_PROGRAM)["steps"]
+        steps = converted_case("generated_a", EVAL_PROGRAM)["steps"]
+        self.assertEqual(steps[:5], full[:5])
+        self.assertIn("restart_server", steps[4])
+        self.assertEqual(len(steps), 6)
+        self.assertTrue(steps[5]["run"].startswith('"8 converted copy";'))
+        self.assertEqual(steps[5]["expect"], {"value": 1})
+        loaded = json.loads(json.dumps(suite([program("generated_a")], converted_case)))
+        self.assertEqual([next(iter(step)) for step in loaded["tests"][0]["steps"]],
+                         ["run", "run", "run", "run", "restart_server", "run"])
+
+    def test_only_programs_toast_did_not_boot_on_are_converted(self):
+        results = junit_results(MASTER_BARN_FIRST)
+        names = [program(name.split("::")[1].rstrip("]")) for name in results if TEST_PREFIX in name]
+        self.assertEqual(len(names), 4)
+        stuck = toast_did_not_boot(names, results)
+        self.assertEqual(sorted(row["name"] for row in stuck), sorted(DID_NOT_BOOT))
+        self.assertEqual(toast_did_not_boot(names, None), [])
+
+    def test_conversion_log_counts_each_omitted_task_by_reason(self):
+        logged = omissions(MASTER_CONVERSION_LOG.read_text(encoding="utf-8"))
+        # The admission test's restart converts too, with nothing to omit.
+        self.assertEqual(logged["conversions"], 3)
+        self.assertEqual(logged["omitted"], 2)
+        reason = "stock Toast does not resume a create, recreate or recycle continuation from its checkpoint"
+        self.assertEqual(logged["reasons"], {f"call_function: {reason}": 1, f"recreate: {reason}": 1})
+        self.assertEqual(omissions(""), {"conversions": 0, "omitted": 0, "reasons": {}})
+
+    def test_converted_copies_that_boot_match_and_one_that_does_not_is_a_divergence(self):
+        results = junit_results(MASTER_CONVERTED)
+        stuck = [program(name) for name in DID_NOT_BOOT]
+        rows, problems = classify(stuck, [(CONVERTED, stuck, results)])
+        self.assertEqual(problems, [])
+        self.assertEqual([row["kind"] for row in rows], ["match", "match"])
+        self.assertEqual(failure_class(CONVERTED, "moo_conformance.server.RestartCommandError: Managed server exited"),
+                         "barn-first-toast-loadable: the other engine did not boot on the checkpoint")
+        self.assertEqual(failure_class(CONVERTED, "Test 'step '\"8 converted copy\";\nreturn ...'' expected"),
+                         "barn-first-toast-loadable: Toast did not answer on the converted copy")
+
+    def test_report_counts_omitted_tasks_and_the_reporter_still_files_the_first_divergence(self):
+        results = junit_results(MASTER_BARN_FIRST)
+        names = [program(name.split("::")[1].rstrip("]")) for name in results if TEST_PREFIX in name]
+        stuck = toast_did_not_boot(names, results)
+        rows, problems = classify(names, [("barn-first", names, results),
+                                          (CONVERTED, stuck, junit_results(MASTER_CONVERTED))])
+        logged = omissions(MASTER_CONVERSION_LOG.read_text(encoding="utf-8"))
+        summary = {"outcome": "divergence", "programs": 4, "counts": {"match": 4, "divergence": 2},
+                   "problems": problems, "lanes": {}, "toast": "toaststunt/build/moo", "toast_sha256": "t",
+                   "barn": "bin/barn", "barn_sha256": "b", "converted": {"programs": len(stuck), **logged}}
+        text = render_report(summary, rows)
+        self.assertIn("## converted copies\n\n- programs whose Barn checkpoint Toast did not boot on: 2\n"
+                      "- conversions: 3; tasks omitted: 2\n- omitted 1: call_function: ", text)
+        self.assertIn("- omitted 1: recreate: ", text)
+        result = report("go version go1.27.1 linux/amd64\n" + text, "./scripts", "ToastCrossEngineCheckpoint",
+                        "commit")
+        self.assertEqual(result["kind"], "divergence")
+        self.assertIn(result["input_path"], DID_NOT_BOOT)
+        self.assertIn(f"- {DIRECTIONS['barn-first']}: moo_conformance.server.RestartCommandError",
+                      result["first_error"])
 
 
 class ReportTests(unittest.TestCase):

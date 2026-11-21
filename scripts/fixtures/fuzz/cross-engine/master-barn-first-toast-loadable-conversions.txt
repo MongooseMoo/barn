@@ -1,0 +1,8 @@
+read: 0 queued, 0 suspended or interrupted tasks, 0 connections
+wrote /tmp/moo_conformance_tfxw07yb/Test.db.new: 0 queued, 0 suspended or interrupted tasks, 0 connections, 0 tasks omitted for Toast
+read: 0 queued, 1 suspended or interrupted tasks, 1 connections
+omitted task 18: #-1:, this #-1: frame 3 (#14:initialize): call_function: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint
+wrote /tmp/moo_conformance_uq08sbgr/Test.db.new: 0 queued, 0 suspended or interrupted tasks, 1 connections, 1 tasks omitted for Toast
+read: 0 queued, 1 suspended or interrupted tasks, 1 connections
+omitted task 9: #-1:, this #-1: frame 3 (#14:initialize): recreate: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint
+wrote /tmp/moo_conformance_uq08sbgr/Test.db.new: 0 queued, 0 suspended or interrupted tasks, 1 connections, 1 tasks omitted for Toast

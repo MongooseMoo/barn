@@ -28,6 +28,16 @@ generated test is listed under ``## divergence``, the form
 ``scripts/fuzz_report.py`` reports, with its failure class (direction and the
 step that failed) as the issue signature.
 
+A program whose Barn-written checkpoint Toast does not boot on is run once
+more (direction ``barn-first-toast-loadable``): the same steps up to the
+restart, but the restart converts the checkpoint with ``barn
+offline-checkpoint --toast-loadable`` (``scripts/toast-loadable-restart.sh``),
+which leaves out the tasks Barn kept in its own frame form, and Toast must
+boot on the converted copy and answer (step 8). Its tasks are not compared:
+the omitted ones never finish. A converted copy Toast does not boot on is a
+divergence. Every omitted task is counted by its reason under ``## converted
+copies`` in the report.
+
 Programs run in chunks of CHUNK, one harness session per chunk and
 direction, in the order sha256(--seed + name) gives; with --minutes no chunk
 starts after that time, so a cycle covers part of a large corpus and the next
@@ -43,6 +53,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -58,7 +69,19 @@ from fuzz_differential import is_choices_record, render_choices  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 SESSION = REPO / "scripts" / "cross-engine-session.sh"
-DIRECTIONS = {"barn-first": "Barn writes, Toast resumes", "toast-first": "Toast writes, Barn resumes"}
+DIRECTIONS = {"barn-first": "Barn writes, Toast resumes", "toast-first": "Toast writes, Barn resumes",
+              "barn-first-toast-loadable": "Barn writes, its Toast-loadable copy is made, Toast resumes"}
+# Every chunk runs these; the converted direction runs only the programs
+# whose barn-first restart did not boot.
+BOTH_WAYS = ("barn-first", "toast-first")
+CONVERTED = "barn-first-toast-loadable"
+# `barn offline-checkpoint --toast-loadable` output (internal/dbtool
+# WriteOfflineCheckpoint): one line per task left out, one per file written.
+OMITTED_RE = re.compile(r"^omitted task (-?\d+): (\S+), this (#-?\d+): (.*)$", re.M)
+CONVERTED_RE = re.compile(r"^wrote .*, (\d+) tasks omitted for Toast$", re.M)
+# The frame a refusal names ("frame 1 (#4:initialize): ") differs per program;
+# what follows it is the reason.
+FRAME_PREFIX_RE = re.compile(r"^frame \d+ \(#-?\d+:[^)]*\)(?: is not in its program's main vector)?: ")
 TEST_PREFIX = "generated_"
 # Rounds of resuming before a test gives up on its tasks finishing.
 DRAIN_ROUNDS = 500
@@ -72,6 +95,7 @@ STEPS = {
     "4": "the checkpoint failed",
     "6": "the restored tasks did not finish",
     "7": "the result differs after the restart",
+    "8": "Toast did not answer on the converted copy",
 }
 
 # Verbs of the helper object #0.cross_engine. go runs the program and keeps
@@ -182,13 +206,24 @@ def test_case(name: str, source: str) -> dict:
     }
 
 
-def suite(programs: list[dict]) -> dict:
+def converted_case(name: str, source: str) -> dict:
+    """test_case up to its restart, then one step on the converted copy: the
+    helper object the program's run built before the checkpoint is there."""
+    case = test_case(name, source)
+    steps = case["steps"][:5]
+    assert "restart_server" in steps[-1]
+    steps.append({"run": '"8 converted copy";\nreturn valid(#0.cross_engine) ? 1 | 0;', "expect": {"value": 1}})
+    return {**case, "steps": steps,
+            "description": "Toast boots on the Toast-loadable copy of the checkpoint Barn wrote."}
+
+
+def suite(programs: list[dict], case=test_case) -> dict:
     """The generated suite. JSON is YAML, so it is written as JSON."""
     return {
         "name": "cross_engine_generated",
         "description": "Generated suspended-stack programs resumed by the other engine after a checkpoint.",
         "requires": {"config": ["managed_server"]},
-        "tests": [test_case(program["name"], program["source"]) for program in programs],
+        "tests": [case(program["name"], program["source"]) for program in programs],
     }
 
 
@@ -259,6 +294,24 @@ def failure_class(direction: str, message: str) -> str:
     return f"{direction}: {what}"
 
 
+def toast_did_not_boot(chunk: list[dict], results: dict | None) -> list[dict]:
+    """The programs of a barn-first session whose restart on Toast failed."""
+    failed = [name for name, result in (results or {}).items()
+              if result["outcome"] == "failed" and "RestartCommandError" in result["message"]]
+    return [program for program in chunk if any(program["name"] in name for name in failed)]
+
+
+def omissions(text: str) -> dict:
+    """What the conversions logged in text: how many files they wrote, and
+    the tasks they left out, counted by reason (the frame prefix removed)."""
+    reasons: dict[str, int] = {}
+    for match in OMITTED_RE.finditer(text):
+        reason = FRAME_PREFIX_RE.sub("", match[4])
+        reasons[reason] = reasons.get(reason, 0) + 1
+    written = CONVERTED_RE.findall(text)
+    return {"conversions": len(written), "omitted": sum(int(n) for n in written), "reasons": reasons}
+
+
 def classify(programs: list[dict], sessions: list[tuple[str, list[dict], dict | None]]
              ) -> tuple[list[dict], list[str]]:
     """One row per program and direction, and the session problems that make
@@ -322,6 +375,14 @@ def render_report(summary: dict, rows: list[dict]) -> str:
         shown = {name: value for name, value in counts.items() if name != "undecodable"}
         report.append(f"- `{lane}`: {json.dumps(shown)}; undecodable: {len(counts['undecodable'])}")
     report.append("")
+    converted = summary.get("converted") or {}
+    if converted.get("programs"):
+        report += ["## converted copies", "",
+                   f"- programs whose Barn checkpoint Toast did not boot on: {converted['programs']}",
+                   f"- conversions: {converted['conversions']}; tasks omitted: {converted['omitted']}"]
+        for reason, count in sorted(converted["reasons"].items(), key=lambda item: (-item[1], item[0])):
+            report.append(f"- omitted {count}: {reason}")
+        report.append("")
     # One issue per failure class (fuzz_report.py's signature line), not per
     # input: the inputs run differ from cycle to cycle.
     listed = sorted((row for row in rows if row["kind"] == "divergence"), key=lambda row: (row["class"], row["name"]))
@@ -336,6 +397,21 @@ def render_report(summary: dict, rows: list[dict]) -> str:
                        f"- test: `{row['name']}` in `{row['direction']}`", "",
                        "```text", row["message"][:6000], "```", ""]
     return "\n".join(report)
+
+
+def run_session(args, work: Path, root: Path, direction: str, index: int, env: dict | None = None
+                ) -> dict | None:
+    """One harness session over the suite in root; its results, or None when
+    it wrote none."""
+    print(f"=== chunk {index}: {DIRECTIONS[direction]} ===", flush=True)
+    junit = args.out / f"{direction}-{index:03d}.xml"
+    junit.unlink(missing_ok=True)
+    subprocess.run(["bash", str(SESSION), str(args.barn), str(args.toast), str(args.suite), direction,
+                    f"--candidate-root={REPO}", f"--moo-suite-root={root}",
+                    f"--server-db={work / 'db' / 'Test.db'}",
+                    f"--server-db-dir={work / 'db' / 'startup'}",
+                    f"--junitxml={junit}"], check=False, env={**os.environ, **(env or {})})
+    return junit_results(junit) if junit.exists() else None
 
 
 def main() -> int:
@@ -363,6 +439,8 @@ def main() -> int:
     work = Path(tempfile.mkdtemp(prefix="cross-engine-generated.", dir=REPO / ".tmp"))
     sessions: list[tuple[str, list[dict], dict | None]] = []
     ran: list[dict] = []
+    conversion = {"programs": 0, "conversions": 0, "omitted": 0, "reasons": {}}
+    conversion_problems: list[str] = []
     try:
         shutil.copytree(args.suite / "src" / "moo_conformance" / "_db", work / "db")
         for start in range(0, len(programs), CHUNK):
@@ -375,28 +453,48 @@ def main() -> int:
             text = json.dumps(suite(chunk), indent=1)
             (root / "cross_engine_generated.yaml").write_text(text, encoding="utf-8")
             (args.out / f"cross_engine_generated-{index:03d}.yaml").write_text(text, encoding="utf-8")
-            for direction, label in DIRECTIONS.items():
-                print(f"=== chunk {index}: {label} ===", flush=True)
-                junit = args.out / f"{direction}-{index:03d}.xml"
-                junit.unlink(missing_ok=True)
-                subprocess.run(["bash", str(SESSION), str(args.barn), str(args.toast), str(args.suite), direction,
-                                f"--candidate-root={REPO}", f"--moo-suite-root={root}",
-                                f"--server-db={work / 'db' / 'Test.db'}",
-                                f"--server-db-dir={work / 'db' / 'startup'}",
-                                f"--junitxml={junit}"], check=False)
-                sessions.append((direction, chunk, junit_results(junit) if junit.exists() else None))
+            for direction in BOTH_WAYS:
+                results = run_session(args, work, root, direction, index)
+                sessions.append((direction, chunk, results))
+                if direction != "barn-first":
+                    continue
+                stuck = toast_did_not_boot(chunk, results)
+                if not stuck:
+                    continue
+                converted_root = work / f"converted-{index:03d}"
+                converted_root.mkdir()
+                text = json.dumps(suite(stuck, converted_case), indent=1)
+                (converted_root / "cross_engine_generated.yaml").write_text(text, encoding="utf-8")
+                (args.out / f"{CONVERTED}-{index:03d}.yaml").write_text(text, encoding="utf-8")
+                # Absolute: the restart command runs in the server's directory.
+                log = (args.out / f"{CONVERTED}-{index:03d}.log").resolve()
+                log.unlink(missing_ok=True)
+                converted = run_session(args, work, converted_root, CONVERTED, index, {"TOAST_LOADABLE_LOG": str(log)})
+                sessions.append((CONVERTED, stuck, converted))
+                logged = omissions(log.read_text(encoding="utf-8") if log.exists() else "")
+                conversion["programs"] += len(stuck)
+                conversion["conversions"] += logged["conversions"]
+                conversion["omitted"] += logged["omitted"]
+                for reason, count in logged["reasons"].items():
+                    conversion["reasons"][reason] = conversion["reasons"].get(reason, 0) + count
+                booted = sum(1 for name, result in (converted or {}).items()
+                             if TEST_PREFIX in name and result["outcome"] == "passed")
+                if logged["conversions"] < booted:
+                    conversion_problems.append(f"chunk {index}: {booted} converted copies booted but "
+                                               f"{logged['conversions']} conversions were logged in {log}")
             ran += chunk
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
     rows, problems = classify(ran, sessions)
+    problems += conversion_problems
     counts: dict[str, int] = {}
     for row in rows:
         counts[row["kind"]] = counts.get(row["kind"], 0) + 1
     status = 2 if problems else 1 if counts.get("divergence") else 0
     summary = {"outcome": {0: "success", 1: "divergence", 2: "inconclusive"}[status],
                "programs": len(programs), "ran": len(ran), "seed": args.seed, "minutes": args.minutes,
-               "counts": counts, "problems": problems, "lanes": lanes,
+               "counts": counts, "problems": problems, "lanes": lanes, "converted": conversion,
                "toast": str(args.toast), "toast_sha256": identify(args.toast),
                "barn": str(args.barn), "barn_sha256": identify(args.barn)}
     text = render_report(summary, rows)

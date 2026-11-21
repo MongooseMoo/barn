@@ -1,0 +1,1083 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="5" time="27.972" timestamp="2026-11-21T10:21:49.509744-07:00" hostname="Empiricist"><testcase classname="test_conformance" name="test_capability_admission" time="1.237"><properties><property name="admission_context" value="same-session" /></properties></testcase><testcase classname="test_conformance" name="test_yaml_conformance[cross_engine_generated.yaml::generated_f24a887c0db08fa9]" time="0.443"><failure message="moo_conformance.server.RestartCommandError: Managed server exited before accepting connections&#10;First process return code: 1&#10;Server log: /tmp/moo_conformance_8dqv06ru/server.log&#10;--- server log tail ---&#10;time=2026-11-21T10:22:10.292-07:00 level=INFO msg=&quot;Barn MOO Server&quot; database=/tmp/moo_conformance_8dqv06ru/Test.db listeners=tcp://127.0.0.1:61995&#10;time=2026-11-21T10:22:10.330-07:00 level=INFO msg=listening protocol=tcp port=61995 descriptor_port=61995 this=0 primary=true&#10;time=2026-11-21T10:22:10.331-07:00 level=INFO msg=&quot;debug endpoint listening&quot; addr=127.0.0.1:34629&#10;time=2026-11-21T10:22:10.331-07:00 level=INFO msg=&quot;operator endpoint listening&quot; addr=127.0.0.1:39887&#10;time=2026-11-21T10:22:10.335-07:00 level=WARN msg=&quot;#0 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:10.335-07:00 level=WARN msg=&quot;#2 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:10.335-07:00 level=WARN msg=&quot;#3 not in it's location's (#2) contents&quot; src=startup_repair&#10;time=2026-11-21T10:22:10.335-07:00 level=WARN msg=&quot;#3 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:10.335-07:00 level=WARN msg=&quot;#4 not in it's location's (#2) contents&quot; src=startup_repair&#10;time=2026-11-21T10:22:10.335-07:00 level=WARN msg=&quot;#4 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:10.335-07:00 level=WARN msg=&quot;#5 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:10.335-07:00 level=WARN msg=&quot;#6 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:10.335-07:00 level=WARN msg=&quot;#7 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:10.345-07:00 level=INFO msg=&quot;database loaded&quot; version=4 objects=8&#10;time=2026-11-21T10:22:10.348-07:00 level=INFO msg=&quot;new connection&quot; addr=127.0.0.1:38010 conn_id=3&#10;time=2026-11-21T10:22:10.348-07:00 level=INFO msg=&quot;new connection&quot; addr=127.0.0.1:38016 conn_id=2&#10;time=2026-11-21T10:22:10.355-07:00 level=WARN msg=&quot;read error&quot; conn_id=3 err=EOF&#10;time=2026-11-21T10:22:10.356-07:00 level=INFO msg=&quot;connection closed&quot; conn_id=3&#10;time=2026-11-21T10:22:10.359-07:00 level=INFO msg=&quot;switched connection&quot; conn_id=2 old_player=-2 new_player=8&#10;time=2026-11-21T10:22:10.359-07:00 level=WARN msg=&quot;already logged in via switch_player&quot; conn_id=2 player=8&#10;time=2026-11-21T10:22:11.143-07:00 level=INFO msg=&quot;outbound connection&quot; addr=127.0.0.1:61995 conn_id=4&#10;time=2026-11-21T10:22:11.144-07:00 level=INFO msg=&quot;new connection&quot; addr=127.0.0.1:44042 conn_id=5&#10;time=2026-11-21T10:22:11.144-07:00 level=WARN msg=&quot;read error&quot; conn_id=5 err=EOF&#10;time=2026-11-21T10:22:11.145-07:00 level=INFO msg=&quot;connection closed&quot; conn_id=4&#10;time=2026-11-21T10:22:11.145-07:00 level=INFO msg=&quot;connection closed&quot; conn_id=5&#10;time=2026-11-21T10:22:11.145-07:00 level=INFO msg=listening protocol=tcp port=36161 descriptor_port=0 this=8 primary=false&#10;time=2026-11-21T10:22:11.203-07:00 level=INFO msg=&quot;CHECKPOINTING: dump_database() requested&quot; programmer=8&#10;time=2026-11-21T10:22:11.203-07:00 level=INFO msg=&quot;checkpoint started&quot;&#10;time=2026-11-21T10:22:11.203-07:00 level=WARN msg=&quot;read error&quot; conn_id=2 err=&quot;read tcp4 127.0.0.1:61995-&gt;127.0.0.1:38016: read: connection reset by peer&quot;&#10;time=2026-11-21T10:22:11.203-07:00 level=WARN msg=&quot;Toast could not load this checkpoint: task kept in Barn's frame form&quot; task_id=18 verb=&quot;&quot; verbloc=-1 this=-1 reason=&quot;frame 3 (#14:initialize): call_function: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint&quot;&#10;time=2026-11-21T10:22:11.204-07:00 level=INFO msg=&quot;connection closed&quot; conn_id=2&#10;time=2026-11-21T10:22:11.213-07:00 level=INFO msg=&quot;checkpoint complete&quot; duration_ms=9&#10;time=2026-11-21T10:22:11.254-07:00 level=INFO msg=&quot;initiating shutdown&quot; message=&quot;shutdown signal received&quot;&#10;time=2026-11-21T10:22:11.254-07:00 level=INFO msg=&quot;shutting down&quot;&#10;time=2026-11-21T10:22:11.254-07:00 level=INFO msg=&quot;SHUTDOWN: shutdown signal received&quot;&#10;time=2026-11-21T10:22:11.254-07:00 level=WARN msg=&quot;Toast could not load this checkpoint: task kept in Barn's frame form&quot; task_id=18 verb=&quot;&quot; verbloc=-1 this=-1 reason=&quot;frame 3 (#14:initialize): call_function: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint&quot;&#10;time=2026-11-21T10:22:11.263-07:00 level=INFO msg=&quot;shutdown complete&quot;&#10;time=2026-11-21T10:22:11.265-07:00 level=INFO msg=&quot;diagnostics summary&quot; tracking=false lost_commits=1 total_ticks=0 wasted_ticks=0 exclusive_holds=5 exclusive_held_ns=4588101 ticks_under_gate=0 shared_commits=21 shared_behind_exclusive=0 shared_behind_exclusive_ns=0 report=&quot;exclusive gate holds: count=5 total=4.59ms max=2.64ms ticks_under_gate=0 acquire_wait=0s holders=2\n  hold #2:eval by #-1: n=3 total=3.84ms max=2.64ms tracked=0 ticks=0 wait=0s wait_max=0s wait_p500 wait_p990 queue_depth_mean=0.00 max=0 ahead=[]\n  hold #-1: by #9:run n=2 total=750µs max=460µs tracked=0 ticks=0 wait=0s wait_max=0s wait_p500 wait_p990 queue_depth_mean=0.00 max=0 ahead=[]\nshared gate at commit: commits=21 wait=520µs mean=20µs behind_exclusive=0 (0.0%) behind_exclusive_wait=0s mean=0s\nconflicts: lost_commits=1 refused_renewals=0 keys=1 overflow_losses=0 sole_cause=100.0% keys_per_loss=1.00 tracking=false\n  conflict task           task 15                      lost=1      100.0% sole=1      refused=0     stale_at_read=n/a    by=[#2:eval=1]&quot;&#10;time=2026-11-21T10:22:11.265-07:00 level=INFO msg=&quot;operator endpoint stopped&quot;&#10;time=2026-11-21T10:22:11.265-07:00 level=INFO msg=&quot;debug endpoint stopped&quot;&#10;Nov 21 10:22:11: *** TLS: Failed to load default certificate: error:80000002:system library::No such file or directory&#10;Nov 21 10:22:11: *** TLS: Failed to load default private key: error:10080002:BIO routines::system lib&#10;Nov 21 10:22:11: *** TLS: Private key does not match the certificate: error:0A080002:SSL routines::system lib&#10;Nov 21 10:22:11:  _   __           _____                ______&#10;Nov 21 10:22:11: ( `^` ))  ___________  /_____  _________ __  /_&#10;Nov 21 10:22:11: |     ||   __  ___/_  __/_  / / /__  __ \_  __/&#10;Nov 21 10:22:11: |     ||   _(__  ) / /_  / /_/ / _  / / // /_&#10;Nov 21 10:22:11: '-----'`   /____/  \__/  \__,_/  /_/ /_/ \__/   v2.8.0_7&#10;Nov 21 10:22:11: &#10;Nov 21 10:22:11: STARTING: Version 2.8.0_7 (64-bit) of the ToastStunt/LambdaMOO server&#10;Nov 21 10:22:11:           (Task timeouts measured in server CPU seconds.)&#10;Nov 21 10:22:11:           (Process id 2610409)&#10;Nov 21 10:22:11: !!! CMDLINE: Initial port = 61995&#10;Nov 21 10:22:11: !!! NETWORK: Outbound network connections enabled.&#10;Nov 21 10:22:11: REGISTER_NETWORK: Using OpenSSL 3.0.22 25 Aug 2026&#10;Nov 21 10:22:11: REGISTER_SQLITE: Using SQLite Library v3.40.1&#10;Nov 21 10:22:11: REGISTER_PCRE: Using PCRE2 Library v10.42 2022-12-11 (JIT)&#10;Nov 21 10:22:11: REGISTER_ARGON2: Using Argon2 version 19&#10;Nov 21 10:22:11: REGISTER_SPELLCHECK: v1.0 (Aspell Library v0.60.8)&#10;Nov 21 10:22:11: REGISTER_CURL: Using libcurl version libcurl/7.88.1 OpenSSL/3.0.22 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13&#10;Nov 21 10:22:11: LOADING: /tmp/moo_conformance_8dqv06ru/Test.db&#10;Nov 21 10:22:11: LOADING: Reading values pending finalization ...&#10;Nov 21 10:22:11: LOADING: Reading forked and suspended tasks ...&#10;Nov 21 10:22:11: *** READ_ACTIV: Bad PC for suspended task.&#10;Nov 21 10:22:11: *** READ_VM: Bad activ number 0&#10;Nov 21 10:22:11: *** READ_TASK_QUEUE: Bad suspended task vm, count = 1&#10;Nov 21 10:22:11: *** READ_DB_FILE: Can't read task queue.&#10;Nov 21 10:22:11: *** DB_LOAD: Cannot load database!&#10;&#10;--- end server log tail ---">self = &lt;moo_conformance.server.ManagedServer object at 0x71d39f2fba10&gt;
+db_path = None, wait_for_port = True, ignore_sighup = False, arguments = None
+
+    def start(
+        self, db_path: Path | None = None, wait_for_port: bool = True,
+        ignore_sighup: bool = False,
+        arguments: list[str] | None = None,
+    ) -&gt; None:
+        """Start the server subprocess.
+    
+        When wait_for_port is False, the process is started and may exit on its
+        own after startup repair / dump processing without ever accepting a
+        socket connection.
+        """
+        if self._lifecycle_failure is not None:
+            raise self._lifecycle_failure
+    
+        selected_db_path = db_path if db_path is not None else self.db_path
+        previous_db_copy_path = self._db_copy_path
+        pending_copy_path: Path | None = None
+        rollback_copy_path: Path | None = None
+        db_copy_path: Path | None = None
+        use_restart_command = False
+    
+        def restore_failed_copy() -&gt; None:
+            if pending_copy_path is not None:
+                pending_copy_path.unlink(missing_ok=True)
+            if rollback_copy_path is not None and rollback_copy_path.exists():
+                if db_copy_path is None:
+                    raise RuntimeError("Managed server rollback target is missing")
+                os.replace(rollback_copy_path, db_copy_path)
+            elif (
+                db_copy_path is not None
+                and db_copy_path != previous_db_copy_path
+                and db_copy_path.exists()
+            ):
+                db_copy_path.unlink()
+    
+        try:
+            # Pick a port once (or use explicitly requested port).
+            if self._port is None:
+                if self._requested_port is not None:
+                    self._port = self._requested_port
+                else:
+                    self._port = self._find_free_port()
+    
+            # Create temp directory and copy the selected database into it.
+            created_temp_dir = self._temp_dir is None
+            if created_temp_dir:
+                self._temp_dir = tempfile.mkdtemp(prefix="moo_conformance_")
+            if self._temp_dir is None:
+                raise RuntimeError("Managed server temp directory is missing")
+    
+            if previous_db_copy_path is None or db_path is not None:
+                db_copy_path = Path(self._temp_dir, selected_db_path.name)
+            else:
+                db_copy_path = previous_db_copy_path
+    
+            manifest_path = Path(self._temp_dir, "profile.json")
+            # ToastStunt resolves file I/O paths under FILE_SUBDIR, which is "files".
+            Path(self._temp_dir, "files").mkdir(exist_ok=True)
+            self._install_exec_fixtures()
+    
+            # On the initial start, or when explicitly switching suites to a
+            # different source database, refresh the managed working copy from the
+            # selected input DB. Stage the copy first so a missing source cannot
+            # overwrite the last successfully selected working database.
+            fresh_copy = created_temp_dir or db_path is not None or not db_copy_path.exists()
+            use_restart_command = self.restart_command_template is not None and not fresh_copy
+            if fresh_copy:
+                pending_copy_path = db_copy_path.with_name(db_copy_path.name + ".pending")
+                pending_copy_path.unlink(missing_ok=True)
+                shutil.copy2(selected_db_path, pending_copy_path)
+                if db_copy_path == previous_db_copy_path and db_copy_path.exists():
+                    rollback_copy_path = db_copy_path.with_name(
+                        db_copy_path.name + ".rollback"
+                    )
+                    rollback_copy_path.unlink(missing_ok=True)
+                    os.replace(db_copy_path, rollback_copy_path)
+                os.replace(pending_copy_path, db_copy_path)
+                pending_copy_path = None
+            db_dest = db_copy_path
+    
+            for checkpoint_output in self._checkpoint_output_candidates(db_dest):
+                checkpoint_output.unlink(missing_ok=True)
+    
+            # Use forward slashes so shlex.split doesn't eat backslashes
+            db_posix = db_dest.as_posix()
+    
+            # Substitute placeholders in command template
+            command_template = (
+                self.restart_command_template if use_restart_command else self.command_template
+            )
+            assert command_template is not None
+            command = command_template.format(
+                port=self._port,
+                db=db_posix,
+                manifest=manifest_path.as_posix(),
+                server_dir=Path(self._temp_dir).as_posix(),
+                log=Path(self._temp_dir, "server.log").as_posix(),
+            )
+    
+            # Open log file for server output
+            self._log_path = os.path.join(self._temp_dir, "server.log")
+            self._log_file = open(self._log_path, "a")
+            self._log_file.flush()
+            self._process_log_offset = os.path.getsize(self._log_path)
+            self._process_file_snapshot = snapshot_regular_files(self._temp_dir)
+    
+            argv = shlex.split(command)
+            argv[1:1] = arguments or []
+            if ignore_sighup:
+                if os.name != "posix":
+                    raise ValueError("ignore_sighup requires POSIX")
+                # exec preserves the managed PID and the inherited SIG_IGN.
+                # Avoid preexec_fn, which is unsafe in a threaded harness.
+                argv = [sys.executable, "-c", (
+                    "import os,signal,sys; "
+                    "signal.signal(signal.SIGHUP, signal.SIG_IGN); "
+                    "os.execvp(sys.argv[1], sys.argv[1:])"
+                ), *argv]
+    
+            # Start server process
+            self._on_restart_command = use_restart_command
+            self._process = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=self._log_file,
+                stderr=subprocess.STDOUT,
+                cwd=self._temp_dir,
+            )
+    
+            # Some canned DB fixtures are intended to start, repair, dump, and exit
+            # without staying up long enough for a socket handshake. Their exit is
+            # only a failure if a later operation requires a live transport.
+            if wait_for_port:
+&gt;               self._wait_for_port(timeout=30.0)
+
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/server.py:449: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;moo_conformance.server.ManagedServer object at 0x71d39f2fba10&gt;
+timeout = 30.0
+
+    def _wait_for_port(self, timeout: float = 30.0) -&gt; None:
+        """Poll until the server port accepts connections."""
+        assert self._port is not None
+        deadline = time.monotonic() + timeout
+    
+        while time.monotonic() &lt; deadline:
+            # Check if process died
+            if self._process is not None and self._process.poll() is not None:
+&gt;               raise self._record_lifecycle_failure(
+                    self._with_port_sockets(
+                        "Managed server exited before accepting connections"
+                    ),
+                    returncode=self._process.returncode,
+                )
+E               moo_conformance.server.ManagedServerLifecycleError: Managed server exited before accepting connections
+E               First process return code: 1
+E               Server log: /tmp/moo_conformance_8dqv06ru/server.log
+E               --- server log tail ---
+E               time=2026-11-21T10:22:10.292-07:00 level=INFO msg="Barn MOO Server" database=/tmp/moo_conformance_8dqv06ru/Test.db listeners=tcp://127.0.0.1:61995
+E               time=2026-11-21T10:22:10.330-07:00 level=INFO msg=listening protocol=tcp port=61995 descriptor_port=61995 this=0 primary=true
+E               time=2026-11-21T10:22:10.331-07:00 level=INFO msg="debug endpoint listening" addr=127.0.0.1:34629
+E               time=2026-11-21T10:22:10.331-07:00 level=INFO msg="operator endpoint listening" addr=127.0.0.1:39887
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#0 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#2 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#3 not in it's location's (#2) contents" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#3 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#4 not in it's location's (#2) contents" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#4 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#5 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#6 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#7 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.345-07:00 level=INFO msg="database loaded" version=4 objects=8
+E               time=2026-11-21T10:22:10.348-07:00 level=INFO msg="new connection" addr=127.0.0.1:38010 conn_id=3
+E               time=2026-11-21T10:22:10.348-07:00 level=INFO msg="new connection" addr=127.0.0.1:38016 conn_id=2
+E               time=2026-11-21T10:22:10.355-07:00 level=WARN msg="read error" conn_id=3 err=EOF
+E               time=2026-11-21T10:22:10.356-07:00 level=INFO msg="connection closed" conn_id=3
+E               time=2026-11-21T10:22:10.359-07:00 level=INFO msg="switched connection" conn_id=2 old_player=-2 new_player=8
+E               time=2026-11-21T10:22:10.359-07:00 level=WARN msg="already logged in via switch_player" conn_id=2 player=8
+E               time=2026-11-21T10:22:11.143-07:00 level=INFO msg="outbound connection" addr=127.0.0.1:61995 conn_id=4
+E               time=2026-11-21T10:22:11.144-07:00 level=INFO msg="new connection" addr=127.0.0.1:44042 conn_id=5
+E               time=2026-11-21T10:22:11.144-07:00 level=WARN msg="read error" conn_id=5 err=EOF
+E               time=2026-11-21T10:22:11.145-07:00 level=INFO msg="connection closed" conn_id=4
+E               time=2026-11-21T10:22:11.145-07:00 level=INFO msg="connection closed" conn_id=5
+E               time=2026-11-21T10:22:11.145-07:00 level=INFO msg=listening protocol=tcp port=36161 descriptor_port=0 this=8 primary=false
+E               time=2026-11-21T10:22:11.203-07:00 level=INFO msg="CHECKPOINTING: dump_database() requested" programmer=8
+E               time=2026-11-21T10:22:11.203-07:00 level=INFO msg="checkpoint started"
+E               time=2026-11-21T10:22:11.203-07:00 level=WARN msg="read error" conn_id=2 err="read tcp4 127.0.0.1:61995-&gt;127.0.0.1:38016: read: connection reset by peer"
+E               time=2026-11-21T10:22:11.203-07:00 level=WARN msg="Toast could not load this checkpoint: task kept in Barn's frame form" task_id=18 verb="" verbloc=-1 this=-1 reason="frame 3 (#14:initialize): call_function: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint"
+E               time=2026-11-21T10:22:11.204-07:00 level=INFO msg="connection closed" conn_id=2
+E               time=2026-11-21T10:22:11.213-07:00 level=INFO msg="checkpoint complete" duration_ms=9
+E               time=2026-11-21T10:22:11.254-07:00 level=INFO msg="initiating shutdown" message="shutdown signal received"
+E               time=2026-11-21T10:22:11.254-07:00 level=INFO msg="shutting down"
+E               time=2026-11-21T10:22:11.254-07:00 level=INFO msg="SHUTDOWN: shutdown signal received"
+E               time=2026-11-21T10:22:11.254-07:00 level=WARN msg="Toast could not load this checkpoint: task kept in Barn's frame form" task_id=18 verb="" verbloc=-1 this=-1 reason="frame 3 (#14:initialize): call_function: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint"
+E               time=2026-11-21T10:22:11.263-07:00 level=INFO msg="shutdown complete"
+E               time=2026-11-21T10:22:11.265-07:00 level=INFO msg="diagnostics summary" tracking=false lost_commits=1 total_ticks=0 wasted_ticks=0 exclusive_holds=5 exclusive_held_ns=4588101 ticks_under_gate=0 shared_commits=21 shared_behind_exclusive=0 shared_behind_exclusive_ns=0 report="exclusive gate holds: count=5 total=4.59ms max=2.64ms ticks_under_gate=0 acquire_wait=0s holders=2\n  hold #2:eval by #-1: n=3 total=3.84ms max=2.64ms tracked=0 ticks=0 wait=0s wait_max=0s wait_p500 wait_p990 queue_depth_mean=0.00 max=0 ahead=[]\n  hold #-1: by #9:run n=2 total=750µs max=460µs tracked=0 ticks=0 wait=0s wait_max=0s wait_p500 wait_p990 queue_depth_mean=0.00 max=0 ahead=[]\nshared gate at commit: commits=21 wait=520µs mean=20µs behind_exclusive=0 (0.0%) behind_exclusive_wait=0s mean=0s\nconflicts: lost_commits=1 refused_renewals=0 keys=1 overflow_losses=0 sole_cause=100.0% keys_per_loss=1.00 tracking=false\n  conflict task           task 15                      lost=1      100.0% sole=1      refused=0     stale_at_read=n/a    by=[#2:eval=1]"
+E               time=2026-11-21T10:22:11.265-07:00 level=INFO msg="operator endpoint stopped"
+E               time=2026-11-21T10:22:11.265-07:00 level=INFO msg="debug endpoint stopped"
+E               Nov 21 10:22:11: *** TLS: Failed to load default certificate: error:80000002:system library::No such file or directory
+E               Nov 21 10:22:11: *** TLS: Failed to load default private key: error:10080002:BIO routines::system lib
+E               Nov 21 10:22:11: *** TLS: Private key does not match the certificate: error:0A080002:SSL routines::system lib
+E               Nov 21 10:22:11:  _   __           _____                ______
+E               Nov 21 10:22:11: ( `^` ))  ___________  /_____  _________ __  /_
+E               Nov 21 10:22:11: |     ||   __  ___/_  __/_  / / /__  __ \_  __/
+E               Nov 21 10:22:11: |     ||   _(__  ) / /_  / /_/ / _  / / // /_
+E               Nov 21 10:22:11: '-----'`   /____/  \__/  \__,_/  /_/ /_/ \__/   v2.8.0_7
+E               Nov 21 10:22:11: 
+E               Nov 21 10:22:11: STARTING: Version 2.8.0_7 (64-bit) of the ToastStunt/LambdaMOO server
+E               Nov 21 10:22:11:           (Task timeouts measured in server CPU seconds.)
+E               Nov 21 10:22:11:           (Process id 2610409)
+E               Nov 21 10:22:11: !!! CMDLINE: Initial port = 61995
+E               Nov 21 10:22:11: !!! NETWORK: Outbound network connections enabled.
+E               Nov 21 10:22:11: REGISTER_NETWORK: Using OpenSSL 3.0.22 25 Aug 2026
+E               Nov 21 10:22:11: REGISTER_SQLITE: Using SQLite Library v3.40.1
+E               Nov 21 10:22:11: REGISTER_PCRE: Using PCRE2 Library v10.42 2022-12-11 (JIT)
+E               Nov 21 10:22:11: REGISTER_ARGON2: Using Argon2 version 19
+E               Nov 21 10:22:11: REGISTER_SPELLCHECK: v1.0 (Aspell Library v0.60.8)
+E               Nov 21 10:22:11: REGISTER_CURL: Using libcurl version libcurl/7.88.1 OpenSSL/3.0.22 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13
+E               Nov 21 10:22:11: LOADING: /tmp/moo_conformance_8dqv06ru/Test.db
+E               Nov 21 10:22:11: LOADING: Reading values pending finalization ...
+E               Nov 21 10:22:11: LOADING: Reading forked and suspended tasks ...
+E               Nov 21 10:22:11: *** READ_ACTIV: Bad PC for suspended task.
+E               Nov 21 10:22:11: *** READ_VM: Bad activ number 0
+E               Nov 21 10:22:11: *** READ_TASK_QUEUE: Bad suspended task vm, count = 1
+E               Nov 21 10:22:11: *** READ_DB_FILE: Can't read task queue.
+E               Nov 21 10:22:11: *** DB_LOAD: Cannot load database!
+E               
+E               --- end server log tail ---
+
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/server.py:735: ManagedServerLifecycleError
+
+The above exception was the direct cause of the following exception:
+
+runner = &lt;moo_conformance.runner.YamlTestRunner object at 0x71d39f2fb4d0&gt;
+yaml_test_case = (MooTestSuite(name='cross_engine_generated', description='Generated suspended-stack programs resumed by the other engi...ange=None, satisfies=None, notifications=None, output=None), cleanup=[], timeout_ms=120000, provides=None, assumes=[]))
+moo_config = {'log_file': '/tmp/moo_conformance_8dqv06ru/server.log', 'managed_server': '1', 'named_log_file': None, 'posix_signals': '1', ...}
+profile_metadata_gate = {'builtin.abs': 'present', 'builtin.acos': 'present', 'builtin.acosh': 'present', 'builtin.add_property': 'present', ...}
+
+    @pytest.mark.conformance
+    def test_yaml_conformance(runner, yaml_test_case, moo_config, profile_metadata_gate):
+        """Run a single YAML test case.
+    
+        Args:
+            runner: YamlTestRunner fixture
+            yaml_test_case: (suite, test) tuple from parametrization
+            moo_config: dict of available config values for requires.config checks
+        """
+        suite, test = yaml_test_case
+    
+        _skip_declared_yaml_case(suite, test)
+    
+        _enforce_suite_config_requirements(suite, moo_config)
+        runner.prepare_suite_environment(suite)
+        _enforce_suite_requirements(suite, runner, moo_config, profile_metadata_gate)
+        _enforce_skip_condition(test, runner, profile_metadata_gate)
+    
+        if _uses_managed_restart(test) and moo_config.get("managed_server") is None:
+            pytest.skip(config_skip_reason("managed_server"))
+    
+        # With --restart-server-command this test continues on a second engine,
+        # which must meet the same requirements.
+        restart_engine = getattr(runner, "restart_engine", None)
+        if restart_engine is not None and keeps_database_across_restart(test):
+            restart_config = {**moo_config, "named_log_file": restart_engine.named_log_file}
+            with _probing_restart_engine():
+                _enforce_suite_requirements(
+                    suite, restart_engine, restart_config, restart_engine.profile_features
+                )
+                _enforce_skip_condition(test, restart_engine, restart_engine.profile_features)
+    
+        # Run suite setup if not already done
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+&gt;       runner.run_test(test)
+
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/test_conformance.py:448: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/runner.py:477: in run_test
+    self._run_test(test)
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/runner.py:508: in _run_test
+    self._execute_steps(test)
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/runner.py:758: in _execute_steps
+    self._execute_restart_server(
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/runner.py:994: in _execute_restart_server
+    self.managed_server.restart(
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/server.py:635: in restart
+    self.start(wait_for_port=wait_for_port)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;moo_conformance.server.ManagedServer object at 0x71d39f2fba10&gt;
+db_path = None, wait_for_port = True, ignore_sighup = False, arguments = None
+
+    def start(
+        self, db_path: Path | None = None, wait_for_port: bool = True,
+        ignore_sighup: bool = False,
+        arguments: list[str] | None = None,
+    ) -&gt; None:
+        """Start the server subprocess.
+    
+        When wait_for_port is False, the process is started and may exit on its
+        own after startup repair / dump processing without ever accepting a
+        socket connection.
+        """
+        if self._lifecycle_failure is not None:
+            raise self._lifecycle_failure
+    
+        selected_db_path = db_path if db_path is not None else self.db_path
+        previous_db_copy_path = self._db_copy_path
+        pending_copy_path: Path | None = None
+        rollback_copy_path: Path | None = None
+        db_copy_path: Path | None = None
+        use_restart_command = False
+    
+        def restore_failed_copy() -&gt; None:
+            if pending_copy_path is not None:
+                pending_copy_path.unlink(missing_ok=True)
+            if rollback_copy_path is not None and rollback_copy_path.exists():
+                if db_copy_path is None:
+                    raise RuntimeError("Managed server rollback target is missing")
+                os.replace(rollback_copy_path, db_copy_path)
+            elif (
+                db_copy_path is not None
+                and db_copy_path != previous_db_copy_path
+                and db_copy_path.exists()
+            ):
+                db_copy_path.unlink()
+    
+        try:
+            # Pick a port once (or use explicitly requested port).
+            if self._port is None:
+                if self._requested_port is not None:
+                    self._port = self._requested_port
+                else:
+                    self._port = self._find_free_port()
+    
+            # Create temp directory and copy the selected database into it.
+            created_temp_dir = self._temp_dir is None
+            if created_temp_dir:
+                self._temp_dir = tempfile.mkdtemp(prefix="moo_conformance_")
+            if self._temp_dir is None:
+                raise RuntimeError("Managed server temp directory is missing")
+    
+            if previous_db_copy_path is None or db_path is not None:
+                db_copy_path = Path(self._temp_dir, selected_db_path.name)
+            else:
+                db_copy_path = previous_db_copy_path
+    
+            manifest_path = Path(self._temp_dir, "profile.json")
+            # ToastStunt resolves file I/O paths under FILE_SUBDIR, which is "files".
+            Path(self._temp_dir, "files").mkdir(exist_ok=True)
+            self._install_exec_fixtures()
+    
+            # On the initial start, or when explicitly switching suites to a
+            # different source database, refresh the managed working copy from the
+            # selected input DB. Stage the copy first so a missing source cannot
+            # overwrite the last successfully selected working database.
+            fresh_copy = created_temp_dir or db_path is not None or not db_copy_path.exists()
+            use_restart_command = self.restart_command_template is not None and not fresh_copy
+            if fresh_copy:
+                pending_copy_path = db_copy_path.with_name(db_copy_path.name + ".pending")
+                pending_copy_path.unlink(missing_ok=True)
+                shutil.copy2(selected_db_path, pending_copy_path)
+                if db_copy_path == previous_db_copy_path and db_copy_path.exists():
+                    rollback_copy_path = db_copy_path.with_name(
+                        db_copy_path.name + ".rollback"
+                    )
+                    rollback_copy_path.unlink(missing_ok=True)
+                    os.replace(db_copy_path, rollback_copy_path)
+                os.replace(pending_copy_path, db_copy_path)
+                pending_copy_path = None
+            db_dest = db_copy_path
+    
+            for checkpoint_output in self._checkpoint_output_candidates(db_dest):
+                checkpoint_output.unlink(missing_ok=True)
+    
+            # Use forward slashes so shlex.split doesn't eat backslashes
+            db_posix = db_dest.as_posix()
+    
+            # Substitute placeholders in command template
+            command_template = (
+                self.restart_command_template if use_restart_command else self.command_template
+            )
+            assert command_template is not None
+            command = command_template.format(
+                port=self._port,
+                db=db_posix,
+                manifest=manifest_path.as_posix(),
+                server_dir=Path(self._temp_dir).as_posix(),
+                log=Path(self._temp_dir, "server.log").as_posix(),
+            )
+    
+            # Open log file for server output
+            self._log_path = os.path.join(self._temp_dir, "server.log")
+            self._log_file = open(self._log_path, "a")
+            self._log_file.flush()
+            self._process_log_offset = os.path.getsize(self._log_path)
+            self._process_file_snapshot = snapshot_regular_files(self._temp_dir)
+    
+            argv = shlex.split(command)
+            argv[1:1] = arguments or []
+            if ignore_sighup:
+                if os.name != "posix":
+                    raise ValueError("ignore_sighup requires POSIX")
+                # exec preserves the managed PID and the inherited SIG_IGN.
+                # Avoid preexec_fn, which is unsafe in a threaded harness.
+                argv = [sys.executable, "-c", (
+                    "import os,signal,sys; "
+                    "signal.signal(signal.SIGHUP, signal.SIG_IGN); "
+                    "os.execvp(sys.argv[1], sys.argv[1:])"
+                ), *argv]
+    
+            # Start server process
+            self._on_restart_command = use_restart_command
+            self._process = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=self._log_file,
+                stderr=subprocess.STDOUT,
+                cwd=self._temp_dir,
+            )
+    
+            # Some canned DB fixtures are intended to start, repair, dump, and exit
+            # without staying up long enough for a socket handshake. Their exit is
+            # only a failure if a later operation requires a live transport.
+            if wait_for_port:
+                self._wait_for_port(timeout=30.0)
+    
+            if rollback_copy_path is not None:
+                rollback_copy_path.unlink(missing_ok=True)
+            if (
+                previous_db_copy_path is not None
+                and previous_db_copy_path != db_copy_path
+                and previous_db_copy_path.exists()
+            ):
+                previous_db_copy_path.unlink()
+            self.db_path = selected_db_path
+            self._db_copy_path = db_copy_path
+            self._manifest_path = manifest_path
+        except ManagedServerLifecycleError as restart_failure:
+            self.stop(preserve_temp=True)
+            restore_failed_copy()
+            if use_restart_command:
+                # The other engine rejecting this database is the restarting
+                # test's result, not the end of the session.
+                self._lifecycle_failure = None
+&gt;               raise RestartCommandError(str(restart_failure)) from restart_failure
+E               moo_conformance.server.RestartCommandError: Managed server exited before accepting connections
+E               First process return code: 1
+E               Server log: /tmp/moo_conformance_8dqv06ru/server.log
+E               --- server log tail ---
+E               time=2026-11-21T10:22:10.292-07:00 level=INFO msg="Barn MOO Server" database=/tmp/moo_conformance_8dqv06ru/Test.db listeners=tcp://127.0.0.1:61995
+E               time=2026-11-21T10:22:10.330-07:00 level=INFO msg=listening protocol=tcp port=61995 descriptor_port=61995 this=0 primary=true
+E               time=2026-11-21T10:22:10.331-07:00 level=INFO msg="debug endpoint listening" addr=127.0.0.1:34629
+E               time=2026-11-21T10:22:10.331-07:00 level=INFO msg="operator endpoint listening" addr=127.0.0.1:39887
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#0 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#2 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#3 not in it's location's (#2) contents" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#3 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#4 not in it's location's (#2) contents" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#4 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#5 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#6 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.335-07:00 level=WARN msg="#7 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:10.345-07:00 level=INFO msg="database loaded" version=4 objects=8
+E               time=2026-11-21T10:22:10.348-07:00 level=INFO msg="new connection" addr=127.0.0.1:38010 conn_id=3
+E               time=2026-11-21T10:22:10.348-07:00 level=INFO msg="new connection" addr=127.0.0.1:38016 conn_id=2
+E               time=2026-11-21T10:22:10.355-07:00 level=WARN msg="read error" conn_id=3 err=EOF
+E               time=2026-11-21T10:22:10.356-07:00 level=INFO msg="connection closed" conn_id=3
+E               time=2026-11-21T10:22:10.359-07:00 level=INFO msg="switched connection" conn_id=2 old_player=-2 new_player=8
+E               time=2026-11-21T10:22:10.359-07:00 level=WARN msg="already logged in via switch_player" conn_id=2 player=8
+E               time=2026-11-21T10:22:11.143-07:00 level=INFO msg="outbound connection" addr=127.0.0.1:61995 conn_id=4
+E               time=2026-11-21T10:22:11.144-07:00 level=INFO msg="new connection" addr=127.0.0.1:44042 conn_id=5
+E               time=2026-11-21T10:22:11.144-07:00 level=WARN msg="read error" conn_id=5 err=EOF
+E               time=2026-11-21T10:22:11.145-07:00 level=INFO msg="connection closed" conn_id=4
+E               time=2026-11-21T10:22:11.145-07:00 level=INFO msg="connection closed" conn_id=5
+E               time=2026-11-21T10:22:11.145-07:00 level=INFO msg=listening protocol=tcp port=36161 descriptor_port=0 this=8 primary=false
+E               time=2026-11-21T10:22:11.203-07:00 level=INFO msg="CHECKPOINTING: dump_database() requested" programmer=8
+E               time=2026-11-21T10:22:11.203-07:00 level=INFO msg="checkpoint started"
+E               time=2026-11-21T10:22:11.203-07:00 level=WARN msg="read error" conn_id=2 err="read tcp4 127.0.0.1:61995-&gt;127.0.0.1:38016: read: connection reset by peer"
+E               time=2026-11-21T10:22:11.203-07:00 level=WARN msg="Toast could not load this checkpoint: task kept in Barn's frame form" task_id=18 verb="" verbloc=-1 this=-1 reason="frame 3 (#14:initialize): call_function: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint"
+E               time=2026-11-21T10:22:11.204-07:00 level=INFO msg="connection closed" conn_id=2
+E               time=2026-11-21T10:22:11.213-07:00 level=INFO msg="checkpoint complete" duration_ms=9
+E               time=2026-11-21T10:22:11.254-07:00 level=INFO msg="initiating shutdown" message="shutdown signal received"
+E               time=2026-11-21T10:22:11.254-07:00 level=INFO msg="shutting down"
+E               time=2026-11-21T10:22:11.254-07:00 level=INFO msg="SHUTDOWN: shutdown signal received"
+E               time=2026-11-21T10:22:11.254-07:00 level=WARN msg="Toast could not load this checkpoint: task kept in Barn's frame form" task_id=18 verb="" verbloc=-1 this=-1 reason="frame 3 (#14:initialize): call_function: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint"
+E               time=2026-11-21T10:22:11.263-07:00 level=INFO msg="shutdown complete"
+E               time=2026-11-21T10:22:11.265-07:00 level=INFO msg="diagnostics summary" tracking=false lost_commits=1 total_ticks=0 wasted_ticks=0 exclusive_holds=5 exclusive_held_ns=4588101 ticks_under_gate=0 shared_commits=21 shared_behind_exclusive=0 shared_behind_exclusive_ns=0 report="exclusive gate holds: count=5 total=4.59ms max=2.64ms ticks_under_gate=0 acquire_wait=0s holders=2\n  hold #2:eval by #-1: n=3 total=3.84ms max=2.64ms tracked=0 ticks=0 wait=0s wait_max=0s wait_p500 wait_p990 queue_depth_mean=0.00 max=0 ahead=[]\n  hold #-1: by #9:run n=2 total=750µs max=460µs tracked=0 ticks=0 wait=0s wait_max=0s wait_p500 wait_p990 queue_depth_mean=0.00 max=0 ahead=[]\nshared gate at commit: commits=21 wait=520µs mean=20µs behind_exclusive=0 (0.0%) behind_exclusive_wait=0s mean=0s\nconflicts: lost_commits=1 refused_renewals=0 keys=1 overflow_losses=0 sole_cause=100.0% keys_per_loss=1.00 tracking=false\n  conflict task           task 15                      lost=1      100.0% sole=1      refused=0     stale_at_read=n/a    by=[#2:eval=1]"
+E               time=2026-11-21T10:22:11.265-07:00 level=INFO msg="operator endpoint stopped"
+E               time=2026-11-21T10:22:11.265-07:00 level=INFO msg="debug endpoint stopped"
+E               Nov 21 10:22:11: *** TLS: Failed to load default certificate: error:80000002:system library::No such file or directory
+E               Nov 21 10:22:11: *** TLS: Failed to load default private key: error:10080002:BIO routines::system lib
+E               Nov 21 10:22:11: *** TLS: Private key does not match the certificate: error:0A080002:SSL routines::system lib
+E               Nov 21 10:22:11:  _   __           _____                ______
+E               Nov 21 10:22:11: ( `^` ))  ___________  /_____  _________ __  /_
+E               Nov 21 10:22:11: |     ||   __  ___/_  __/_  / / /__  __ \_  __/
+E               Nov 21 10:22:11: |     ||   _(__  ) / /_  / /_/ / _  / / // /_
+E               Nov 21 10:22:11: '-----'`   /____/  \__/  \__,_/  /_/ /_/ \__/   v2.8.0_7
+E               Nov 21 10:22:11: 
+E               Nov 21 10:22:11: STARTING: Version 2.8.0_7 (64-bit) of the ToastStunt/LambdaMOO server
+E               Nov 21 10:22:11:           (Task timeouts measured in server CPU seconds.)
+E               Nov 21 10:22:11:           (Process id 2610409)
+E               Nov 21 10:22:11: !!! CMDLINE: Initial port = 61995
+E               Nov 21 10:22:11: !!! NETWORK: Outbound network connections enabled.
+E               Nov 21 10:22:11: REGISTER_NETWORK: Using OpenSSL 3.0.22 25 Aug 2026
+E               Nov 21 10:22:11: REGISTER_SQLITE: Using SQLite Library v3.40.1
+E               Nov 21 10:22:11: REGISTER_PCRE: Using PCRE2 Library v10.42 2022-12-11 (JIT)
+E               Nov 21 10:22:11: REGISTER_ARGON2: Using Argon2 version 19
+E               Nov 21 10:22:11: REGISTER_SPELLCHECK: v1.0 (Aspell Library v0.60.8)
+E               Nov 21 10:22:11: REGISTER_CURL: Using libcurl version libcurl/7.88.1 OpenSSL/3.0.22 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13
+E               Nov 21 10:22:11: LOADING: /tmp/moo_conformance_8dqv06ru/Test.db
+E               Nov 21 10:22:11: LOADING: Reading values pending finalization ...
+E               Nov 21 10:22:11: LOADING: Reading forked and suspended tasks ...
+E               Nov 21 10:22:11: *** READ_ACTIV: Bad PC for suspended task.
+E               Nov 21 10:22:11: *** READ_VM: Bad activ number 0
+E               Nov 21 10:22:11: *** READ_TASK_QUEUE: Bad suspended task vm, count = 1
+E               Nov 21 10:22:11: *** READ_DB_FILE: Can't read task queue.
+E               Nov 21 10:22:11: *** DB_LOAD: Cannot load database!
+E               
+E               --- end server log tail ---
+
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/server.py:469: RestartCommandError</failure></testcase><testcase classname="test_conformance" name="test_yaml_conformance[cross_engine_generated.yaml::generated_b36735a4330d379f]" time="1.038"><failure message="moo_conformance.server.RestartCommandError: Managed server exited before accepting connections&#10;First process return code: 1&#10;Server log: /tmp/moo_conformance_8dqv06ru/server.log&#10;--- server log tail ---&#10;/_/ /_/ \__/   v2.8.0_7&#10;Nov 21 10:22:11: &#10;Nov 21 10:22:11: STARTING: Version 2.8.0_7 (64-bit) of the ToastStunt/LambdaMOO server&#10;Nov 21 10:22:11:           (Task timeouts measured in server CPU seconds.)&#10;Nov 21 10:22:11:           (Process id 2610409)&#10;Nov 21 10:22:11: !!! CMDLINE: Initial port = 61995&#10;Nov 21 10:22:11: !!! NETWORK: Outbound network connections enabled.&#10;Nov 21 10:22:11: REGISTER_NETWORK: Using OpenSSL 3.0.22 25 Aug 2026&#10;Nov 21 10:22:11: REGISTER_SQLITE: Using SQLite Library v3.40.1&#10;Nov 21 10:22:11: REGISTER_PCRE: Using PCRE2 Library v10.42 2022-12-11 (JIT)&#10;Nov 21 10:22:11: REGISTER_ARGON2: Using Argon2 version 19&#10;Nov 21 10:22:11: REGISTER_SPELLCHECK: v1.0 (Aspell Library v0.60.8)&#10;Nov 21 10:22:11: REGISTER_CURL: Using libcurl version libcurl/7.88.1 OpenSSL/3.0.22 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13&#10;Nov 21 10:22:11: LOADING: /tmp/moo_conformance_8dqv06ru/Test.db&#10;Nov 21 10:22:11: LOADING: Reading values pending finalization ...&#10;Nov 21 10:22:11: LOADING: Reading forked and suspended tasks ...&#10;Nov 21 10:22:11: *** READ_ACTIV: Bad PC for suspended task.&#10;Nov 21 10:22:11: *** READ_VM: Bad activ number 0&#10;Nov 21 10:22:11: *** READ_TASK_QUEUE: Bad suspended task vm, count = 1&#10;Nov 21 10:22:11: *** READ_DB_FILE: Can't read task queue.&#10;Nov 21 10:22:11: *** DB_LOAD: Cannot load database!&#10;time=2026-11-21T10:22:13.299-07:00 level=INFO msg=&quot;Barn MOO Server&quot; database=/tmp/moo_conformance_8dqv06ru/Test.db listeners=tcp://127.0.0.1:61995&#10;time=2026-11-21T10:22:13.355-07:00 level=INFO msg=listening protocol=tcp port=61995 descriptor_port=61995 this=0 primary=true&#10;time=2026-11-21T10:22:13.356-07:00 level=INFO msg=&quot;debug endpoint listening&quot; addr=127.0.0.1:42241&#10;time=2026-11-21T10:22:13.356-07:00 level=INFO msg=&quot;operator endpoint listening&quot; addr=127.0.0.1:35193&#10;time=2026-11-21T10:22:13.361-07:00 level=WARN msg=&quot;#0 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:13.361-07:00 level=WARN msg=&quot;#2 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:13.361-07:00 level=WARN msg=&quot;#3 not in it's location's (#2) contents&quot; src=startup_repair&#10;time=2026-11-21T10:22:13.361-07:00 level=WARN msg=&quot;#3 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:13.361-07:00 level=WARN msg=&quot;#4 not in it's location's (#2) contents&quot; src=startup_repair&#10;time=2026-11-21T10:22:13.361-07:00 level=WARN msg=&quot;#4 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:13.361-07:00 level=WARN msg=&quot;#5 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:13.361-07:00 level=WARN msg=&quot;#6 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:13.361-07:00 level=WARN msg=&quot;#7 not in it's parent's (#1) children&quot; src=startup_repair&#10;time=2026-11-21T10:22:13.376-07:00 level=INFO msg=&quot;database loaded&quot; version=4 objects=8&#10;time=2026-11-21T10:22:13.390-07:00 level=INFO msg=&quot;new connection&quot; addr=127.0.0.1:44094 conn_id=2&#10;time=2026-11-21T10:22:13.390-07:00 level=INFO msg=&quot;new connection&quot; addr=127.0.0.1:44106 conn_id=3&#10;time=2026-11-21T10:22:13.399-07:00 level=WARN msg=&quot;read error&quot; conn_id=2 err=EOF&#10;time=2026-11-21T10:22:13.399-07:00 level=INFO msg=&quot;connection closed&quot; conn_id=2&#10;time=2026-11-21T10:22:13.402-07:00 level=INFO msg=&quot;switched connection&quot; conn_id=3 old_player=-3 new_player=8&#10;time=2026-11-21T10:22:13.403-07:00 level=WARN msg=&quot;already logged in via switch_player&quot; conn_id=3 player=8&#10;time=2026-11-21T10:22:13.462-07:00 level=INFO msg=&quot;CHECKPOINTING: dump_database() requested&quot; programmer=8&#10;time=2026-11-21T10:22:13.462-07:00 level=INFO msg=&quot;checkpoint started&quot;&#10;time=2026-11-21T10:22:13.462-07:00 level=WARN msg=&quot;read error&quot; conn_id=3 err=&quot;read tcp4 127.0.0.1:61995-&gt;127.0.0.1:44106: read: connection reset by peer&quot;&#10;time=2026-11-21T10:22:13.463-07:00 level=WARN msg=&quot;Toast could not load this checkpoint: task kept in Barn's frame form&quot; task_id=9 verb=&quot;&quot; verbloc=-1 this=-1 reason=&quot;frame 3 (#14:initialize): recreate: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint&quot;&#10;time=2026-11-21T10:22:13.463-07:00 level=INFO msg=&quot;connection closed&quot; conn_id=3&#10;time=2026-11-21T10:22:13.473-07:00 level=INFO msg=&quot;checkpoint complete&quot; duration_ms=10&#10;time=2026-11-21T10:22:13.513-07:00 level=INFO msg=&quot;initiating shutdown&quot; message=&quot;shutdown signal received&quot;&#10;time=2026-11-21T10:22:13.513-07:00 level=INFO msg=&quot;shutting down&quot;&#10;time=2026-11-21T10:22:13.513-07:00 level=INFO msg=&quot;SHUTDOWN: shutdown signal received&quot;&#10;time=2026-11-21T10:22:13.514-07:00 level=WARN msg=&quot;Toast could not load this checkpoint: task kept in Barn's frame form&quot; task_id=9 verb=&quot;&quot; verbloc=-1 this=-1 reason=&quot;frame 3 (#14:initialize): recreate: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint&quot;&#10;time=2026-11-21T10:22:13.525-07:00 level=INFO msg=&quot;shutdown complete&quot;&#10;time=2026-11-21T10:22:13.528-07:00 level=INFO msg=&quot;diagnostics summary&quot; tracking=false lost_commits=1 total_ticks=0 wasted_ticks=0 exclusive_holds=3 exclusive_held_ns=3661603 ticks_under_gate=0 shared_commits=15 shared_behind_exclusive=0 shared_behind_exclusive_ns=0 report=&quot;exclusive gate holds: count=3 total=3.66ms max=3.16ms ticks_under_gate=0 acquire_wait=0s holders=2\n  hold #2:eval by #-1: n=1 total=3.16ms max=3.16ms tracked=0 ticks=0 wait=0s wait_max=0s wait_p500 wait_p990 queue_depth_mean=0.00 max=0 ahead=[]\n  hold #-1: by #9:run n=2 total=500µs max=280µs tracked=0 ticks=0 wait=0s wait_max=0s wait_p500 wait_p990 queue_depth_mean=0.00 max=0 ahead=[]\nshared gate at commit: commits=15 wait=80µs mean=10µs behind_exclusive=0 (0.0%) behind_exclusive_wait=0s mean=0s\nconflicts: lost_commits=1 refused_renewals=0 keys=1 overflow_losses=0 sole_cause=100.0% keys_per_loss=1.00 tracking=false\n  conflict task           task 6                       lost=1      100.0% sole=1      refused=0     stale_at_read=n/a    by=[#2:eval=1]&quot;&#10;time=2026-11-21T10:22:13.528-07:00 level=INFO msg=&quot;operator endpoint stopped&quot;&#10;time=2026-11-21T10:22:13.528-07:00 level=INFO msg=&quot;debug endpoint stopped&quot;&#10;Nov 21 10:22:13: *** TLS: Failed to load default certificate: error:80000002:system library::No such file or directory&#10;Nov 21 10:22:13: *** TLS: Failed to load default private key: error:10080002:BIO routines::system lib&#10;Nov 21 10:22:13: *** TLS: Private key does not match the certificate: error:0A080002:SSL routines::system lib&#10;Nov 21 10:22:13:  _   __           _____                ______&#10;Nov 21 10:22:13: ( `^` ))  ___________  /_____  _________ __  /_&#10;Nov 21 10:22:13: |     ||   __  ___/_  __/_  / / /__  __ \_  __/&#10;Nov 21 10:22:13: |     ||   _(__  ) / /_  / /_/ / _  / / // /_&#10;Nov 21 10:22:13: '-----'`   /____/  \__/  \__,_/  /_/ /_/ \__/   v2.8.0_7&#10;Nov 21 10:22:13: &#10;Nov 21 10:22:13: STARTING: Version 2.8.0_7 (64-bit) of the ToastStunt/LambdaMOO server&#10;Nov 21 10:22:13:           (Task timeouts measured in server CPU seconds.)&#10;Nov 21 10:22:13:           (Process id 2610479)&#10;Nov 21 10:22:13: !!! CMDLINE: Initial port = 61995&#10;Nov 21 10:22:13: !!! NETWORK: Outbound network connections enabled.&#10;Nov 21 10:22:13: REGISTER_NETWORK: Using OpenSSL 3.0.22 25 Aug 2026&#10;Nov 21 10:22:13: REGISTER_SQLITE: Using SQLite Library v3.40.1&#10;Nov 21 10:22:13: REGISTER_PCRE: Using PCRE2 Library v10.42 2022-12-11 (JIT)&#10;Nov 21 10:22:13: REGISTER_ARGON2: Using Argon2 version 19&#10;Nov 21 10:22:13: REGISTER_SPELLCHECK: v1.0 (Aspell Library v0.60.8)&#10;Nov 21 10:22:13: REGISTER_CURL: Using libcurl version libcurl/7.88.1 OpenSSL/3.0.22 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13&#10;Nov 21 10:22:13: LOADING: /tmp/moo_conformance_8dqv06ru/Test.db&#10;Nov 21 10:22:13: LOADING: Reading values pending finalization ...&#10;Nov 21 10:22:13: LOADING: Reading forked and suspended tasks ...&#10;Nov 21 10:22:13: *** READ_ACTIV: Bad PC for suspended task.&#10;Nov 21 10:22:13: *** READ_VM: Bad activ number 0&#10;Nov 21 10:22:13: *** READ_TASK_QUEUE: Bad suspended task vm, count = 1&#10;Nov 21 10:22:13: *** READ_DB_FILE: Can't read task queue.&#10;Nov 21 10:22:13: *** DB_LOAD: Cannot load database!&#10;&#10;--- end server log tail ---">self = &lt;moo_conformance.server.ManagedServer object at 0x71d39f2fba10&gt;
+db_path = None, wait_for_port = True, ignore_sighup = False, arguments = None
+
+    def start(
+        self, db_path: Path | None = None, wait_for_port: bool = True,
+        ignore_sighup: bool = False,
+        arguments: list[str] | None = None,
+    ) -&gt; None:
+        """Start the server subprocess.
+    
+        When wait_for_port is False, the process is started and may exit on its
+        own after startup repair / dump processing without ever accepting a
+        socket connection.
+        """
+        if self._lifecycle_failure is not None:
+            raise self._lifecycle_failure
+    
+        selected_db_path = db_path if db_path is not None else self.db_path
+        previous_db_copy_path = self._db_copy_path
+        pending_copy_path: Path | None = None
+        rollback_copy_path: Path | None = None
+        db_copy_path: Path | None = None
+        use_restart_command = False
+    
+        def restore_failed_copy() -&gt; None:
+            if pending_copy_path is not None:
+                pending_copy_path.unlink(missing_ok=True)
+            if rollback_copy_path is not None and rollback_copy_path.exists():
+                if db_copy_path is None:
+                    raise RuntimeError("Managed server rollback target is missing")
+                os.replace(rollback_copy_path, db_copy_path)
+            elif (
+                db_copy_path is not None
+                and db_copy_path != previous_db_copy_path
+                and db_copy_path.exists()
+            ):
+                db_copy_path.unlink()
+    
+        try:
+            # Pick a port once (or use explicitly requested port).
+            if self._port is None:
+                if self._requested_port is not None:
+                    self._port = self._requested_port
+                else:
+                    self._port = self._find_free_port()
+    
+            # Create temp directory and copy the selected database into it.
+            created_temp_dir = self._temp_dir is None
+            if created_temp_dir:
+                self._temp_dir = tempfile.mkdtemp(prefix="moo_conformance_")
+            if self._temp_dir is None:
+                raise RuntimeError("Managed server temp directory is missing")
+    
+            if previous_db_copy_path is None or db_path is not None:
+                db_copy_path = Path(self._temp_dir, selected_db_path.name)
+            else:
+                db_copy_path = previous_db_copy_path
+    
+            manifest_path = Path(self._temp_dir, "profile.json")
+            # ToastStunt resolves file I/O paths under FILE_SUBDIR, which is "files".
+            Path(self._temp_dir, "files").mkdir(exist_ok=True)
+            self._install_exec_fixtures()
+    
+            # On the initial start, or when explicitly switching suites to a
+            # different source database, refresh the managed working copy from the
+            # selected input DB. Stage the copy first so a missing source cannot
+            # overwrite the last successfully selected working database.
+            fresh_copy = created_temp_dir or db_path is not None or not db_copy_path.exists()
+            use_restart_command = self.restart_command_template is not None and not fresh_copy
+            if fresh_copy:
+                pending_copy_path = db_copy_path.with_name(db_copy_path.name + ".pending")
+                pending_copy_path.unlink(missing_ok=True)
+                shutil.copy2(selected_db_path, pending_copy_path)
+                if db_copy_path == previous_db_copy_path and db_copy_path.exists():
+                    rollback_copy_path = db_copy_path.with_name(
+                        db_copy_path.name + ".rollback"
+                    )
+                    rollback_copy_path.unlink(missing_ok=True)
+                    os.replace(db_copy_path, rollback_copy_path)
+                os.replace(pending_copy_path, db_copy_path)
+                pending_copy_path = None
+            db_dest = db_copy_path
+    
+            for checkpoint_output in self._checkpoint_output_candidates(db_dest):
+                checkpoint_output.unlink(missing_ok=True)
+    
+            # Use forward slashes so shlex.split doesn't eat backslashes
+            db_posix = db_dest.as_posix()
+    
+            # Substitute placeholders in command template
+            command_template = (
+                self.restart_command_template if use_restart_command else self.command_template
+            )
+            assert command_template is not None
+            command = command_template.format(
+                port=self._port,
+                db=db_posix,
+                manifest=manifest_path.as_posix(),
+                server_dir=Path(self._temp_dir).as_posix(),
+                log=Path(self._temp_dir, "server.log").as_posix(),
+            )
+    
+            # Open log file for server output
+            self._log_path = os.path.join(self._temp_dir, "server.log")
+            self._log_file = open(self._log_path, "a")
+            self._log_file.flush()
+            self._process_log_offset = os.path.getsize(self._log_path)
+            self._process_file_snapshot = snapshot_regular_files(self._temp_dir)
+    
+            argv = shlex.split(command)
+            argv[1:1] = arguments or []
+            if ignore_sighup:
+                if os.name != "posix":
+                    raise ValueError("ignore_sighup requires POSIX")
+                # exec preserves the managed PID and the inherited SIG_IGN.
+                # Avoid preexec_fn, which is unsafe in a threaded harness.
+                argv = [sys.executable, "-c", (
+                    "import os,signal,sys; "
+                    "signal.signal(signal.SIGHUP, signal.SIG_IGN); "
+                    "os.execvp(sys.argv[1], sys.argv[1:])"
+                ), *argv]
+    
+            # Start server process
+            self._on_restart_command = use_restart_command
+            self._process = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=self._log_file,
+                stderr=subprocess.STDOUT,
+                cwd=self._temp_dir,
+            )
+    
+            # Some canned DB fixtures are intended to start, repair, dump, and exit
+            # without staying up long enough for a socket handshake. Their exit is
+            # only a failure if a later operation requires a live transport.
+            if wait_for_port:
+&gt;               self._wait_for_port(timeout=30.0)
+
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/server.py:449: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;moo_conformance.server.ManagedServer object at 0x71d39f2fba10&gt;
+timeout = 30.0
+
+    def _wait_for_port(self, timeout: float = 30.0) -&gt; None:
+        """Poll until the server port accepts connections."""
+        assert self._port is not None
+        deadline = time.monotonic() + timeout
+    
+        while time.monotonic() &lt; deadline:
+            # Check if process died
+            if self._process is not None and self._process.poll() is not None:
+&gt;               raise self._record_lifecycle_failure(
+                    self._with_port_sockets(
+                        "Managed server exited before accepting connections"
+                    ),
+                    returncode=self._process.returncode,
+                )
+E               moo_conformance.server.ManagedServerLifecycleError: Managed server exited before accepting connections
+E               First process return code: 1
+E               Server log: /tmp/moo_conformance_8dqv06ru/server.log
+E               --- server log tail ---
+E               /_/ /_/ \__/   v2.8.0_7
+E               Nov 21 10:22:11: 
+E               Nov 21 10:22:11: STARTING: Version 2.8.0_7 (64-bit) of the ToastStunt/LambdaMOO server
+E               Nov 21 10:22:11:           (Task timeouts measured in server CPU seconds.)
+E               Nov 21 10:22:11:           (Process id 2610409)
+E               Nov 21 10:22:11: !!! CMDLINE: Initial port = 61995
+E               Nov 21 10:22:11: !!! NETWORK: Outbound network connections enabled.
+E               Nov 21 10:22:11: REGISTER_NETWORK: Using OpenSSL 3.0.22 25 Aug 2026
+E               Nov 21 10:22:11: REGISTER_SQLITE: Using SQLite Library v3.40.1
+E               Nov 21 10:22:11: REGISTER_PCRE: Using PCRE2 Library v10.42 2022-12-11 (JIT)
+E               Nov 21 10:22:11: REGISTER_ARGON2: Using Argon2 version 19
+E               Nov 21 10:22:11: REGISTER_SPELLCHECK: v1.0 (Aspell Library v0.60.8)
+E               Nov 21 10:22:11: REGISTER_CURL: Using libcurl version libcurl/7.88.1 OpenSSL/3.0.22 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13
+E               Nov 21 10:22:11: LOADING: /tmp/moo_conformance_8dqv06ru/Test.db
+E               Nov 21 10:22:11: LOADING: Reading values pending finalization ...
+E               Nov 21 10:22:11: LOADING: Reading forked and suspended tasks ...
+E               Nov 21 10:22:11: *** READ_ACTIV: Bad PC for suspended task.
+E               Nov 21 10:22:11: *** READ_VM: Bad activ number 0
+E               Nov 21 10:22:11: *** READ_TASK_QUEUE: Bad suspended task vm, count = 1
+E               Nov 21 10:22:11: *** READ_DB_FILE: Can't read task queue.
+E               Nov 21 10:22:11: *** DB_LOAD: Cannot load database!
+E               time=2026-11-21T10:22:13.299-07:00 level=INFO msg="Barn MOO Server" database=/tmp/moo_conformance_8dqv06ru/Test.db listeners=tcp://127.0.0.1:61995
+E               time=2026-11-21T10:22:13.355-07:00 level=INFO msg=listening protocol=tcp port=61995 descriptor_port=61995 this=0 primary=true
+E               time=2026-11-21T10:22:13.356-07:00 level=INFO msg="debug endpoint listening" addr=127.0.0.1:42241
+E               time=2026-11-21T10:22:13.356-07:00 level=INFO msg="operator endpoint listening" addr=127.0.0.1:35193
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#0 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#2 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#3 not in it's location's (#2) contents" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#3 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#4 not in it's location's (#2) contents" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#4 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#5 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#6 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#7 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.376-07:00 level=INFO msg="database loaded" version=4 objects=8
+E               time=2026-11-21T10:22:13.390-07:00 level=INFO msg="new connection" addr=127.0.0.1:44094 conn_id=2
+E               time=2026-11-21T10:22:13.390-07:00 level=INFO msg="new connection" addr=127.0.0.1:44106 conn_id=3
+E               time=2026-11-21T10:22:13.399-07:00 level=WARN msg="read error" conn_id=2 err=EOF
+E               time=2026-11-21T10:22:13.399-07:00 level=INFO msg="connection closed" conn_id=2
+E               time=2026-11-21T10:22:13.402-07:00 level=INFO msg="switched connection" conn_id=3 old_player=-3 new_player=8
+E               time=2026-11-21T10:22:13.403-07:00 level=WARN msg="already logged in via switch_player" conn_id=3 player=8
+E               time=2026-11-21T10:22:13.462-07:00 level=INFO msg="CHECKPOINTING: dump_database() requested" programmer=8
+E               time=2026-11-21T10:22:13.462-07:00 level=INFO msg="checkpoint started"
+E               time=2026-11-21T10:22:13.462-07:00 level=WARN msg="read error" conn_id=3 err="read tcp4 127.0.0.1:61995-&gt;127.0.0.1:44106: read: connection reset by peer"
+E               time=2026-11-21T10:22:13.463-07:00 level=WARN msg="Toast could not load this checkpoint: task kept in Barn's frame form" task_id=9 verb="" verbloc=-1 this=-1 reason="frame 3 (#14:initialize): recreate: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint"
+E               time=2026-11-21T10:22:13.463-07:00 level=INFO msg="connection closed" conn_id=3
+E               time=2026-11-21T10:22:13.473-07:00 level=INFO msg="checkpoint complete" duration_ms=10
+E               time=2026-11-21T10:22:13.513-07:00 level=INFO msg="initiating shutdown" message="shutdown signal received"
+E               time=2026-11-21T10:22:13.513-07:00 level=INFO msg="shutting down"
+E               time=2026-11-21T10:22:13.513-07:00 level=INFO msg="SHUTDOWN: shutdown signal received"
+E               time=2026-11-21T10:22:13.514-07:00 level=WARN msg="Toast could not load this checkpoint: task kept in Barn's frame form" task_id=9 verb="" verbloc=-1 this=-1 reason="frame 3 (#14:initialize): recreate: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint"
+E               time=2026-11-21T10:22:13.525-07:00 level=INFO msg="shutdown complete"
+E               time=2026-11-21T10:22:13.528-07:00 level=INFO msg="diagnostics summary" tracking=false lost_commits=1 total_ticks=0 wasted_ticks=0 exclusive_holds=3 exclusive_held_ns=3661603 ticks_under_gate=0 shared_commits=15 shared_behind_exclusive=0 shared_behind_exclusive_ns=0 report="exclusive gate holds: count=3 total=3.66ms max=3.16ms ticks_under_gate=0 acquire_wait=0s holders=2\n  hold #2:eval by #-1: n=1 total=3.16ms max=3.16ms tracked=0 ticks=0 wait=0s wait_max=0s wait_p500 wait_p990 queue_depth_mean=0.00 max=0 ahead=[]\n  hold #-1: by #9:run n=2 total=500µs max=280µs tracked=0 ticks=0 wait=0s wait_max=0s wait_p500 wait_p990 queue_depth_mean=0.00 max=0 ahead=[]\nshared gate at commit: commits=15 wait=80µs mean=10µs behind_exclusive=0 (0.0%) behind_exclusive_wait=0s mean=0s\nconflicts: lost_commits=1 refused_renewals=0 keys=1 overflow_losses=0 sole_cause=100.0% keys_per_loss=1.00 tracking=false\n  conflict task           task 6                       lost=1      100.0% sole=1      refused=0     stale_at_read=n/a    by=[#2:eval=1]"
+E               time=2026-11-21T10:22:13.528-07:00 level=INFO msg="operator endpoint stopped"
+E               time=2026-11-21T10:22:13.528-07:00 level=INFO msg="debug endpoint stopped"
+E               Nov 21 10:22:13: *** TLS: Failed to load default certificate: error:80000002:system library::No such file or directory
+E               Nov 21 10:22:13: *** TLS: Failed to load default private key: error:10080002:BIO routines::system lib
+E               Nov 21 10:22:13: *** TLS: Private key does not match the certificate: error:0A080002:SSL routines::system lib
+E               Nov 21 10:22:13:  _   __           _____                ______
+E               Nov 21 10:22:13: ( `^` ))  ___________  /_____  _________ __  /_
+E               Nov 21 10:22:13: |     ||   __  ___/_  __/_  / / /__  __ \_  __/
+E               Nov 21 10:22:13: |     ||   _(__  ) / /_  / /_/ / _  / / // /_
+E               Nov 21 10:22:13: '-----'`   /____/  \__/  \__,_/  /_/ /_/ \__/   v2.8.0_7
+E               Nov 21 10:22:13: 
+E               Nov 21 10:22:13: STARTING: Version 2.8.0_7 (64-bit) of the ToastStunt/LambdaMOO server
+E               Nov 21 10:22:13:           (Task timeouts measured in server CPU seconds.)
+E               Nov 21 10:22:13:           (Process id 2610479)
+E               Nov 21 10:22:13: !!! CMDLINE: Initial port = 61995
+E               Nov 21 10:22:13: !!! NETWORK: Outbound network connections enabled.
+E               Nov 21 10:22:13: REGISTER_NETWORK: Using OpenSSL 3.0.22 25 Aug 2026
+E               Nov 21 10:22:13: REGISTER_SQLITE: Using SQLite Library v3.40.1
+E               Nov 21 10:22:13: REGISTER_PCRE: Using PCRE2 Library v10.42 2022-12-11 (JIT)
+E               Nov 21 10:22:13: REGISTER_ARGON2: Using Argon2 version 19
+E               Nov 21 10:22:13: REGISTER_SPELLCHECK: v1.0 (Aspell Library v0.60.8)
+E               Nov 21 10:22:13: REGISTER_CURL: Using libcurl version libcurl/7.88.1 OpenSSL/3.0.22 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13
+E               Nov 21 10:22:13: LOADING: /tmp/moo_conformance_8dqv06ru/Test.db
+E               Nov 21 10:22:13: LOADING: Reading values pending finalization ...
+E               Nov 21 10:22:13: LOADING: Reading forked and suspended tasks ...
+E               Nov 21 10:22:13: *** READ_ACTIV: Bad PC for suspended task.
+E               Nov 21 10:22:13: *** READ_VM: Bad activ number 0
+E               Nov 21 10:22:13: *** READ_TASK_QUEUE: Bad suspended task vm, count = 1
+E               Nov 21 10:22:13: *** READ_DB_FILE: Can't read task queue.
+E               Nov 21 10:22:13: *** DB_LOAD: Cannot load database!
+E               
+E               --- end server log tail ---
+
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/server.py:735: ManagedServerLifecycleError
+
+The above exception was the direct cause of the following exception:
+
+runner = &lt;moo_conformance.runner.YamlTestRunner object at 0x71d39f2fb4d0&gt;
+yaml_test_case = (MooTestSuite(name='cross_engine_generated', description='Generated suspended-stack programs resumed by the other engi...ange=None, satisfies=None, notifications=None, output=None), cleanup=[], timeout_ms=120000, provides=None, assumes=[]))
+moo_config = {'log_file': '/tmp/moo_conformance_8dqv06ru/server.log', 'managed_server': '1', 'named_log_file': None, 'posix_signals': '1', ...}
+profile_metadata_gate = {'builtin.abs': 'present', 'builtin.acos': 'present', 'builtin.acosh': 'present', 'builtin.add_property': 'present', ...}
+
+    @pytest.mark.conformance
+    def test_yaml_conformance(runner, yaml_test_case, moo_config, profile_metadata_gate):
+        """Run a single YAML test case.
+    
+        Args:
+            runner: YamlTestRunner fixture
+            yaml_test_case: (suite, test) tuple from parametrization
+            moo_config: dict of available config values for requires.config checks
+        """
+        suite, test = yaml_test_case
+    
+        _skip_declared_yaml_case(suite, test)
+    
+        _enforce_suite_config_requirements(suite, moo_config)
+        runner.prepare_suite_environment(suite)
+        _enforce_suite_requirements(suite, runner, moo_config, profile_metadata_gate)
+        _enforce_skip_condition(test, runner, profile_metadata_gate)
+    
+        if _uses_managed_restart(test) and moo_config.get("managed_server") is None:
+            pytest.skip(config_skip_reason("managed_server"))
+    
+        # With --restart-server-command this test continues on a second engine,
+        # which must meet the same requirements.
+        restart_engine = getattr(runner, "restart_engine", None)
+        if restart_engine is not None and keeps_database_across_restart(test):
+            restart_config = {**moo_config, "named_log_file": restart_engine.named_log_file}
+            with _probing_restart_engine():
+                _enforce_suite_requirements(
+                    suite, restart_engine, restart_config, restart_engine.profile_features
+                )
+                _enforce_skip_condition(test, restart_engine, restart_engine.profile_features)
+    
+        # Run suite setup if not already done
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+&gt;       runner.run_test(test)
+
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/test_conformance.py:448: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/runner.py:477: in run_test
+    self._run_test(test)
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/runner.py:508: in _run_test
+    self._execute_steps(test)
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/runner.py:758: in _execute_steps
+    self._execute_restart_server(
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/runner.py:994: in _execute_restart_server
+    self.managed_server.restart(
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/server.py:635: in restart
+    self.start(wait_for_port=wait_for_port)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;moo_conformance.server.ManagedServer object at 0x71d39f2fba10&gt;
+db_path = None, wait_for_port = True, ignore_sighup = False, arguments = None
+
+    def start(
+        self, db_path: Path | None = None, wait_for_port: bool = True,
+        ignore_sighup: bool = False,
+        arguments: list[str] | None = None,
+    ) -&gt; None:
+        """Start the server subprocess.
+    
+        When wait_for_port is False, the process is started and may exit on its
+        own after startup repair / dump processing without ever accepting a
+        socket connection.
+        """
+        if self._lifecycle_failure is not None:
+            raise self._lifecycle_failure
+    
+        selected_db_path = db_path if db_path is not None else self.db_path
+        previous_db_copy_path = self._db_copy_path
+        pending_copy_path: Path | None = None
+        rollback_copy_path: Path | None = None
+        db_copy_path: Path | None = None
+        use_restart_command = False
+    
+        def restore_failed_copy() -&gt; None:
+            if pending_copy_path is not None:
+                pending_copy_path.unlink(missing_ok=True)
+            if rollback_copy_path is not None and rollback_copy_path.exists():
+                if db_copy_path is None:
+                    raise RuntimeError("Managed server rollback target is missing")
+                os.replace(rollback_copy_path, db_copy_path)
+            elif (
+                db_copy_path is not None
+                and db_copy_path != previous_db_copy_path
+                and db_copy_path.exists()
+            ):
+                db_copy_path.unlink()
+    
+        try:
+            # Pick a port once (or use explicitly requested port).
+            if self._port is None:
+                if self._requested_port is not None:
+                    self._port = self._requested_port
+                else:
+                    self._port = self._find_free_port()
+    
+            # Create temp directory and copy the selected database into it.
+            created_temp_dir = self._temp_dir is None
+            if created_temp_dir:
+                self._temp_dir = tempfile.mkdtemp(prefix="moo_conformance_")
+            if self._temp_dir is None:
+                raise RuntimeError("Managed server temp directory is missing")
+    
+            if previous_db_copy_path is None or db_path is not None:
+                db_copy_path = Path(self._temp_dir, selected_db_path.name)
+            else:
+                db_copy_path = previous_db_copy_path
+    
+            manifest_path = Path(self._temp_dir, "profile.json")
+            # ToastStunt resolves file I/O paths under FILE_SUBDIR, which is "files".
+            Path(self._temp_dir, "files").mkdir(exist_ok=True)
+            self._install_exec_fixtures()
+    
+            # On the initial start, or when explicitly switching suites to a
+            # different source database, refresh the managed working copy from the
+            # selected input DB. Stage the copy first so a missing source cannot
+            # overwrite the last successfully selected working database.
+            fresh_copy = created_temp_dir or db_path is not None or not db_copy_path.exists()
+            use_restart_command = self.restart_command_template is not None and not fresh_copy
+            if fresh_copy:
+                pending_copy_path = db_copy_path.with_name(db_copy_path.name + ".pending")
+                pending_copy_path.unlink(missing_ok=True)
+                shutil.copy2(selected_db_path, pending_copy_path)
+                if db_copy_path == previous_db_copy_path and db_copy_path.exists():
+                    rollback_copy_path = db_copy_path.with_name(
+                        db_copy_path.name + ".rollback"
+                    )
+                    rollback_copy_path.unlink(missing_ok=True)
+                    os.replace(db_copy_path, rollback_copy_path)
+                os.replace(pending_copy_path, db_copy_path)
+                pending_copy_path = None
+            db_dest = db_copy_path
+    
+            for checkpoint_output in self._checkpoint_output_candidates(db_dest):
+                checkpoint_output.unlink(missing_ok=True)
+    
+            # Use forward slashes so shlex.split doesn't eat backslashes
+            db_posix = db_dest.as_posix()
+    
+            # Substitute placeholders in command template
+            command_template = (
+                self.restart_command_template if use_restart_command else self.command_template
+            )
+            assert command_template is not None
+            command = command_template.format(
+                port=self._port,
+                db=db_posix,
+                manifest=manifest_path.as_posix(),
+                server_dir=Path(self._temp_dir).as_posix(),
+                log=Path(self._temp_dir, "server.log").as_posix(),
+            )
+    
+            # Open log file for server output
+            self._log_path = os.path.join(self._temp_dir, "server.log")
+            self._log_file = open(self._log_path, "a")
+            self._log_file.flush()
+            self._process_log_offset = os.path.getsize(self._log_path)
+            self._process_file_snapshot = snapshot_regular_files(self._temp_dir)
+    
+            argv = shlex.split(command)
+            argv[1:1] = arguments or []
+            if ignore_sighup:
+                if os.name != "posix":
+                    raise ValueError("ignore_sighup requires POSIX")
+                # exec preserves the managed PID and the inherited SIG_IGN.
+                # Avoid preexec_fn, which is unsafe in a threaded harness.
+                argv = [sys.executable, "-c", (
+                    "import os,signal,sys; "
+                    "signal.signal(signal.SIGHUP, signal.SIG_IGN); "
+                    "os.execvp(sys.argv[1], sys.argv[1:])"
+                ), *argv]
+    
+            # Start server process
+            self._on_restart_command = use_restart_command
+            self._process = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=self._log_file,
+                stderr=subprocess.STDOUT,
+                cwd=self._temp_dir,
+            )
+    
+            # Some canned DB fixtures are intended to start, repair, dump, and exit
+            # without staying up long enough for a socket handshake. Their exit is
+            # only a failure if a later operation requires a live transport.
+            if wait_for_port:
+                self._wait_for_port(timeout=30.0)
+    
+            if rollback_copy_path is not None:
+                rollback_copy_path.unlink(missing_ok=True)
+            if (
+                previous_db_copy_path is not None
+                and previous_db_copy_path != db_copy_path
+                and previous_db_copy_path.exists()
+            ):
+                previous_db_copy_path.unlink()
+            self.db_path = selected_db_path
+            self._db_copy_path = db_copy_path
+            self._manifest_path = manifest_path
+        except ManagedServerLifecycleError as restart_failure:
+            self.stop(preserve_temp=True)
+            restore_failed_copy()
+            if use_restart_command:
+                # The other engine rejecting this database is the restarting
+                # test's result, not the end of the session.
+                self._lifecycle_failure = None
+&gt;               raise RestartCommandError(str(restart_failure)) from restart_failure
+E               moo_conformance.server.RestartCommandError: Managed server exited before accepting connections
+E               First process return code: 1
+E               Server log: /tmp/moo_conformance_8dqv06ru/server.log
+E               --- server log tail ---
+E               /_/ /_/ \__/   v2.8.0_7
+E               Nov 21 10:22:11: 
+E               Nov 21 10:22:11: STARTING: Version 2.8.0_7 (64-bit) of the ToastStunt/LambdaMOO server
+E               Nov 21 10:22:11:           (Task timeouts measured in server CPU seconds.)
+E               Nov 21 10:22:11:           (Process id 2610409)
+E               Nov 21 10:22:11: !!! CMDLINE: Initial port = 61995
+E               Nov 21 10:22:11: !!! NETWORK: Outbound network connections enabled.
+E               Nov 21 10:22:11: REGISTER_NETWORK: Using OpenSSL 3.0.22 25 Aug 2026
+E               Nov 21 10:22:11: REGISTER_SQLITE: Using SQLite Library v3.40.1
+E               Nov 21 10:22:11: REGISTER_PCRE: Using PCRE2 Library v10.42 2022-12-11 (JIT)
+E               Nov 21 10:22:11: REGISTER_ARGON2: Using Argon2 version 19
+E               Nov 21 10:22:11: REGISTER_SPELLCHECK: v1.0 (Aspell Library v0.60.8)
+E               Nov 21 10:22:11: REGISTER_CURL: Using libcurl version libcurl/7.88.1 OpenSSL/3.0.22 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13
+E               Nov 21 10:22:11: LOADING: /tmp/moo_conformance_8dqv06ru/Test.db
+E               Nov 21 10:22:11: LOADING: Reading values pending finalization ...
+E               Nov 21 10:22:11: LOADING: Reading forked and suspended tasks ...
+E               Nov 21 10:22:11: *** READ_ACTIV: Bad PC for suspended task.
+E               Nov 21 10:22:11: *** READ_VM: Bad activ number 0
+E               Nov 21 10:22:11: *** READ_TASK_QUEUE: Bad suspended task vm, count = 1
+E               Nov 21 10:22:11: *** READ_DB_FILE: Can't read task queue.
+E               Nov 21 10:22:11: *** DB_LOAD: Cannot load database!
+E               time=2026-11-21T10:22:13.299-07:00 level=INFO msg="Barn MOO Server" database=/tmp/moo_conformance_8dqv06ru/Test.db listeners=tcp://127.0.0.1:61995
+E               time=2026-11-21T10:22:13.355-07:00 level=INFO msg=listening protocol=tcp port=61995 descriptor_port=61995 this=0 primary=true
+E               time=2026-11-21T10:22:13.356-07:00 level=INFO msg="debug endpoint listening" addr=127.0.0.1:42241
+E               time=2026-11-21T10:22:13.356-07:00 level=INFO msg="operator endpoint listening" addr=127.0.0.1:35193
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#0 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#2 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#3 not in it's location's (#2) contents" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#3 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#4 not in it's location's (#2) contents" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#4 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#5 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#6 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.361-07:00 level=WARN msg="#7 not in it's parent's (#1) children" src=startup_repair
+E               time=2026-11-21T10:22:13.376-07:00 level=INFO msg="database loaded" version=4 objects=8
+E               time=2026-11-21T10:22:13.390-07:00 level=INFO msg="new connection" addr=127.0.0.1:44094 conn_id=2
+E               time=2026-11-21T10:22:13.390-07:00 level=INFO msg="new connection" addr=127.0.0.1:44106 conn_id=3
+E               time=2026-11-21T10:22:13.399-07:00 level=WARN msg="read error" conn_id=2 err=EOF
+E               time=2026-11-21T10:22:13.399-07:00 level=INFO msg="connection closed" conn_id=2
+E               time=2026-11-21T10:22:13.402-07:00 level=INFO msg="switched connection" conn_id=3 old_player=-3 new_player=8
+E               time=2026-11-21T10:22:13.403-07:00 level=WARN msg="already logged in via switch_player" conn_id=3 player=8
+E               time=2026-11-21T10:22:13.462-07:00 level=INFO msg="CHECKPOINTING: dump_database() requested" programmer=8
+E               time=2026-11-21T10:22:13.462-07:00 level=INFO msg="checkpoint started"
+E               time=2026-11-21T10:22:13.462-07:00 level=WARN msg="read error" conn_id=3 err="read tcp4 127.0.0.1:61995-&gt;127.0.0.1:44106: read: connection reset by peer"
+E               time=2026-11-21T10:22:13.463-07:00 level=WARN msg="Toast could not load this checkpoint: task kept in Barn's frame form" task_id=9 verb="" verbloc=-1 this=-1 reason="frame 3 (#14:initialize): recreate: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint"
+E               time=2026-11-21T10:22:13.463-07:00 level=INFO msg="connection closed" conn_id=3
+E               time=2026-11-21T10:22:13.473-07:00 level=INFO msg="checkpoint complete" duration_ms=10
+E               time=2026-11-21T10:22:13.513-07:00 level=INFO msg="initiating shutdown" message="shutdown signal received"
+E               time=2026-11-21T10:22:13.513-07:00 level=INFO msg="shutting down"
+E               time=2026-11-21T10:22:13.513-07:00 level=INFO msg="SHUTDOWN: shutdown signal received"
+E               time=2026-11-21T10:22:13.514-07:00 level=WARN msg="Toast could not load this checkpoint: task kept in Barn's frame form" task_id=9 verb="" verbloc=-1 this=-1 reason="frame 3 (#14:initialize): recreate: stock Toast does not resume a create, recreate or recycle continuation from its checkpoint"
+E               time=2026-11-21T10:22:13.525-07:00 level=INFO msg="shutdown complete"
+E               time=2026-11-21T10:22:13.528-07:00 level=INFO msg="diagnostics summary" tracking=false lost_commits=1 total_ticks=0 wasted_ticks=0 exclusive_holds=3 exclusive_held_ns=3661603 ticks_under_gate=0 shared_commits=15 shared_behind_exclusive=0 shared_behind_exclusive_ns=0 report="exclusive gate holds: count=3 total=3.66ms max=3.16ms ticks_under_gate=0 acquire_wait=0s holders=2\n  hold #2:eval by #-1: n=1 total=3.16ms max=3.16ms tracked=0 ticks=0 wait=0s wait_max=0s wait_p500 wait_p990 queue_depth_mean=0.00 max=0 ahead=[]\n  hold #-1: by #9:run n=2 total=500µs max=280µs tracked=0 ticks=0 wait=0s wait_max=0s wait_p500 wait_p990 queue_depth_mean=0.00 max=0 ahead=[]\nshared gate at commit: commits=15 wait=80µs mean=10µs behind_exclusive=0 (0.0%) behind_exclusive_wait=0s mean=0s\nconflicts: lost_commits=1 refused_renewals=0 keys=1 overflow_losses=0 sole_cause=100.0% keys_per_loss=1.00 tracking=false\n  conflict task           task 6                       lost=1      100.0% sole=1      refused=0     stale_at_read=n/a    by=[#2:eval=1]"
+E               time=2026-11-21T10:22:13.528-07:00 level=INFO msg="operator endpoint stopped"
+E               time=2026-11-21T10:22:13.528-07:00 level=INFO msg="debug endpoint stopped"
+E               Nov 21 10:22:13: *** TLS: Failed to load default certificate: error:80000002:system library::No such file or directory
+E               Nov 21 10:22:13: *** TLS: Failed to load default private key: error:10080002:BIO routines::system lib
+E               Nov 21 10:22:13: *** TLS: Private key does not match the certificate: error:0A080002:SSL routines::system lib
+E               Nov 21 10:22:13:  _   __           _____                ______
+E               Nov 21 10:22:13: ( `^` ))  ___________  /_____  _________ __  /_
+E               Nov 21 10:22:13: |     ||   __  ___/_  __/_  / / /__  __ \_  __/
+E               Nov 21 10:22:13: |     ||   _(__  ) / /_  / /_/ / _  / / // /_
+E               Nov 21 10:22:13: '-----'`   /____/  \__/  \__,_/  /_/ /_/ \__/   v2.8.0_7
+E               Nov 21 10:22:13: 
+E               Nov 21 10:22:13: STARTING: Version 2.8.0_7 (64-bit) of the ToastStunt/LambdaMOO server
+E               Nov 21 10:22:13:           (Task timeouts measured in server CPU seconds.)
+E               Nov 21 10:22:13:           (Process id 2610479)
+E               Nov 21 10:22:13: !!! CMDLINE: Initial port = 61995
+E               Nov 21 10:22:13: !!! NETWORK: Outbound network connections enabled.
+E               Nov 21 10:22:13: REGISTER_NETWORK: Using OpenSSL 3.0.22 25 Aug 2026
+E               Nov 21 10:22:13: REGISTER_SQLITE: Using SQLite Library v3.40.1
+E               Nov 21 10:22:13: REGISTER_PCRE: Using PCRE2 Library v10.42 2022-12-11 (JIT)
+E               Nov 21 10:22:13: REGISTER_ARGON2: Using Argon2 version 19
+E               Nov 21 10:22:13: REGISTER_SPELLCHECK: v1.0 (Aspell Library v0.60.8)
+E               Nov 21 10:22:13: REGISTER_CURL: Using libcurl version libcurl/7.88.1 OpenSSL/3.0.22 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13
+E               Nov 21 10:22:13: LOADING: /tmp/moo_conformance_8dqv06ru/Test.db
+E               Nov 21 10:22:13: LOADING: Reading values pending finalization ...
+E               Nov 21 10:22:13: LOADING: Reading forked and suspended tasks ...
+E               Nov 21 10:22:13: *** READ_ACTIV: Bad PC for suspended task.
+E               Nov 21 10:22:13: *** READ_VM: Bad activ number 0
+E               Nov 21 10:22:13: *** READ_TASK_QUEUE: Bad suspended task vm, count = 1
+E               Nov 21 10:22:13: *** READ_DB_FILE: Can't read task queue.
+E               Nov 21 10:22:13: *** DB_LOAD: Cannot load database!
+E               
+E               --- end server log tail ---
+
+../../AppData/Local/Temp/claude/655669a3d1b9c796/ea6e86d2-9d20-42c3-abeb-b77523e31b37/scratchpad/mct/src/moo_conformance/server.py:469: RestartCommandError</failure></testcase><testcase classname="test_conformance" name="test_yaml_conformance[cross_engine_generated.yaml::generated_e3b0c44298fc1c14]" time="1.442" /><testcase classname="test_conformance" name="test_yaml_conformance[cross_engine_generated.yaml::generated_7902699be42c8a8e]" time="1.533" /></testsuite></testsuites>
