@@ -20,6 +20,7 @@ type sessionRuntime struct {
 		mu      sync.Mutex
 		nextID  int64
 		handles map[int64]*sqliteHandle
+		order   sqliteHandleOrder
 	}
 	recycle struct {
 		mu  sync.Mutex
@@ -109,10 +110,10 @@ func (s *Session) Close() error {
 	r.runtime.sqlite.mu.Unlock()
 	for _, h := range handles {
 		h.mu.Lock()
-		h.closed = true
-		if h.currentCancel != nil {
-			h.currentCancel()
+		if !h.closed {
+			sqliteInterruptLocked(h)
 		}
+		h.closed = true
 		for h.activeOps > 0 {
 			h.cond.Wait()
 		}
