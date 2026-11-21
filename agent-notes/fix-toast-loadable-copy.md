@@ -178,7 +178,9 @@ check, and `docs/going-back-to-toast.md`.
 
 ## Next step
 
-- When `gh pr view 1032 --json state` says MERGED: merge origin/master, add a
+- The lane work continues on a new branch, `fuzz/toast-loadable-lane`, made
+  from this branch's head. When this branch's PR and PR #1032 are both
+  merged: merge origin/master into it, add a
   converted Barn-first run to `scripts/fuzz_cross_engine.py` for every program
   whose Barn-first run failed at the restart step (Toast did not boot), with
   `scripts/toast-loadable-restart.sh` as the restart command through
