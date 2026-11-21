@@ -1074,19 +1074,24 @@ secondsLimit:
 
 // tickLimitResult aborts the task for an exhausted tick budget.
 func (vm *VM) tickLimitResult() types.Result {
-	_ = vm.annotateError(newMooError(types.E_MAXREC, "tick limit exceeded"), vm.CurrentLine())
 	return types.Result{
-		Flow:   types.FlowException,
-		Error:  types.E_MAXREC,
-		Reason: types.ExceptionReasonTickBudget,
-		Val:    types.NewStr("E_MAXREC: tick limit exceeded"),
+		Flow:      types.FlowException,
+		Error:     types.E_MAXREC,
+		Reason:    types.ExceptionReasonTickBudget,
+		Val:       types.NewStr("E_MAXREC: tick limit exceeded"),
+		CallStack: vm.snapshotActivationFrames(vm.CurrentLine()),
 	}
 }
 
 // secondsLimitResult aborts the task for an exhausted seconds budget.
 func (vm *VM) secondsLimitResult() types.Result {
-	_ = vm.annotateError(newMooError(types.E_MAXREC, "seconds limit exceeded"), vm.CurrentLine())
-	return types.Result{Flow: types.FlowException, Error: types.E_MAXREC, Reason: types.ExceptionReasonSecondsBudget, Val: types.NewStr("E_MAXREC: seconds limit exceeded")}
+	return types.Result{
+		Flow:      types.FlowException,
+		Error:     types.E_MAXREC,
+		Reason:    types.ExceptionReasonSecondsBudget,
+		Val:       types.NewStr("E_MAXREC: seconds limit exceeded"),
+		CallStack: vm.snapshotActivationFrames(vm.CurrentLine()),
+	}
 }
 
 // syncTaskLineNumbers updates the task's CallStack line numbers from the VM's

@@ -30,11 +30,17 @@ type Result struct {
 	Unreported bool
 	Label      string            // Loop label for break/continue (empty = innermost loop)
 	ForkInfo   *ForkInfo         // Only set when Flow == FlowFork
-	CallStack  []ActivationFrame // Only set on exception from synchronous verb calls
+	CallStack  []ActivationFrame // Activation snapshot at an exception or budget abort
 }
 
-// ErrorMessage preserves a raise() message carried by the exception value.
+// ErrorMessage describes native budget aborts and preserves raise() messages.
 func (r Result) ErrorMessage() string {
+	switch r.Reason {
+	case ExceptionReasonTickBudget:
+		return "Task ran out of ticks"
+	case ExceptionReasonSecondsBudget:
+		return "Task ran out of seconds"
+	}
 	if r.Val.Type() == TYPE_LIST && r.Val.Len() >= 3 {
 		if message := r.Val.Get(2); message.Type() == TYPE_STR {
 			return message.Str()
