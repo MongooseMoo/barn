@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="5" time="11.799" timestamp="2026-11-20T22:44:44.048680-07:00" hostname="Empiricist"><testcase classname="test_conformance" name="test_capability_admission" time="0.920"><properties><property name="admission_context" value="same-session" /></properties></testcase><testcase classname="test_conformance" name="test_yaml_conformance[cross_engine_generated.yaml::generated_3c477a14bb6f1b4e]" time="0.665"><failure message="moo_conformance.runner.AssertionError: Test 'step '&quot;7 compare&quot;;&#10;h = #0.cross_engi...'' expected value 1, but got ['no restart', [['return', [[1, [1, 0]]]], []], 'restarted', [['return', [[1, 0]]], []]]">runner = &lt;moo_conformance.runner.YamlTestRunner object at 0x7a4651bb34d0&gt;
+yaml_test_case = (MooTestSuite(name='cross_engine_generated', description='Generated suspended-stack programs resumed by the other engi...ange=None, satisfies=None, notifications=None, output=None), cleanup=[], timeout_ms=120000, provides=None, assumes=[]))
+moo_config = {'log_file': '/tmp/moo_conformance_gqcprd_x/server.log', 'managed_server': '1', 'named_log_file': None, 'posix_signals': '1', ...}
+profile_metadata_gate = {'builtin.abs': 'present', 'builtin.acos': 'present', 'builtin.acosh': 'present', 'builtin.add_property': 'present', ...}
+
+    @pytest.mark.conformance
+    def test_yaml_conformance(runner, yaml_test_case, moo_config, profile_metadata_gate):
+        """Run a single YAML test case.
+    
+        Args:
+            runner: YamlTestRunner fixture
+            yaml_test_case: (suite, test) tuple from parametrization
+            moo_config: dict of available config values for requires.config checks
+        """
+        suite, test = yaml_test_case
+    
+        _skip_declared_yaml_case(suite, test)
+    
+        _enforce_suite_config_requirements(suite, moo_config)
+        runner.prepare_suite_environment(suite)
+        _enforce_suite_requirements(suite, runner, moo_config, profile_metadata_gate)
+        _enforce_skip_condition(test, runner, profile_metadata_gate)
+    
+        if _uses_managed_restart(test) and moo_config.get("managed_server") is None:
+            pytest.skip(config_skip_reason("managed_server"))
+    
+        # With --restart-server-command this test continues on a second engine,
+        # which must meet the same requirements.
+        restart_engine = getattr(runner, "restart_engine", None)
+        if restart_engine is not None and keeps_database_across_restart(test):
+            restart_config = {**moo_config, "named_log_file": restart_engine.named_log_file}
+            with _probing_restart_engine():
+                _enforce_suite_requirements(
+                    suite, restart_engine, restart_config, restart_engine.profile_features
+                )
+                _enforce_skip_condition(test, restart_engine, restart_engine.profile_features)
+    
+        # Run suite setup if not already done
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+&gt;       runner.run_test(test)
+
+../mct-cross-engine-generated/src/moo_conformance/test_conformance.py:448: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../mct-cross-engine-generated/src/moo_conformance/runner.py:477: in run_test
+    self._run_test(test)
+../mct-cross-engine-generated/src/moo_conformance/runner.py:508: in _run_test
+    self._execute_steps(test)
+../mct-cross-engine-generated/src/moo_conformance/runner.py:852: in _execute_steps
+    self._verify_expectation(step.expect, result, step_desc)
+../mct-cross-engine-generated/src/moo_conformance/runner.py:1581: in _verify_expectation
+    self._verify_value(expect.value, result.value, context)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;moo_conformance.runner.YamlTestRunner object at 0x7a4651bb34d0&gt;
+expected = 1
+actual = ['no restart', [['return', [[1, [1, 0]]]], []], 'restarted', [['return', [[1, 0]]], []]]
+test_name = 'step \'"7 compare";\nh = #0.cross_engi...\''
+
+    def _verify_value(self, expected: Any, actual: Any, test_name: str) -&gt; None:
+        """Verify exact value match."""
+        if not self._values_equal(expected, actual):
+&gt;           raise AssertionError(
+                f"Test '{test_name}' expected value {expected!r}, but got {actual!r}"
+            )
+E           moo_conformance.runner.AssertionError: Test 'step '"7 compare";
+E           h = #0.cross_engi...'' expected value 1, but got ['no restart', [['return', [[1, [1, 0]]]], []], 'restarted', [['return', [[1, 0]]], []]]
+
+../mct-cross-engine-generated/src/moo_conformance/runner.py:1632: AssertionError</failure></testcase><testcase classname="test_conformance" name="test_yaml_conformance[cross_engine_generated.yaml::generated_8e0c5acc0a2f5318]" time="0.973"><failure message="moo_conformance.runner.AssertionError: Test 'step '&quot;7 compare&quot;;&#10;h = #0.cross_engi...'' expected value 1, but got ['no restart', [['return', [[1, [1, [0, 0]]]]], []], 'restarted', [['return', [[1, [0, 0]]]], []]]">runner = &lt;moo_conformance.runner.YamlTestRunner object at 0x7a4651bb34d0&gt;
+yaml_test_case = (MooTestSuite(name='cross_engine_generated', description='Generated suspended-stack programs resumed by the other engi...ange=None, satisfies=None, notifications=None, output=None), cleanup=[], timeout_ms=120000, provides=None, assumes=[]))
+moo_config = {'log_file': '/tmp/moo_conformance_gqcprd_x/server.log', 'managed_server': '1', 'named_log_file': None, 'posix_signals': '1', ...}
+profile_metadata_gate = {'builtin.abs': 'present', 'builtin.acos': 'present', 'builtin.acosh': 'present', 'builtin.add_property': 'present', ...}
+
+    @pytest.mark.conformance
+    def test_yaml_conformance(runner, yaml_test_case, moo_config, profile_metadata_gate):
+        """Run a single YAML test case.
+    
+        Args:
+            runner: YamlTestRunner fixture
+            yaml_test_case: (suite, test) tuple from parametrization
+            moo_config: dict of available config values for requires.config checks
+        """
+        suite, test = yaml_test_case
+    
+        _skip_declared_yaml_case(suite, test)
+    
+        _enforce_suite_config_requirements(suite, moo_config)
+        runner.prepare_suite_environment(suite)
+        _enforce_suite_requirements(suite, runner, moo_config, profile_metadata_gate)
+        _enforce_skip_condition(test, runner, profile_metadata_gate)
+    
+        if _uses_managed_restart(test) and moo_config.get("managed_server") is None:
+            pytest.skip(config_skip_reason("managed_server"))
+    
+        # With --restart-server-command this test continues on a second engine,
+        # which must meet the same requirements.
+        restart_engine = getattr(runner, "restart_engine", None)
+        if restart_engine is not None and keeps_database_across_restart(test):
+            restart_config = {**moo_config, "named_log_file": restart_engine.named_log_file}
+            with _probing_restart_engine():
+                _enforce_suite_requirements(
+                    suite, restart_engine, restart_config, restart_engine.profile_features
+                )
+                _enforce_skip_condition(test, restart_engine, restart_engine.profile_features)
+    
+        # Run suite setup if not already done
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+&gt;       runner.run_test(test)
+
+../mct-cross-engine-generated/src/moo_conformance/test_conformance.py:448: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../mct-cross-engine-generated/src/moo_conformance/runner.py:477: in run_test
+    self._run_test(test)
+../mct-cross-engine-generated/src/moo_conformance/runner.py:508: in _run_test
+    self._execute_steps(test)
+../mct-cross-engine-generated/src/moo_conformance/runner.py:852: in _execute_steps
+    self._verify_expectation(step.expect, result, step_desc)
+../mct-cross-engine-generated/src/moo_conformance/runner.py:1581: in _verify_expectation
+    self._verify_value(expect.value, result.value, context)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;moo_conformance.runner.YamlTestRunner object at 0x7a4651bb34d0&gt;
+expected = 1
+actual = ['no restart', [['return', [[1, [1, [...]]]]], []], 'restarted', [['return', [[1, [0, 0]]]], []]]
+test_name = 'step \'"7 compare";\nh = #0.cross_engi...\''
+
+    def _verify_value(self, expected: Any, actual: Any, test_name: str) -&gt; None:
+        """Verify exact value match."""
+        if not self._values_equal(expected, actual):
+&gt;           raise AssertionError(
+                f"Test '{test_name}' expected value {expected!r}, but got {actual!r}"
+            )
+E           moo_conformance.runner.AssertionError: Test 'step '"7 compare";
+E           h = #0.cross_engi...'' expected value 1, but got ['no restart', [['return', [[1, [1, [0, 0]]]]], []], 'restarted', [['return', [[1, [0, 0]]]], []]]
+
+../mct-cross-engine-generated/src/moo_conformance/runner.py:1632: AssertionError</failure></testcase><testcase classname="test_conformance" name="test_yaml_conformance[cross_engine_generated.yaml::generated_00d4713429e4fd21]" time="0.969"><failure message="moo_conformance.runner.AssertionError: Test 'step '&quot;7 compare&quot;;&#10;h = #0.cross_engi...'' expected value 1, but got ['no restart', [['return', [[1, [1, 0]]]], []], 'restarted', [['return', [[1, 0]]], []]]">runner = &lt;moo_conformance.runner.YamlTestRunner object at 0x7a4651bb34d0&gt;
+yaml_test_case = (MooTestSuite(name='cross_engine_generated', description='Generated suspended-stack programs resumed by the other engi...ange=None, satisfies=None, notifications=None, output=None), cleanup=[], timeout_ms=120000, provides=None, assumes=[]))
+moo_config = {'log_file': '/tmp/moo_conformance_gqcprd_x/server.log', 'managed_server': '1', 'named_log_file': None, 'posix_signals': '1', ...}
+profile_metadata_gate = {'builtin.abs': 'present', 'builtin.acos': 'present', 'builtin.acosh': 'present', 'builtin.add_property': 'present', ...}
+
+    @pytest.mark.conformance
+    def test_yaml_conformance(runner, yaml_test_case, moo_config, profile_metadata_gate):
+        """Run a single YAML test case.
+    
+        Args:
+            runner: YamlTestRunner fixture
+            yaml_test_case: (suite, test) tuple from parametrization
+            moo_config: dict of available config values for requires.config checks
+        """
+        suite, test = yaml_test_case
+    
+        _skip_declared_yaml_case(suite, test)
+    
+        _enforce_suite_config_requirements(suite, moo_config)
+        runner.prepare_suite_environment(suite)
+        _enforce_suite_requirements(suite, runner, moo_config, profile_metadata_gate)
+        _enforce_skip_condition(test, runner, profile_metadata_gate)
+    
+        if _uses_managed_restart(test) and moo_config.get("managed_server") is None:
+            pytest.skip(config_skip_reason("managed_server"))
+    
+        # With --restart-server-command this test continues on a second engine,
+        # which must meet the same requirements.
+        restart_engine = getattr(runner, "restart_engine", None)
+        if restart_engine is not None and keeps_database_across_restart(test):
+            restart_config = {**moo_config, "named_log_file": restart_engine.named_log_file}
+            with _probing_restart_engine():
+                _enforce_suite_requirements(
+                    suite, restart_engine, restart_config, restart_engine.profile_features
+                )
+                _enforce_skip_condition(test, restart_engine, restart_engine.profile_features)
+    
+        # Run suite setup if not already done
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+&gt;       runner.run_test(test)
+
+../mct-cross-engine-generated/src/moo_conformance/test_conformance.py:448: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../mct-cross-engine-generated/src/moo_conformance/runner.py:477: in run_test
+    self._run_test(test)
+../mct-cross-engine-generated/src/moo_conformance/runner.py:508: in _run_test
+    self._execute_steps(test)
+../mct-cross-engine-generated/src/moo_conformance/runner.py:852: in _execute_steps
+    self._verify_expectation(step.expect, result, step_desc)
+../mct-cross-engine-generated/src/moo_conformance/runner.py:1581: in _verify_expectation
+    self._verify_value(expect.value, result.value, context)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;moo_conformance.runner.YamlTestRunner object at 0x7a4651bb34d0&gt;
+expected = 1
+actual = ['no restart', [['return', [[1, [1, 0]]]], []], 'restarted', [['return', [[1, 0]]], []]]
+test_name = 'step \'"7 compare";\nh = #0.cross_engi...\''
+
+    def _verify_value(self, expected: Any, actual: Any, test_name: str) -&gt; None:
+        """Verify exact value match."""
+        if not self._values_equal(expected, actual):
+&gt;           raise AssertionError(
+                f"Test '{test_name}' expected value {expected!r}, but got {actual!r}"
+            )
+E           moo_conformance.runner.AssertionError: Test 'step '"7 compare";
+E           h = #0.cross_engi...'' expected value 1, but got ['no restart', [['return', [[1, [1, 0]]]], []], 'restarted', [['return', [[1, 0]]], []]]
+
+../mct-cross-engine-generated/src/moo_conformance/runner.py:1632: AssertionError</failure></testcase><testcase classname="test_conformance" name="test_yaml_conformance[cross_engine_generated.yaml::generated_8855508aade16ec5]" time="0.989" /></testsuite></testsuites>

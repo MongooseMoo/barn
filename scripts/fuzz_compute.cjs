@@ -37,7 +37,16 @@ function configure({context, core}) {
 const ACCEPT = 'Accept discovery cycle';
 const DIFFERENTIAL = 'ToastDifferential';
 const SUCCESSOR = 'Submit continuous successor';
-const NOT_LANES = new Set(['Validate compute routing', DIFFERENTIAL, ACCEPT, SUCCESSOR]);
+// The jobs that compare Barn with Toast: the one step that may fail, and the
+// results file their artifact carries, whose summary.outcome is success,
+// divergence or inconclusive.
+const COMPARISONS = [
+  {name: DIFFERENTIAL, step: 'Compare retained public source on Barn and Toast',
+   results: 'fuzz-differential/results.json'},
+  {name: 'ToastCrossEngineCheckpoint', step: 'Resume retained suspended stacks on the other engine',
+   results: 'fuzz-cross-engine/results.json'},
+];
+const NOT_LANES = new Set(['Validate compute routing', ACCEPT, SUCCESSOR, ...COMPARISONS.map(c => c.name)]);
 
 // A cycle is accepted when every lane completed measured work and kept its
 // evidence. A saved finding or a real divergence leaves its job red and is
@@ -96,19 +105,22 @@ async function accept({github, context, core}) {
     }
     if (job.conclusion === 'failure' && failed.length === 0) problems.push(`${job.name}: failure without a failed step`);
   }
-  const differential = jobs.find(job => job.name === DIFFERENTIAL);
-  const resultsFile = 'fuzz-differential/results.json';
-  const outcome = fs.existsSync(resultsFile) ? JSON.parse(fs.readFileSync(resultsFile, 'utf8')).summary?.outcome : undefined;
-  if (selected === 'native-only') {
-    if (differential?.conclusion !== 'skipped' || fs.existsSync(resultsFile)) {
-      problems.push(`${DIFFERENTIAL}: native-only requires a skipped comparison with no results`);
+  const outcomes = {};
+  for (const {name, step, results} of COMPARISONS) {
+    const comparison = jobs.find(job => job.name === name);
+    const outcome = fs.existsSync(results) ? JSON.parse(fs.readFileSync(results, 'utf8')).summary?.outcome : undefined;
+    outcomes[name] = selected === 'native-only' ? 'not-run-native-only' : outcome ?? null;
+    if (selected === 'native-only') {
+      if (comparison?.conclusion !== 'skipped' || fs.existsSync(results)) {
+        problems.push(`${name}: native-only requires a skipped comparison with no results`);
+      }
+    } else if (!comparison || !['success', 'failure'].includes(comparison.conclusion)) {
+      problems.push(`${name}: job ${comparison?.conclusion ?? 'missing'}`);
+    } else if (!onlyFailed(comparison, step)) {
+      problems.push(`${name}: a step other than the comparison failed`);
+    } else if (outcome !== (comparison.conclusion === 'success' ? 'success' : 'divergence')) {
+      problems.push(`${name}: outcome ${outcome ?? 'missing'} with job ${comparison.conclusion}`);
     }
-  } else if (!differential || !['success', 'failure'].includes(differential.conclusion)) {
-    problems.push(`${DIFFERENTIAL}: job ${differential?.conclusion ?? 'missing'}`);
-  } else if (!onlyFailed(differential, 'Compare retained public source on Barn and Toast')) {
-    problems.push(`${DIFFERENTIAL}: a step other than the comparison failed`);
-  } else if (outcome !== (differential.conclusion === 'success' ? 'success' : 'divergence')) {
-    problems.push(`${DIFFERENTIAL}: outcome ${outcome ?? 'missing'} with job ${differential.conclusion}`);
   }
   // scripts/fuzz_builtin_census.py: a builtin that lost its last compared
   // program and conformance test, or a listed one that gained coverage.
@@ -128,7 +140,7 @@ async function accept({github, context, core}) {
     }
   }
   core.info(JSON.stringify({campaign: selected, lanes: lanes.length,
-    differential: selected === 'native-only' ? 'not-run-native-only' : outcome ?? null, problems}));
+    differential: outcomes[DIFFERENTIAL], comparisons: outcomes, problems}));
   if (problems.length) throw new Error(`Cycle not accepted: ${problems.join('; ')}`);
 }
 

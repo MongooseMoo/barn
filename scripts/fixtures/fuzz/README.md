@@ -30,6 +30,17 @@ artifact, unchanged: the summary, the divergence heading with its first two
 entries, and the first structured entry (with its choice bytes). The full
 report is 2.2 MB.
 
+`cross-engine/*.xml` are the harness's `--junitxml` output, unchanged, from
+local runs of `scripts/fuzz_cross_engine.py` on 2026-11-20 over four one-layer
+suspended-stack seeds (choices `0000010000`, `0000010101`, `0000010200`,
+`0000000000`), with the stock WSL Toast oracle. `pre886-barn-first.xml`: Barn
+built from the first parent of PR 886's merge writes, Toast resumes; three eval
+seeds return a changed result. `master-toast-first.xml`: Toast writes, Barn
+from master resumes; Barn does not boot on the `call_function("eval", ...)`
+seed's checkpoint. `FuzzSuspendedStackCheckpoint/*` are byte-for-byte copies of
+three records from Go's fuzz cache for that target; two render the same
+program.
+
 The reporter reads existing committed corpus inputs where available; it does not
 copy them here. Missing input files remain explicit in its JSON.
 
