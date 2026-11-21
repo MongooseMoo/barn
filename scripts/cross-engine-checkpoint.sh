@@ -9,7 +9,7 @@
 #   TOAST  stock ToastStunt moo binary (profiles/toast/stock-wsl-testdb.json)
 #   SUITE  moo-conformance-tests checkout, with its submodules
 #
-# Each direction runs two managed sessions:
+# Each direction runs two managed sessions (scripts/cross-engine-session.sh):
 #   - the suite's own tests that restart on the database the server wrote
 #     (its kept_db_restart marker);
 #   - this checkout's tests/mongoose-conformance/server/*checkpoint*.yaml.
@@ -26,10 +26,6 @@ barn="$(realpath -e "$1")" || exit 2
 toast="$(realpath -e "$2")" || exit 2
 suite="$(realpath -e "$3")" || exit 2
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-oracle="$repo/profiles/toast/stock-wsl-testdb.json"
-
-barn_command="$barn serve --db {db} --listen tcp://127.0.0.1:{port} --config=$repo/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}"
-toast_command="$toast {db} {db}.new -p {port}"
 
 local_root="$repo/tests/mongoose-conformance"
 local_paths=()
@@ -49,15 +45,10 @@ cp -R "$suite/src/moo_conformance/_db/." "$work/" || exit 2
 
 status=0
 run() {
-    local label="$1"
-    shift
+    local label="$1" direction="$2"
+    shift 2
     echo "=== $label ==="
-    if uv run --project "$suite" --frozen moo-conformance \
-        -m "admission or kept_db_restart" \
-        --moo-host=127.0.0.1 \
-        --oracle-profile-manifest="$oracle" \
-        --fail-on-unexpected-skip --strict-markers \
-        -q -p no:cacheprovider "$@"; then
+    if bash "$repo/scripts/cross-engine-session.sh" "$barn" "$toast" "$suite" "$direction" "$@"; then
         echo "=== $label: passed ==="
     else
         echo "=== $label: FAILED ==="
@@ -76,14 +67,9 @@ local=(
     "--server-db=$work/Test.db"
     "--server-db-dir=$work/startup"
 )
-# The harness reads the target profile from the first engine's {manifest}
-# file. Toast writes none, so its verified profile is named instead.
-barn_first=(--server-command "$barn_command" --restart-server-command "$toast_command")
-toast_first=(--server-command "$toast_command" --restart-server-command "$barn_command"
-    "--target-profile-manifest=$oracle")
 
-run "Barn writes, Toast resumes: suite tests" "${packaged[@]}" "${barn_first[@]}"
-run "Barn writes, Toast resumes: Barn checkpoint tests" "${local[@]}" "${barn_first[@]}"
-run "Toast writes, Barn resumes: suite tests" "${packaged[@]}" "${toast_first[@]}"
-run "Toast writes, Barn resumes: Barn checkpoint tests" "${local[@]}" "${toast_first[@]}"
+run "Barn writes, Toast resumes: suite tests" barn-first "${packaged[@]}"
+run "Barn writes, Toast resumes: Barn checkpoint tests" barn-first "${local[@]}"
+run "Toast writes, Barn resumes: suite tests" toast-first "${packaged[@]}"
+run "Toast writes, Barn resumes: Barn checkpoint tests" toast-first "${local[@]}"
 exit "$status"

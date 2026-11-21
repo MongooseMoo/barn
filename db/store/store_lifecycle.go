@@ -189,10 +189,14 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 
 	obj := s.load(id)
 	if obj == nil {
-		return fmt.Errorf("object #%d does not exist", id)
-	}
-
-	if !obj.recycled {
+		// A slot loaded as recycled holds no placeholder (AddRecycledSlot), so
+		// an empty slot up to max_object() is as recyclable as one this process
+		// recycled: Toast accepts any invalid id in 1..db_last_used_objid()
+		// (objects.cc bf_recreate).
+		if id <= 0 || int64(id) > s.ids.max.Load() {
+			return fmt.Errorf("object #%d does not exist", id)
+		}
+	} else if !obj.recycled {
 		return fmt.Errorf("object #%d is not recycled", id)
 	}
 

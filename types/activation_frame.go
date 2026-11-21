@@ -23,6 +23,7 @@ type ActivationFrame struct {
 	SourceLine              string                   // Source text at LineNumber (best-effort, for debugging/logging)
 	ServerInitiated         bool                     // True if this is a server-invoked call (do_login_command, etc.)
 	IsEvalFrame             bool                     // True if this is an eval() infrastructure frame (excluded from tracebacks)
+	IsBuiltinFrame          bool                     // The builtin entry ExpandBuiltinFrames inserted below its callback
 }
 
 // ExpandBuiltinFrames inserts native continuation entries below their callback
@@ -35,7 +36,7 @@ func ExpandBuiltinFrames(stack []ActivationFrame) []ActivationFrame {
 				This: ObjNothing, ThisValue: None, Programmer: ObjNothing,
 				VerbLoc: ObjNothing, Player: frame.Player,
 				Verb: frame.BuiltinCaller, StoredVerb: frame.BuiltinCaller,
-				LineNumber:              frame.BuiltinPC,
+				LineNumber: frame.BuiltinPC, IsBuiltinFrame: true,
 				RuntimeVariables:        frame.RuntimeVariables,
 				RuntimeVariableSnapshot: frame.RuntimeVariableSnapshot,
 			})

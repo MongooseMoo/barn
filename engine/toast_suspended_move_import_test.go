@@ -270,6 +270,56 @@ func TestToastSuspendedCallFunctionMoveImportFinishesMove(t *testing.T) {
 	}
 }
 
+// The accept frame Toast wrote under call_function("move", ...) keeps its
+// builtin's name in Barn: the loaded task's activation names it call_function,
+// as Toast's callers() did before the checkpoint, and Barn's checkpoint of the
+// loaded task writes Toast's call_function record again (execute.cc
+// bf_call_function_write), so Toast resumed from Barn's file names it the same.
+func TestToastSuspendedCallFunctionMoveKeepsFrameName(t *testing.T) {
+	const fixture = "testdata/toast-suspended-call-function-move-accept.db"
+	const hash = "363d56392a024d99522536a5dbf710426af450d0cc8f835b9f0050c2bdbff5d1"
+	database := loadNativeImportFixture(t, fixture, hash)
+	toast := loadNativeImportFixture(t, fixture, hash).SuspendedTasks[0].Snapshot.VM
+	store, err := database.NewStoreFromDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntimeWithBuiltins(t, store)
+	defer rt.Stop()
+	rt.Session().LoadServerOptionsFromStore(store)
+	rt.Session().LoadProtectedBuiltinsFromStore(store)
+	if err := rt.LoadSuspendedTasks(database.SuspendedTasks); err != nil {
+		t.Fatal(err)
+	}
+	restored := rt.GetTask(database.SuspendedTasks[0].Snapshot.ID)
+	if restored == nil {
+		t.Fatal("native suspended task was not restored")
+	}
+	stack := restored.GetCallStack()
+	if top := stack[len(stack)-1]; top.Verb != "accept" || top.BuiltinCaller != "call_function" || top.BuiltinPC != 2 {
+		t.Fatalf("loaded accept activation %s names builtin %q at pc %d, want call_function at 2", top.Verb, top.BuiltinCaller, top.BuiltinPC)
+	}
+	_, suspended := rt.TaskSnapshots()
+	if len(suspended) != 1 || len(suspended[0].VM.Frames) != len(toast.Frames) {
+		t.Fatalf("checkpoint holds %d tasks, want the loaded one with %d frames", len(suspended), len(toast.Frames))
+	}
+	top, want := suspended[0].VM.Frames[len(toast.Frames)-1], toast.Frames[len(toast.Frames)-1]
+	if top.Native == nil || top.BuiltinPC != want.BuiltinPC || !reflect.DeepEqual(top.Native.Builtin, want.Native.Builtin) {
+		t.Fatalf("Barn writes the accept frame as builtin pc %d %+v, want Toast's %d %+v", top.BuiltinPC, top.Native, want.BuiltinPC, want.Native.Builtin)
+	}
+	path := filepath.Join(t.TempDir(), "barn.db")
+	if err := dbformat.WriteCheckpoint(path, store, nil, suspended, nil); err != nil {
+		t.Fatal(err)
+	}
+	written, err := os.ReadFile(path + ".new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tail := "\ncall_function\nbf_call_function data: fname = move\n" + toastSuspendedMoveData + "\n"; strings.Count(string(written), tail) != 1 {
+		t.Fatalf("written checkpoint does not hold Toast's call_function accept frame ending %q", tail)
+	}
+}
+
 // A task Barn started, suspended two verb calls above each move() hook, so the
 // hook's frame is a middle frame: the checkpoint holds every frame in Toast's
 // form with move's continuation on the hook frame, and the task finishes the

@@ -322,6 +322,14 @@ func (r *Registry) Get(name string) (BuiltinFunc, bool) {
 	return fn, ok
 }
 
+// NameByID returns the name of the builtin with ID id, or "" when there is none.
+func (r *Registry) NameByID(id int) string {
+	if id < 0 || id >= len(r.entries) || r.entries[id] == nil {
+		return ""
+	}
+	return r.entries[id].name
+}
+
 // Has checks if a builtin function is registered
 func (r *Registry) Has(name string) bool {
 	_, ok := r.funcs[name]

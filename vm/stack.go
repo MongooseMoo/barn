@@ -166,6 +166,7 @@ func (vm *VM) Return(value types.Value) error {
 
 	continuation := frame.MoveContinuation
 	recycleContinuation := frame.RecycleContinuation
+	builtinCaller := frame.BuiltinCaller
 	base := frame.BasePointer
 	discardReturn := frame.DiscardReturn
 	returnLocal := frame.ReturnLocal
@@ -182,6 +183,7 @@ func (vm *VM) Return(value types.Value) error {
 		case types.FlowException:
 			return VMException{Code: result.Error, Value: result.Val, Reason: result.Reason}
 		case types.FlowBuiltinPush:
+			vm.nameBuiltinCaller(builtinCaller)
 			return nil
 		case types.FlowNormal, types.FlowReturn:
 			vm.Push(result.Val)
@@ -196,6 +198,7 @@ func (vm *VM) Return(value types.Value) error {
 		case types.FlowException:
 			return VMException{Code: result.Error, Value: result.Val, Reason: result.Reason}
 		case types.FlowBuiltinPush:
+			vm.nameBuiltinCaller(builtinCaller)
 			return nil
 		case types.FlowNormal, types.FlowReturn:
 			vm.Push(result.Val)

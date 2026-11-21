@@ -13,7 +13,7 @@ tests:
           o = create($nothing, owner);
           add_property(#1, "conformance_suspended_call_function_move_accept", o, {player, ""});
           for name in ({"thing", "origin", "dest"}) add_property(o, name, #-1, {owner, ""}); endfor
-          for name in ({"log", "stack"}) add_property(o, name, {}, {owner, ""}); endfor
+          for name in ({"log", "stack", "names"}) add_property(o, name, {}, {owner, ""}); endfor
           add_property(o, "result", 0, {owner, ""});
           add_property(o, "finished", 0, {owner, ""});
           o.thing = create($nothing, owner);
@@ -26,6 +26,7 @@ tests:
             add_verb(where, {owner, "rxd", name}, {"this", "none", "this"});
             code = {"o = this.driver;", "o.log = {@o.log, verb};"};
             if (pause) code = {@code, "for c in (callers()) o.stack = {@o.stack, c[2]}; endfor", "suspend(20);", "o.log = {@o.log, verb + \" resumed\"};"}; endif
+            code = {@code, "o.names = {@o.names, {verb, callers()[1][2]}};"};
             errors = set_verb_code(where, name, {@code, "return 1;"});
             if (errors) raise(E_INVARG, "hook compile failed", errors); endif
           endfor
@@ -55,6 +56,10 @@ tests:
           return {o.log, o.thing.location == o.dest, o.result, o.finished};
         expect:
           value: [["accept", "accept resumed", "exitfunc", "enterfunc"], 1, [0], 1]
+      - run: |
+          return #1.conformance_suspended_call_function_move_accept.names;
+        expect:
+          value: [["accept", "call_function"], ["exitfunc", "call_function"], ["enterfunc", "call_function"]]
     cleanup:
       - run: |
           o = #1.conformance_suspended_call_function_move_accept;

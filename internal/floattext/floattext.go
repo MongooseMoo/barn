@@ -11,17 +11,22 @@ import (
 	"strings"
 )
 
-// Format spells f. NaN and the infinities get the runtime's spellings; they
-// have no literal form in code.
+// Format spells f. NaN and the infinities have no literal form in code; as
+// values Toast prints them through the same printf (list.cc:461-466), so
+// glibc's "inf", "-inf", "nan" and "-nan" get ".0" appended. SQLite results
+// are where a MOO value can hold one.
 func Format(f float64) string {
 	if math.IsNaN(f) {
-		return "NaN"
+		if math.Signbit(f) {
+			return "-nan.0"
+		}
+		return "nan.0"
 	}
 	if math.IsInf(f, 1) {
-		return "Inf"
+		return "inf.0"
 	}
 	if math.IsInf(f, -1) {
-		return "-Inf"
+		return "-inf.0"
 	}
 	s := strconv.FormatFloat(f, 'g', 15, 64)
 	if !strings.ContainsAny(s, ".eE") {
