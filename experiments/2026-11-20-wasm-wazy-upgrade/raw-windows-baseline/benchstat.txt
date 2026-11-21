@@ -1,0 +1,33 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                                  │ raw-windows-baseline/baseline-v030.txt │
+                                  │                 sec/op                 │
+WASMCall/example/Full                                         102.1µ ±  6%
+WASMCall/example/InstantiateClose                             96.02µ ±  5%
+WASMCall/example/ExecuteExisting                              3.285µ ± 24%
+WASMCall/scalar/Full                                          32.69µ ± 22%
+WASMCall/scalar/InstantiateClose                              26.66µ ± 12%
+WASMCall/scalar/ExecuteExisting                               3.109µ ± 20%
+geomean                                                       21.06µ
+
+                                  │ raw-windows-baseline/baseline-v030.txt │
+                                  │                  B/op                  │
+WASMCall/example/Full                                         41.74Ki ± 0%
+WASMCall/example/InstantiateClose                             41.32Ki ± 0%
+WASMCall/example/ExecuteExisting                                651.0 ± 3%
+WASMCall/scalar/Full                                          17.30Ki ± 0%
+WASMCall/scalar/InstantiateClose                              16.97Ki ± 0%
+WASMCall/scalar/ExecuteExisting                                 578.0 ± 1%
+geomean                                                       7.526Ki
+
+                                  │ raw-windows-baseline/baseline-v030.txt │
+                                  │               allocs/op                │
+WASMCall/example/Full                                           144.0 ± 0%
+WASMCall/example/InstantiateClose                               138.0 ± 0%
+WASMCall/example/ExecuteExisting                                9.000 ± 0%
+WASMCall/scalar/Full                                            130.0 ± 0%
+WASMCall/scalar/InstantiateClose                                124.0 ± 0%
+WASMCall/scalar/ExecuteExisting                                 9.000 ± 0%
+geomean                                                         54.41

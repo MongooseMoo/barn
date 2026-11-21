@@ -1,0 +1,60 @@
+2026-11-20T22:39:12.8609183-07:00 run=1 side=base host_load_pct=13 waited_s=1
+  wsl_loadavg=1.57 1.37 2.26 2/752 113443
+2026-11-20T22:39:18.7313857-07:00 run=1 side=switch host_load_pct=7 waited_s=1
+  wsl_loadavg=1.61 1.38 2.26 1/754 113455
+2026-11-20T22:39:29.6459366-07:00 run=1 side=final host_load_pct=7 waited_s=1
+  wsl_loadavg=1.51 1.37 2.25 1/754 113483
+2026-11-20T22:39:41.2307358-07:00 run=2 side=base host_load_pct=6 waited_s=1
+  wsl_loadavg=1.59 1.39 2.25 1/758 113501
+2026-11-20T22:39:46.6805017-07:00 run=2 side=switch host_load_pct=27 waited_s=1
+  wsl_loadavg=1.75 1.43 2.25 2/778 113708
+2026-11-20T22:39:57.8785465-07:00 run=2 side=final host_load_pct=17 waited_s=1
+  wsl_loadavg=2.45 1.59 2.29 2/790 114174
+2026-11-20T22:40:08.4132941-07:00 run=3 side=base host_load_pct=21 waited_s=1
+  wsl_loadavg=2.46 1.62 2.30 2/751 114343
+2026-11-20T22:40:14.0289018-07:00 run=3 side=switch host_load_pct=8 waited_s=1
+  wsl_loadavg=2.34 1.61 2.29 2/750 114504
+2026-11-20T22:40:25.2955271-07:00 run=3 side=final host_load_pct=21 waited_s=1
+  wsl_loadavg=2.61 1.69 2.31 1/754 114808
+2026-11-20T22:40:35.8076769-07:00 run=4 side=base host_load_pct=8 waited_s=1
+  wsl_loadavg=2.60 1.72 2.31 2/751 114894
+2026-11-20T22:40:41.4007660-07:00 run=4 side=switch host_load_pct=2 waited_s=1
+  wsl_loadavg=2.42 1.71 2.30 2/767 114926
+2026-11-20T22:40:52.6763530-07:00 run=4 side=final host_load_pct=7 waited_s=1
+  wsl_loadavg=2.36 1.72 2.30 1/743 114992
+2026-11-20T22:41:03.2242597-07:00 run=5 side=base host_load_pct=11 waited_s=1
+  wsl_loadavg=2.30 1.73 2.29 1/742 115003
+2026-11-20T22:41:08.7910159-07:00 run=5 side=switch host_load_pct=7 waited_s=1
+  wsl_loadavg=2.28 1.74 2.29 1/743 115013
+2026-11-20T22:41:19.8474243-07:00 run=5 side=final host_load_pct=9 waited_s=1
+  wsl_loadavg=2.24 1.74 2.29 1/743 115027
+2026-11-20T22:41:32.6596042-07:00 run=6 side=base host_load_pct=11 waited_s=1
+  wsl_loadavg=2.17 1.76 2.28 1/743 115401
+2026-11-20T22:41:38.3658391-07:00 run=6 side=switch host_load_pct=6 waited_s=1
+  wsl_loadavg=2.08 1.74 2.27 1/744 115410
+2026-11-20T22:41:49.3952090-07:00 run=6 side=final host_load_pct=22 waited_s=1
+  wsl_loadavg=2.06 1.75 2.27 1/741 115420
+2026-11-20T22:41:59.4908874-07:00 run=7 side=base host_load_pct=26 waited_s=1
+  wsl_loadavg=1.98 1.74 2.26 1/742 115430
+2026-11-20T22:42:05.1784713-07:00 run=7 side=switch host_load_pct=8 waited_s=1
+  wsl_loadavg=1.98 1.75 2.26 1/744 115441
+2026-11-20T22:42:16.2462149-07:00 run=7 side=final host_load_pct=13 waited_s=1
+  wsl_loadavg=1.91 1.74 2.25 1/743 115450
+2026-11-20T22:42:27.6586721-07:00 run=8 side=base host_load_pct=10 waited_s=1
+  wsl_loadavg=1.71 1.70 2.23 2/745 115462
+2026-11-20T22:42:33.1431620-07:00 run=8 side=switch host_load_pct=8 waited_s=1
+  wsl_loadavg=1.73 1.71 2.23 1/745 115473
+2026-11-20T22:42:44.2272814-07:00 run=8 side=final host_load_pct=17 waited_s=1
+  wsl_loadavg=1.77 1.72 2.23 1/740 115483
+2026-11-20T22:42:54.5279891-07:00 run=9 side=base host_load_pct=28 waited_s=1
+  wsl_loadavg=1.82 1.73 2.22 2/737 115492
+2026-11-20T22:43:00.0664369-07:00 run=9 side=switch host_load_pct=13 waited_s=1
+  wsl_loadavg=1.75 1.72 2.22 2/755 115502
+2026-11-20T22:43:11.1779259-07:00 run=9 side=final host_load_pct=7 waited_s=1
+  wsl_loadavg=1.71 1.71 2.21 1/745 115643
+2026-11-20T22:43:23.5794162-07:00 run=10 side=base host_load_pct=10 waited_s=1
+  wsl_loadavg=2.07 1.79 2.23 1/741 115878
+2026-11-20T22:43:29.2442355-07:00 run=10 side=switch host_load_pct=12 waited_s=1
+  wsl_loadavg=2.07 1.79 2.23 1/746 116227
+2026-11-20T22:43:40.2960300-07:00 run=10 side=final host_load_pct=8 waited_s=1
+  wsl_loadavg=2.14 1.82 2.23 2/755 117031

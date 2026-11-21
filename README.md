@@ -65,6 +65,7 @@ Common `barn serve` flags:
 | `--listen <url>` | Listener URL such as `tcp://:7777`; can be repeated |
 | `--config <path>` | Server options file (examples in `profiles/barn/`) |
 | `--checkpoint-interval <s>` | Seconds between checkpoints (default `3600`, `0` disables) |
+| `--wasm-dir <path>` | Load pure WIT builtin components from an operator directory; see [the authoring guide](docs/wasm-builtins.md) |
 | `-v`, `-q`, `-qq`, `--log-level` | Log debug records; only warnings; only errors; or name the level |
 | `--log-dir <dir>` | Where JSON logs go (default `logs/`, empty disables) |
 

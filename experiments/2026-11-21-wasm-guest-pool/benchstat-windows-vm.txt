@@ -1,0 +1,32 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                    │ raw-windows-vm/base.txt │      raw-windows-vm/final.txt       │
+                    │         sec/op          │    sec/op     vs base               │
+VM/int_arith_1M                  46.26m ±  3%   47.03m ±  2%       ~ (p=0.165 n=10)
+VM/builtin_abs_200k              28.73m ±  2%   29.35m ±  3%       ~ (p=0.063 n=10)
+VM/tostr_200k                    81.11m ±  8%   83.23m ±  6%       ~ (p=0.481 n=10)
+VM/typeof_1M                     122.2m ± 11%   134.0m ±  9%       ~ (p=0.123 n=10)
+VM/prop_defined_1M               227.8m ±  9%   232.0m ± 14%       ~ (p=0.436 n=10)
+geomean                          78.60m         81.39m        +3.54%
+
+                    │ raw-windows-vm/base.txt │       raw-windows-vm/final.txt        │
+                    │          B/op           │     B/op      vs base                 │
+VM/int_arith_1M                  16.33Ki ± 0%   16.33Ki ± 0%       ~ (p=1.000 n=10) ¹
+VM/builtin_abs_200k              16.58Ki ± 0%   16.58Ki ± 0%       ~ (p=1.000 n=10) ¹
+VM/tostr_200k                    13.48Mi ± 0%   13.48Mi ± 0%       ~ (p=0.869 n=10)
+VM/typeof_1M                     16.58Ki ± 0%   16.58Ki ± 0%       ~ (p=1.000 n=10) ¹
+VM/prop_defined_1M               16.38Ki ± 0%   16.38Ki ± 0%       ~ (p=0.211 n=10)
+geomean                          63.28Ki        63.28Ki       -0.00%
+¹ all samples are equal
+
+                    │ raw-windows-vm/base.txt │       raw-windows-vm/final.txt       │
+                    │        allocs/op        │  allocs/op   vs base                 │
+VM/int_arith_1M                    20.00 ± 0%    20.00 ± 0%       ~ (p=1.000 n=10) ¹
+VM/builtin_abs_200k                29.00 ± 0%    29.00 ± 0%       ~ (p=1.000 n=10) ¹
+VM/tostr_200k                     399.9k ± 0%   399.9k ± 0%       ~ (p=1.000 n=10) ¹
+VM/typeof_1M                       29.00 ± 0%    29.00 ± 0%       ~ (p=1.000 n=10) ¹
+VM/prop_defined_1M                 21.00 ± 0%    21.00 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                            169.8         169.8       +0.00%
+¹ all samples are equal

@@ -1,0 +1,6 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/internal/wasmbuiltins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWASMCall/example/Full    	   60450	    110345 ns/op	   47594 B/op	     151 allocs/op
+PASS
