@@ -992,6 +992,10 @@ func TestMongooseRealWorkload(t *testing.T) {
 		measStart := time.Now()
 		runWindow(measure, true)
 		elapsed := time.Since(measStart)
+		if finalizationOracleEnabled {
+			recorded, checked, disagreed := FinalizationOracleCounts()
+			t.Logf("finalization oracle players=%d recorded=%d checked=%d disagreed=%d", active, recorded, checked, disagreed)
+		}
 		stopProfile()
 		close(stopSampling)
 		<-sampled

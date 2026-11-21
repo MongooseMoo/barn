@@ -151,7 +151,12 @@ func (x *directRefIndex) snapshot() []directRefHolder {
 // Every noteWaifRootsChanged site calls it, after the change and before the
 // epoch moves, for each object whose property values, last_move or existence
 // it changed.
-func (s *Store) refreshDirectRefs(id types.ObjID) {
+func (s *Store) refreshDirectRefs(id types.ObjID) { s.refreshDirectRefsPublishing(id, 0) }
+
+// refreshDirectRefsPublishing is refreshDirectRefs for a publication made
+// under exclusive commit-gate grant grantSeq (0 for none). Every reference the
+// entry gains or loses is reported to its finalizer tag.
+func (s *Store) refreshDirectRefsPublishing(id types.ObjID, grantSeq uint64) {
 	obj := s.load(id)
 	var refs, lastMoveRefs []types.Value
 	if validLiveObject(obj) {
@@ -164,6 +169,9 @@ func (s *Store) refreshDirectRefs(id types.ObjID) {
 	}
 	s.directRefs.mu.Lock()
 	defer s.directRefs.mu.Unlock()
+	prev := s.directRefs.entries[id]
+	anonymousHolder := validLiveObject(obj) && obj.anonymous
+	s.noteHolderChangeLocked(prev, refs, lastMoveRefs, anonymousHolder, grantSeq)
 	if len(refs) == 0 && len(lastMoveRefs) == 0 {
 		delete(s.directRefs.entries, id)
 		return
@@ -399,4 +407,157 @@ func (s *Store) persistentWaifRootSet(retained bool) *types.WaifSet {
 		s.waifRoots.cache.Store(&persistentWaifRootsEntry{epoch: epoch, top: top, graphEpoch: graphEpoch, closure: closure})
 	}
 	return closure
+}
+
+// finalizerKey is the identity of a WAIF or anonymous object.
+type finalizerKey struct {
+	waif bool
+	anon types.ObjID
+	id   types.WaifIdentity
+}
+
+func finalizerKeyOf(ref types.Value) finalizerKey {
+	if ref.Type() == types.TYPE_WAIF {
+		return finalizerKey{waif: true, id: ref.WaifIdentity()}
+	}
+	return finalizerKey{anon: ref.ID()}
+}
+
+// noteHolderChangeLocked reports to the finalizer tags of task-created values
+// every reference id's index entry gains or loses: a gained one is a
+// publication, which escapes the value, or leaves it tentative under an
+// exclusive grant when the holder is numbered. Values no task created carry
+// no tag and cost one load each. Caller holds directRefs.mu.
+func (s *Store) noteHolderChangeLocked(prev directRefHolder, refs, lastMoveRefs []types.Value, anonymousHolder bool, grantSeq uint64) {
+	var gained, lost map[finalizerKey]*types.FinalizerTag
+	collect := func(into *map[finalizerKey]*types.FinalizerTag, values ...[]types.Value) {
+		for _, list := range values {
+			for _, ref := range list {
+				tag := s.FinalizerTag(ref)
+				if tag.Creator() == 0 {
+					continue
+				}
+				if *into == nil {
+					*into = make(map[finalizerKey]*types.FinalizerTag)
+				}
+				(*into)[finalizerKeyOf(ref)] = tag
+			}
+		}
+	}
+	collect(&gained, refs, lastMoveRefs)
+	collect(&lost, prev.refs, prev.lastMoveRefs)
+	if len(gained) == 0 && len(lost) == 0 {
+		return
+	}
+	// An anonymous holder (a directory-resident fixture) is never a tentative
+	// publication; its holder count would be meaningless.
+	if anonymousHolder || prev.anonymous {
+		grantSeq = 0
+	}
+	for key, tag := range gained {
+		if _, kept := lost[key]; kept {
+			continue
+		}
+		tag.NotePublished(grantSeq)
+	}
+	for key, tag := range lost {
+		if _, kept := gained[key]; kept {
+			continue
+		}
+		tag.NoteUnpublished()
+	}
+}
+
+// FinalizerTag returns the finalizer tag of a WAIF or of a task-created
+// anonymous object, or nil.
+func (s *Store) FinalizerTag(ref types.Value) *types.FinalizerTag {
+	switch {
+	case ref.Type() == types.TYPE_WAIF:
+		return ref.WaifFinalizerTag()
+	case ref.IsAnonymous():
+		if tag, ok := s.anonTags.Load(ref.ID()); ok {
+			return tag.(*types.FinalizerTag)
+		}
+	}
+	return nil
+}
+
+// StampFinalizerCreator records taskID as the creator of a new WAIF or
+// anonymous object, before anything else can hold it.
+func (s *Store) StampFinalizerCreator(value types.Value, taskID int64) {
+	if s == nil || taskID <= 0 {
+		return
+	}
+	switch {
+	case value.Type() == types.TYPE_WAIF:
+		value.WaifFinalizerTag().Stamp(taskID)
+	case value.IsAnonymous():
+		tag := new(types.FinalizerTag)
+		tag.Stamp(taskID)
+		s.anonTags.Store(value.ID(), tag)
+	}
+}
+
+// MarkFinalizersEscaped records that every WAIF and anonymous object value
+// holds directly (through lists and maps) may now be held outside the task
+// that created it. A value inside a WAIF's or an anonymous object's property
+// was marked when it was written there, so the walk stops at them.
+func (s *Store) MarkFinalizersEscaped(value types.Value) {
+	if s == nil || !value.MayHoldFinalizable() {
+		return
+	}
+	value.VisitDirectFinalizationRefs(func(ref types.Value) {
+		s.FinalizerTag(ref).MarkEscaped()
+	})
+}
+
+// forgetFinalizerTag drops the tag of an anonymous object that was recycled.
+func (s *Store) forgetFinalizerTag(id types.ObjID) {
+	s.anonTags.Delete(id)
+}
+
+// ReferencedAnonymousIDs returns every anonymous id that seeds or a live
+// numbered object's properties reference, followed through the properties of
+// the live anonymous objects among them. Unlike the reachability walks it
+// keeps ids of objects that are no longer live, so a check can ask whether a
+// recycled object is still referenced (the finalization oracle).
+func (s *Store) ReferencedAnonymousIDs(seeds map[types.ObjID]struct{}) map[types.ObjID]struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	start := make(map[types.ObjID]struct{}, len(seeds))
+	for id := range seeds {
+		start[id] = struct{}{}
+	}
+	for _, holder := range s.directRefs.snapshot() {
+		if holder.anonymous {
+			continue
+		}
+		for _, ref := range holder.refs {
+			types.CollectAnonymousRefs(ref, start, true)
+		}
+		for _, ref := range holder.lastMoveRefs {
+			types.CollectAnonymousRefs(ref, start, true)
+		}
+	}
+	referenced := make(map[types.ObjID]struct{}, len(start))
+	queue := make([]types.ObjID, 0, len(start))
+	for id := range start {
+		queue = append(queue, id)
+	}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if _, seen := referenced[id]; seen {
+			continue
+		}
+		referenced[id] = struct{}{}
+		if obj := s.lookupAnonymousLocked(id); obj != nil {
+			nested := make(map[types.ObjID]struct{})
+			collectObjectAnonymousRefs(obj, nested, true)
+			for nestedID := range nested {
+				queue = append(queue, nestedID)
+			}
+		}
+	}
+	return referenced
 }

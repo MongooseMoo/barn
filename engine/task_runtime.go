@@ -659,6 +659,9 @@ retryAttempt:
 	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
 	ctx.StoreTxn.SetConflictOrigin(t.VerbLoc, attempt+1)
 	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, id, nil))
+	// The grant this attempt committed under, if any: values it published
+	// under that grant may still be confined (types.FinalizerTag).
+	commitGrantSeq := gate.heldSeq()
 	// Every suspension yields the commit gate along with execution. Everything
 	// after this point (completion hooks, the suspend hand-off, a failure-path
 	// txn that lives on) takes the gate normally. Checkpoint requests are
@@ -672,7 +675,7 @@ retryAttempt:
 	// Check context deadline
 	select {
 	case <-taskCtx.Done():
-		s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor, committed)
+		s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor, committed, nil)
 		t.SetState(task.TaskKilled)
 		t.SetVM(nil)
 		return taskCtx.Err()
@@ -686,7 +689,7 @@ retryAttempt:
 	// Handle suspend
 	if result.Flow == types.FlowSuspend {
 		isolationprobe.Note("suspend")
-		s.handOffSuspended(t, ctx, scope, bcVM, anonGCFloor, anonFloor, &gate)
+		s.handOffSuspended(t, ctx, scope, bcVM, anonGCFloor, anonFloor, &gate, commitGrantSeq)
 		return nil
 	}
 
@@ -718,7 +721,14 @@ retryAttempt:
 	// Match Toast lifecycle semantics at shutdown: transfer completed-task roots
 	// only after an explicit shutdown request. Generic cancellation still runs
 	// ordinary finalization rather than fabricating pending checkpoint roots.
-	if !s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor, committed) {
+	// A committed slice's confined garbage is recycled below, before the
+	// task's completion is delivered (Toast runs the queued :recycle verbs
+	// before the next task slice, the same player's next command included).
+	var finalize *boundaryFinalization
+	if committed {
+		finalize = &boundaryFinalization{task: t, held: []types.Value{result.Val}, grantSeq: commitGrantSeq}
+	}
+	if !s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor, committed, finalize) {
 		// A per-task waif/anon sweep is prohibitive on large databases, so both are
 		// deferred and settled by flushDeferredGC (which self-throttles once sweeps
 		// get expensive, and stays prompt while they are cheap). The cheap guards
@@ -738,7 +748,7 @@ retryAttempt:
 				builtins.FlushPendingEffects(s.session.NewExecution(ctx, &t.State))
 			}
 		}
-
+		s.recycleConfinedDead(ctx, finalize.deadValues())
 	}
 
 	t.SetVM(nil) // Release VM after completion
@@ -881,29 +891,33 @@ func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt f
 	return bcVM, result, nil
 }
 
-// handOffSuspended publishes a slice that ended in a suspend: it queues the
-// slice's garbage for the next flush, commits what the slice wrote since its
-// main commit, and saves the VM for the scheduler to resume. A failed commit
-// kills the task instead.
-func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.Scope, bcVM *vm.VM, anonGCFloor types.ObjID, anonFloor uint64, gate *sliceGate) {
+// handOffSuspended publishes a slice that ended in a suspend: it commits what
+// the slice wrote since its main commit, recycles the garbage only this task
+// could hold (decideConfined), queues the rest for the next flush, and saves
+// the VM for the scheduler to resume. A failed commit kills the task instead.
+// grantSeq is the exclusive commit-gate grant the slice's main commit was made
+// under, or 0.
+func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.Scope, bcVM *vm.VM, anonGCFloor types.ObjID, anonFloor uint64, gate *sliceGate, grantSeq uint64) {
 	// A suspend is a waif liveness boundary as well as an anonymous-object
 	// boundary. Values overwritten before the yield are no longer live in the
-	// saved VM, so queue them now; the flush-time scan of the registered VM
-	// protects any waifs that remain reachable when execution resumes.
-	s.deferPendingWaifs(ctx, bcVM.TakePendingWaifs(), nil)
+	// saved VM, so they are settled now; the flush-time scan of the registered
+	// VM protects any waifs that remain reachable when execution resumes.
+	releasedWaifs := bcVM.TakePendingWaifs()
 	// Match Toast lifecycle semantics more closely: a scheduler yield/suspend
 	// is a GC boundary for newly-created orphan anonymous objects. The sweep is
 	// deferred to the next quiescent flush; the suspended task's VM is registered
 	// below (SetVM), so the flush-time root scan still sees its locals.
 	// Released references may belong to objects created before this slice.
-	if floor, needed := bcVM.AnonymousGCFloor(anonGCFloor, s.store.AnonCreationCount() != anonFloor); needed {
-		s.deferAnonGC(ctx, floor, nil)
-	}
+	anonFloorID, anonNeeded := bcVM.AnonymousGCFloor(anonGCFloor, s.store.AnonCreationCount() != anonFloor)
 	// A terminal commit failure makes HasWrites false without discarding the
 	// private view, preventing completion cleanup from recommitting it.
 	if ctx.StoreTxn.HasWrites() {
 		ctx.StoreTxn.SetConflictCommitPoint(dbstore.CommitSuspend)
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+			s.deferPendingWaifs(ctx, releasedWaifs, nil)
+			if anonNeeded {
+				s.deferAnonGC(ctx, anonFloorID, nil)
+			}
 			result := types.Err(errCode)
 			t.Result = result
 			t.SetState(task.TaskKilled)
@@ -924,11 +938,31 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 		ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
 		ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, taskRuntimeIdentity(t), nil))
 	}
-	// Outside shutdown, the WAIFs queued above and the store's committed
-	// anonymous objects cover the ledger, which otherwise grows on every
-	// slice. ShutdownRequested never reverts, so false here means
-	// deferPendingWaifs queued them; under shutdown the ledger is their only
-	// record. Pruning follows the commit so this slice's anonymous objects exist.
+	// Decide after the commit: a property the slice overwrote no longer counts
+	// as a holder. Under shutdown the release ledger is the record of what the
+	// slice let go, so nothing is decided or recycled here.
+	var verdict confinedVerdict
+	if s.ShutdownRequested() {
+		verdict.sweepWaifs = releasedWaifs
+	} else {
+		verdict = s.decideConfined(t, bcVM, releasedWaifs, nil, grantSeq)
+	}
+	// verdict.undecided values released by this suspending slice are settled
+	// by the batched sweep, unordered against this task's resume.
+	s.deferPendingWaifs(ctx, verdict.sweepWaifs, nil)
+	if anonNeeded {
+		s.deferAnonGC(ctx, anonFloorID, nil)
+	}
+	// The task's own confined garbage: its :recycle verbs run before the task
+	// can resume (its physical execution lease excludes it from readiness until
+	// this invocation returns).
+	s.recycleConfinedDead(ctx, verdict.dead)
+	// Outside shutdown, the WAIFs queued or recycled above and the store's
+	// committed anonymous objects cover the ledger, which otherwise grows on
+	// every slice. ShutdownRequested never reverts, so false here means they
+	// were handed off; under shutdown the ledger is their only record. Pruning
+	// follows the commit so this slice's anonymous objects exist, and the
+	// recycles so the ones recycled leave it.
 	if !s.ShutdownRequested() {
 		bcVM.PruneSuspendedPendingFinalizations()
 	}
@@ -1041,6 +1075,9 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 // back once that attempt's commit is decided.
 type sliceGate struct {
 	grant *commitgate.Grant // nil while the gate is not held
+	// seq is the store's number for grant (Store.ExclusiveGrantSeq), valid
+	// while grant is held.
+	seq uint64
 	// everHeld records that the slice held the gate at some point, for the
 	// slow-slice log.
 	everHeld bool
@@ -1344,6 +1381,14 @@ func (s *Runtime) GateHolds() []GateHold {
 
 func (g *sliceGate) held() bool { return g.grant != nil }
 
+// heldSeq is the number of the grant held now, or 0.
+func (g *sliceGate) heldSeq() uint64 {
+	if g.grant == nil {
+		return 0
+	}
+	return g.seq
+}
+
 // Tick bases for acquire: gateTicksFromVM counts a hold's ticks from the slice
 // VM's ticks at the acquire; gateTicksAtLaunch from the VM's ticks when the
 // attempt launches (attach), for a gate taken before the attempt runs.
@@ -1388,6 +1433,7 @@ func (g *sliceGate) acquire(ctx context.Context, store *dbstore.Store, cause, bu
 	}
 	g.key.Cause = cause
 	g.grant = grant
+	g.seq = store.ExclusiveGrantSeq()
 	g.everHeld = true
 	g.heldSince = time.Now()
 	if detail != nil {

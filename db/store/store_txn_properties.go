@@ -407,6 +407,11 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
+	if obj.anonymous {
+		// An anonymous object is mutated in place: whatever it holds may be read
+		// by any task that holds it, so the value escapes now.
+		tx.store.MarkFinalizersEscaped(value)
+	}
 	if actualName, prop, ok := obj.properties.find(name); ok && !prop.clear && prop.value.Identical(value) {
 		// Same-value elision. The slot already holds this exact value and is
 		// not clear, so the write changes nothing MOO code can observe (value,
@@ -500,6 +505,9 @@ func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property
 	obj := tx.mutableFacets(objID, facetProperties|facetPropOrder)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
+	}
+	if obj.anonymous {
+		tx.store.MarkFinalizersEscaped(prop.value)
 	}
 	if existingName, existing, ok := obj.properties.find(name); ok {
 		tx.markPropertyRead(objID, existingName, existing)

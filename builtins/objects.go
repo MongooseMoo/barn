@@ -270,6 +270,10 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	created := types.NewObj(newID)
 	if anonymous {
 		created = types.NewAnon(newID)
+		stampFinalizerCreator(ctx, created)
+		if ctx.Task != nil && ctx.Task.ID == ctx.TaskID {
+			ctx.Task.NoteCreatedAnonymous(newID)
+		}
 	}
 	if ctx.PushInitialize != nil {
 		return ctx.PushInitialize(created, initArgs, "create")

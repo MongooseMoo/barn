@@ -178,6 +178,13 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 		}
 	}
 
+	// The child task holds every value it is handed (types.FinalizerTag).
+	if vm.Store != nil {
+		vm.Store.MarkFinalizersEscaped(thisValue)
+		for _, value := range forkInfo.Variables {
+			vm.Store.MarkFinalizersEscaped(value)
+		}
+	}
 	vm.yielded = true
 	vm.yieldResult = types.Result{
 		Flow:     types.FlowFork,

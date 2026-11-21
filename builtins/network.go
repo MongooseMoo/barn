@@ -1346,6 +1346,9 @@ func builtinConnectionNameLookup(ctx *Execution, args []types.Value) types.Resul
 
 // set_connection_option(conn, option, value) -> int.
 func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result {
+	// The connection keeps the value for any task to read back. Marked before
+	// any check: a refused call loses nothing by it.
+	escapeFinalizers(ctx, args[2])
 	player, ok := parseConnectionTarget(args[0])
 	if !ok {
 		return types.Err(types.E_TYPE)

@@ -876,6 +876,8 @@ func builtinBackgroundTest(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(args[0])
 	}
 	result := args[0]
+	// The goroutine below holds the value while the task is suspended.
+	escapeFinalizers(ctx, result)
 	t.IsExecSuspended = true
 	mgr := taskManagerOf(ctx)
 	if mgr == nil {

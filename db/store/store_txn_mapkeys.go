@@ -203,6 +203,11 @@ func (tx *StoreTxn) KeyedWritebackView(objID types.ObjID, name string) (Property
 // consumed, or the assignment's own evaluation changed the slot) it is an
 // ordinary SetPropertyValue, which records a whole read.
 func (tx *StoreTxn) SetPropertyMapKey(objID types.ObjID, name string, key, next types.Value, sizeLimit int) types.ErrorCode {
+	if objID >= AnonymousIdentityBase {
+		// As SetPropertyValue: a value written into an anonymous object escapes.
+		tx.store.MarkFinalizersEscaped(key)
+		tx.store.MarkFinalizersEscaped(next)
+	}
 	actualName, prop, st, ok := tx.pendingKeyedBase(objID, name)
 	if !ok || next.Type() != types.TYPE_MAP {
 		return tx.SetPropertyValue(objID, name, next)

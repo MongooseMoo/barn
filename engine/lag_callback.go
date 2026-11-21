@@ -75,6 +75,8 @@ func (s *Runtime) recordFinishedTask(t *Task, result types.Result, elapsed time.
 			limit = int(option.Value.Int())
 		}
 	}
+	// finished_tasks() hands the record to any task.
+	s.store.MarkFinalizersEscaped(info.this)
 	s.session.RecordFinishedTask(builtins.FinishedTask{
 		This:       info.this,
 		Player:     info.player,

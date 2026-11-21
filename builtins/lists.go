@@ -324,7 +324,7 @@ func builtinSort(ctx *Execution, args []types.Value) types.Result {
 	}
 	return backgroundValue(ctx, func() types.Value {
 		return sortCallback(list, keys, useKeys, natural, reverse)
-	})
+	}, list, keys)
 }
 
 // sortCallback is Toast's sort_callback: it returns the sorted list, or an

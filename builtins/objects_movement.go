@@ -26,6 +26,9 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
+	// The moved object and its destination name each other through location
+	// and contents, which any task can read, and both go to lifecycle verbs.
+	escapeFinalizers(ctx, args[0], args[1])
 	whatVal := args[0]
 	if !isObjectRef(whatVal) {
 		return types.Err(types.E_TYPE)
