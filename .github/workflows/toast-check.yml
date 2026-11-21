@@ -19,6 +19,7 @@ on:
     paths:
       - .github/workflows/toast-check.yml
       - .github/workflows/goodput-series.yml
+      - scripts/build-toast-oracle.sh
       - scripts/toast-check.sh
       - internal/dbtool/toast_check.go
       - profiles/toast/mongoose-0ff6fd7-wsl-testdb.json
@@ -42,30 +43,8 @@ jobs:
           go-version-file: go.mod
           cache: ${{ runner.environment == 'github-hosted' }}
 
-      - name: Read Toast pin
-        id: toast-pin
-        run: |
-          python3 -c 'import json; m = json.load(open("profiles/toast/mongoose-0ff6fd7-wsl-testdb.json")); print("ref=" + m["implementation_ref"]); print("options=" + m["config_checksum"])' >> "$GITHUB_OUTPUT"
-
-      - name: Checkout ToastStunt
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: MongooseMoo/toaststunt
-          ref: ${{ steps.toast-pin.outputs.ref }}
-          path: toaststunt
-          persist-credentials: false
-
-      # As ci.yml builds its oracle: an unmodified tree checked against the
-      # manifest's options.h checksum, Release. CMakeLists.txt generates
-      # version_options.h in cmake's working directory, which must be the build
-      # directory to be included.
       - name: Build Toast
-        env:
-          OPTIONS_SHA256: ${{ steps.toast-pin.outputs.options }}
-        run: |
-          echo "$OPTIONS_SHA256  toaststunt/src/include/options.h" | sha256sum -c -
-          mkdir toaststunt/build
-          (cd toaststunt/build && cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build . -j2)
+        run: bash scripts/build-toast-oracle.sh profiles/toast/mongoose-0ff6fd7-wsl-testdb.json
 
       - name: Build barn
         run: go build -o bin/barn ./cmd/barn/

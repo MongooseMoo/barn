@@ -1,4 +1,5 @@
-name: Claude fix
+name: Automatic repair
+run-name: Repair #${{ inputs.issue_number || github.event.issue.number || github.event.pull_request.number }} / ${{ inputs.provider || 'auto' }}
 
 # Runs Claude Code on one issue and leaves a pull request for review.
 # Nightly fuzz dispatches this for each newly opened failure issue, as soon as
@@ -31,6 +32,16 @@ on:
         description: Issue to fix
         required: true
         type: string
+      provider:
+        description: Provider to use for the repair
+        type: choice
+        options: [auto, claude, codex]
+        default: auto
+      stage:
+        description: Use conformance with an existing repair PR number
+        type: choice
+        options: [repair, conformance]
+        default: repair
   issues:
     types: [labeled]
   pull_request:
@@ -45,7 +56,7 @@ concurrency:
 
 jobs:
   fix:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'claude-fix'
+    if: (github.event_name == 'workflow_dispatch' && inputs.stage != 'conformance') || github.event.label.name == 'claude-fix'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     # Two Claude runs: the repair, then its Toast check.
     timeout-minutes: 420
@@ -66,7 +77,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Route the repair
+        id: route
+        uses: $/.github/actions/repair-route
+        with:
+          issue: ${{ env.ISSUE }}
+          stage: repair
+          provider: ${{ inputs.provider || 'auto' }}
+          codex_enabled: ${{ vars.BARN_CODEX_WORKER_ENABLED }}
+          token: ${{ github.token }}
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.route.outputs.provider == 'claude'
         with:
           repository: MongooseMoo/moo-conformance-tests
           path: moo-conformance-tests
@@ -74,27 +96,32 @@ jobs:
           submodules: true
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        if: steps.route.outputs.provider == 'claude'
         with:
           go-version-file: go.mod
           cache: ${{ runner.environment == 'github-hosted' }}
 
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        if: steps.route.outputs.provider == 'claude'
 
       # Claude's installer writes under $HOME, which the runners on one host
       # share: a run installing while another ran the downloaded installer
       # binary failed with "Text file busy". Each run installs into its own
       # temporary home, and the action uses that binary instead of installing.
       - name: Install Claude Code for this run
+        if: steps.route.outputs.provider == 'claude'
         run: |
           set -o pipefail
           curl -fsSL https://claude.ai/install.sh | HOME="$RUNNER_TEMP/claude-home" bash
 
       - uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
+        id: claude
+        if: steps.route.outputs.provider == 'claude'
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           path_to_claude_code_executable: &claude-bin ${{ runner.temp }}/claude-home/.local/bin/claude
           # Nightly fuzz dispatches as github-actions[bot].
-          allowed_bots: github-actions
+          allowed_bots: github-actions,mongoosemoo-barn-repair-worker
           settings: .github/claude-fix-settings.json
           prompt: |
             Fix GitHub issue #${{ env.ISSUE }} in ${{ github.repository }} and open a pull request for review.
@@ -136,7 +163,7 @@ jobs:
             2. Before fixing, check for the same bug already filed or being fixed. One bug can appear under two
                fuzz signatures (for example two hangs, or a different top frame). List open issues with
                `gh issue list --state open --search '"Nightly fuzz failure" in:title'` and open PRs from
-               claude/issue-* branches with `gh pr list --state open --json number,title,headRefName`, and read
+               claude/issue-* or codex/issue-* branches with `gh pr list --state open --json number,title,headRefName`, and read
                each one's cause. If one has the same root cause as this issue (the same cause at the same
                file:line, not only the same fuzz target), open no PR: use your one allowed issue comment
                (`gh issue comment ${{ env.ISSUE }} --body-file <file>`) to link that issue or PR with the
@@ -173,6 +200,17 @@ jobs:
             --model claude-opus-5-5
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
 
+      - name: Classify and route Claude repair failure
+        if: failure() && steps.claude.outcome == 'failure'
+        uses: $/.github/actions/repair-route
+        with:
+          issue: ${{ env.ISSUE }}
+          stage: repair
+          provider: claude-failed
+          execution_file: ${{ steps.claude.outputs.execution_file }}
+          codex_enabled: ${{ vars.BARN_CODEX_WORKER_ENABLED }}
+          token: ${{ github.token }}
+
       # GitHub closes the issue on merge only when the PR body, not its title,
       # says "Fixes #N"; #696 named #692 only in its title, so #692 stayed open.
       # The body is read because the runner's gh has no closingIssuesReferences
@@ -184,6 +222,7 @@ jobs:
       # (classic) is being deprecated", the body kept no "Fixes #841", the
       # steps after this one were skipped and #841 stayed open.
       - name: Make the pull request close its issue
+        if: steps.route.outputs.provider == 'claude'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -200,6 +239,7 @@ jobs:
       # The runner's gh is 2.23, so these steps call the REST and GraphQL APIs
       # rather than newer gh subcommands and JSON fields.
       - name: Find the repair pull request
+        if: steps.route.outputs.provider == 'claude'
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
@@ -239,10 +279,21 @@ jobs:
           cat "$RUNNER_TEMP/scope.txt"
           echo "in_scope=$in_scope" >> "$GITHUB_OUTPUT"
 
-      - name: Write the conformance test and check the repair against Toast
+      - name: Route conformance
+        id: conformance_route
         if: steps.pr.outputs.number
+        uses: $/.github/actions/repair-route
+        with:
+          issue: ${{ steps.pr.outputs.number }}
+          stage: conformance
+          provider: ${{ inputs.provider || 'auto' }}
+          codex_enabled: ${{ vars.BARN_CODEX_WORKER_ENABLED }}
+          token: ${{ github.token }}
+
+      - name: Write the conformance test and check the repair against Toast
+        if: steps.conformance_route.outputs.provider == 'claude'
         id: toast
-        uses: ./.github/actions/conformance-test
+        uses: $/.github/actions/conformance-test
         with:
           pr: ${{ steps.pr.outputs.number }}
           merged: 'false'
@@ -253,11 +304,23 @@ jobs:
           claude_args: *claude-args
           conformance_pr_token: ${{ secrets.CONFORMANCE_PR_TOKEN }}
 
+      - name: Classify and route Claude conformance failure
+        id: toast_handoff
+        if: failure() && steps.toast.outcome == 'failure'
+        uses: $/.github/actions/repair-route
+        with:
+          issue: ${{ steps.pr.outputs.number }}
+          stage: conformance
+          provider: claude-failed
+          execution_file: ${{ steps.toast.outputs.execution_file }}
+          codex_enabled: ${{ vars.BARN_CODEX_WORKER_ENABLED }}
+          token: ${{ github.token }}
+
       # Claude armed the merge with its own token if it judged that allowed.
       # This step decides again from the recorded facts and makes the pull
       # request's state match: armed only when every condition holds.
       - name: Queue the repair only when every check allows it
-        if: always() && steps.pr.outputs.number
+        if: always() && steps.conformance_route.outputs.provider == 'claude' && steps.toast_handoff.outputs.provider != 'codex'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -275,7 +338,7 @@ jobs:
           # into the queue: no auto-merge request exists and .auto_merge is null.
           # #831, #840 and #850 were queued that way and merged, while this step,
           # reading only .auto_merge, failed each run as "not armed".
-          state_query='query($id: ID!) { node(id: $id) { ... on PullRequest { state isInMergeQueue autoMergeRequest { enabledAt } } } }'
+          state_query="query(\$id: ID!) { node(id: \$id) { ... on PullRequest { state isInMergeQueue autoMergeRequest { enabledAt } } } }"
           pr_info=$(gh api graphql -f query="$state_query" -f id="$NODE" \
             --jq '.data.node | "\(.state) \(.isInMergeQueue) \(.autoMergeRequest != null)"')
           read -r pr_state in_queue auto_merge <<< "$pr_info"
@@ -312,10 +375,10 @@ jobs:
               return 1
             fi
             if [ "$in_queue" = true ]; then
-              gh api graphql -f query='mutation($id: ID!) { dequeuePullRequest(input: {id: $id}) { clientMutationId } }' -f id="$NODE"
+              gh api graphql -f query="mutation(\$id: ID!) { dequeuePullRequest(input: {id: \$id}) { clientMutationId } }" -f id="$NODE"
             fi
             if [ "$auto_merge" = true ]; then
-              gh api graphql -f query='mutation($id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: $id}) { clientMutationId } }' -f id="$NODE"
+              gh api graphql -f query="mutation(\$id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: \$id}) { clientMutationId } }" -f id="$NODE"
             fi
           }
 
@@ -334,6 +397,84 @@ jobs:
             echo "Pull request #$PR is in the merge queue or will enter it when its required checks pass."
           fi
 
+  resume_conformance:
+    if: github.event_name == 'workflow_dispatch' && inputs.stage == 'conformance'
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify the repair PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.issue_number }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[1-9][0-9]*$ ]]
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR")
+          jq -e '.head.repo.full_name == .base.repo.full_name and .base.ref == "master" and (.merged or .state == "open")' <<< "$pr" > /dev/null
+          jq -r '"merged=\(.merged)\nhead=\(if .merged then .merge_commit_sha else .head.sha end)"' <<< "$pr" >> "$GITHUB_OUTPUT"
+      - name: Route the existing repair PR
+        id: route
+        uses: $/.github/actions/repair-route
+        with:
+          issue: ${{ inputs.issue_number }}
+          stage: conformance
+          provider: ${{ inputs.provider }}
+          codex_enabled: ${{ vars.BARN_CODEX_WORKER_ENABLED }}
+          token: ${{ github.token }}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.route.outputs.provider == 'claude'
+        with:
+          repository: MongooseMoo/moo-conformance-tests
+          path: moo-conformance-tests
+          submodules: true
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        if: steps.route.outputs.provider == 'claude'
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        if: steps.route.outputs.provider == 'claude'
+      - name: Install Claude and check out the exact repair
+        if: steps.route.outputs.provider == 'claude'
+        env:
+          REPAIR_HEAD: ${{ steps.pr.outputs.head }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$REPAIR_HEAD"
+          git checkout --detach "$REPAIR_HEAD"
+          curl -fsSL https://claude.ai/install.sh | HOME="$RUNNER_TEMP/claude-home" bash
+      - name: Verify conformance at the repair head
+        id: resume_toast
+        if: steps.route.outputs.provider == 'claude'
+        uses: $/.github/actions/conformance-test
+        with:
+          pr: ${{ inputs.issue_number }}
+          merged: ${{ steps.pr.outputs.merged }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_bin: *claude-bin
+          claude_args: *claude-args
+          conformance_pr_token: ${{ secrets.CONFORMANCE_PR_TOKEN }}
+
+      - name: Classify and route resumed conformance failure
+        if: failure() && steps.resume_toast.outcome == 'failure'
+        uses: $/.github/actions/repair-route
+        with:
+          issue: ${{ inputs.issue_number }}
+          stage: conformance
+          provider: claude-failed
+          execution_file: ${{ steps.resume_toast.outputs.execution_file }}
+          codex_enabled: ${{ vars.BARN_CODEX_WORKER_ENABLED }}
+          token: ${{ github.token }}
+
   conformance:
     if: >-
       github.event_name == 'pull_request' &&
@@ -343,6 +484,7 @@ jobs:
     timeout-minutes: 240
     permissions:
       contents: read
+      issues: write
       pull-requests: write
       id-token: write
     env:
@@ -351,7 +493,7 @@ jobs:
       SUITE: MongooseMoo/moo-conformance-tests
       # A repair from the fix job had its test written before it merged. Any
       # other merged pull request carrying the label gets its test written now.
-      WRITE_TEST: ${{ github.event.pull_request.merged == true && !startsWith(github.event.pull_request.head.ref, 'claude/issue-') }}
+      WRITE_TEST: ${{ github.event.pull_request.merged == true && !startsWith(github.event.pull_request.head.ref, 'claude/issue-') && !startsWith(github.event.pull_request.head.ref, 'codex/issue-') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: env.WRITE_TEST == 'true'
@@ -360,8 +502,19 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Route conformance for the merged repair
+        id: merged_route
         if: env.WRITE_TEST == 'true'
+        uses: $/.github/actions/repair-route
+        with:
+          issue: ${{ env.FIXED_PR }}
+          stage: conformance
+          provider: auto
+          codex_enabled: ${{ vars.BARN_CODEX_WORKER_ENABLED }}
+          token: ${{ github.token }}
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.merged_route.outputs.provider == 'claude'
         with:
           repository: MongooseMoo/moo-conformance-tests
           path: moo-conformance-tests
@@ -369,24 +522,25 @@ jobs:
           submodules: true
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        if: env.WRITE_TEST == 'true'
+        if: steps.merged_route.outputs.provider == 'claude'
         with:
           go-version-file: go.mod
           cache: ${{ runner.environment == 'github-hosted' }}
 
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
-        if: env.WRITE_TEST == 'true'
+        if: steps.merged_route.outputs.provider == 'claude'
 
       # Installed into this run's own temporary home, as in the fix job.
       - name: Install Claude Code for this run
-        if: env.WRITE_TEST == 'true'
+        if: steps.merged_route.outputs.provider == 'claude'
         run: |
           set -o pipefail
           curl -fsSL https://claude.ai/install.sh | HOME="$RUNNER_TEMP/claude-home" bash
 
       - name: Write the conformance test for the merged change
-        if: env.WRITE_TEST == 'true'
-        uses: ./.github/actions/conformance-test
+        id: merged_toast
+        if: steps.merged_route.outputs.provider == 'claude'
+        uses: $/.github/actions/conformance-test
         with:
           pr: ${{ github.event.pull_request.number }}
           merged: 'true'
@@ -395,9 +549,21 @@ jobs:
           claude_args: *claude-args
           conformance_pr_token: ${{ secrets.CONFORMANCE_PR_TOKEN }}
 
+      - name: Classify and route merged conformance failure
+        if: failure() && steps.merged_toast.outcome == 'failure'
+        uses: $/.github/actions/repair-route
+        with:
+          issue: ${{ env.FIXED_PR }}
+          stage: conformance
+          provider: claude-failed
+          execution_file: ${{ steps.merged_toast.outputs.execution_file }}
+          codex_enabled: ${{ vars.BARN_CODEX_WORKER_ENABLED }}
+          token: ${{ github.token }}
+
       # Barn's CI runs the suite's tip, so a test for a repair may land only
       # after the repair has.
       - name: Merge or close the conformance pull request
+        if: steps.merged_route.outputs.provider != 'codex'
         env:
           GH_TOKEN: ${{ secrets.CONFORMANCE_PR_TOKEN }}
         run: |
@@ -430,7 +596,7 @@ jobs:
             gh api -X PUT "repos/$SUITE/pulls/$number/update-branch" --silent
           fi
           node=$(gh api "repos/$SUITE/pulls/$number" --jq .node_id)
-          if gh api graphql -f query='mutation($id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: MERGE}) { clientMutationId } }' -f id="$node" --silent; then
+          if gh api graphql -f query="mutation(\$id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: \$id, mergeMethod: MERGE}) { clientMutationId } }" -f id="$node" --silent; then
             echo "Conformance pull request #$number will merge when its required checks pass."
             exit 0
           fi

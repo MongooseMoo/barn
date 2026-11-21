@@ -299,9 +299,11 @@ func builtinCallers(ctx *Execution, args []types.Value) types.Result {
 	// ordered most-recent-first (immediate caller first).
 	// The current frame is the top of the stack (last element).
 	//
-	// If the current (top) frame is an eval frame, we're at the eval top level.
-	// Return synthetic eval wrapper frames (matching Toast behavior).
-	if len(stack) > 0 && stack[len(stack)-1].IsEvalFrame {
+	// If the current (top) frame is the root eval frame, we're at the eval top
+	// level. Return synthetic eval wrapper frames (matching Toast behavior). An
+	// eval() call's activation has its builtin entry below it and is walked
+	// like any other.
+	if top := len(stack) - 1; top >= 0 && rootEvalFrame(stack, top) {
 		return types.Ok(syntheticEvalCallers(ctx, includeLineNumbers))
 	}
 
@@ -318,7 +320,7 @@ func builtinCallers(ctx *Execution, args []types.Value) types.Result {
 		// At the eval boundary, expose the eval activation the way Toast does:
 		// the eval'd user-code frame followed by the two synthetic eval wrapper
 		// frames (bf_eval builtin marker + root "eval" command frame).
-		if frame.IsEvalFrame {
+		if rootEvalFrame(stack, i) {
 			result = append(result, evalUserCodeFrame(ctx, includeLineNumbers))
 			result = append(result, evalWrapperFrames(ctx, includeLineNumbers)...)
 			break
@@ -333,6 +335,14 @@ func builtinCallers(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	return types.Ok(types.NewList(result))
+}
+
+// rootEvalFrame reports whether stack[i] is the eval frame of a command-line
+// ";" eval, which has no builtin entry below it, rather than an eval() call's
+// activation (Toast's setup_activ_for_eval activation, whose builtin entry
+// ExpandBuiltinFrames inserted at i-1).
+func rootEvalFrame(stack []types.ActivationFrame, i int) bool {
+	return stack[i].IsEvalFrame && (i == 0 || !stack[i-1].IsBuiltinFrame)
 }
 
 // evalWrapperFrames returns the two activation frames Toast reports beneath the
