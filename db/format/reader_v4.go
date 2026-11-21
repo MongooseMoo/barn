@@ -235,23 +235,11 @@ func (database *Database) readObjectV4(r *bufio.Reader, slot types.ObjID) (*stor
 		obj.AppendVerb(store.NewVerb(names, owner, store.VerbPerms(perms&0xF), argSpec, nil))
 	}
 
-	// Read property definitions
-	propDefCount, err := readInt(r)
+	propDefs, err := database.readPropDefs(r, objID)
 	if err != nil {
 		return nil, err
 	}
-
-	if propDefCount < 0 {
-		return nil, fmt.Errorf("invalid property definition count %d", propDefCount)
-	}
-	propDefs := make([]string, 0, min(propDefCount, maxTrustedCount))
-	for i := 0; i < propDefCount; i++ {
-		name, err := readPropDefName(r)
-		if err != nil {
-			return nil, err
-		}
-		propDefs = append(propDefs, name)
-	}
+	propDefCount := len(propDefs)
 
 	// Read total property count (including inherited)
 	totalPropCount, err := readInt(r)

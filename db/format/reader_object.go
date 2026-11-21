@@ -3,6 +3,7 @@ package format
 import (
 	"bufio"
 	"fmt"
+	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 	"math"
@@ -238,23 +239,11 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool, sl
 		obj.AppendVerb(store.NewVerb(names, owner, store.VerbPerms(perms&0xF), argSpec, nil))
 	}
 
-	// Read property definitions
-	propDefCount, err := readInt(r)
+	propDefs, err := database.readPropDefs(r, objID)
 	if err != nil {
 		return nil, err
 	}
-
-	if propDefCount < 0 {
-		return nil, fmt.Errorf("invalid property definition count %d", propDefCount)
-	}
-	propDefs := make([]string, 0, min(propDefCount, maxTrustedCount))
-	for i := 0; i < propDefCount; i++ {
-		name, err := readPropDefName(r)
-		if err != nil {
-			return nil, err
-		}
-		propDefs = append(propDefs, name)
-	}
+	propDefCount := len(propDefs)
 
 	// Read total property count (including inherited)
 	totalPropCount, err := readInt(r)
@@ -428,4 +417,29 @@ func (database *Database) readVerbCode(r *bufio.Reader) error {
 	}
 
 	return nil
+}
+
+// readPropDefs reads an object's property definition count and names. Toast
+// logs a definition named like a built-in property, in any case, and keeps it
+// (src/db_file.cc, where propdefs are read).
+func (database *Database) readPropDefs(r *bufio.Reader, objID types.ObjID) ([]string, error) {
+	propDefCount, err := readInt(r)
+	if err != nil {
+		return nil, err
+	}
+	if propDefCount < 0 {
+		return nil, fmt.Errorf("invalid property definition count %d", propDefCount)
+	}
+	propDefs := make([]string, 0, min(propDefCount, maxTrustedCount))
+	for i := 0; i < propDefCount; i++ {
+		name, err := readPropDefName(r)
+		if err != nil {
+			return nil, err
+		}
+		if bytecode.IsBuiltinPropertyName(name) {
+			database.recordStartupRepair(fmt.Sprintf("DB_WARNING: Property #%d.%s has a reserved name", objID, name))
+		}
+		propDefs = append(propDefs, name)
+	}
+	return propDefs, nil
 }

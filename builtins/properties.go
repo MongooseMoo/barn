@@ -67,6 +67,13 @@ func builtinPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 
+	// Toast db_find_property (src/db_properties.cc) finds a built-in property
+	// first, and bf_prop_info (src/property.cc) reports E_PROPNF for it, even
+	// when a loaded database also defines a property with that name.
+	if bytecode.IsBuiltinPropertyName(nameVal.Str()) {
+		return types.Err(types.E_PROPNF)
+	}
+
 	// Find property (with inheritance)
 	prop, err := findPropertyForRead(ctx, objID, nameVal.Str())
 	if err != types.E_NONE {
@@ -119,7 +126,12 @@ func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 
+	// A built-in property name is E_PROPNF (src/property.cc set_prop_info), even
+	// when a loaded database also defines a property with that name.
 	propName := nameVal.Str()
+	if bytecode.IsBuiltinPropertyName(propName) {
+		return types.Err(types.E_PROPNF)
+	}
 	prop, ok, err := localPropertyForRead(ctx, objID, propName)
 	if err != types.E_NONE {
 		return types.Err(err)
