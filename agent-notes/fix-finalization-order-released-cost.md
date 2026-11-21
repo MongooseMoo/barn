@@ -615,6 +615,19 @@ command run before its completion is delivered.
   unchanged) fail on master (`k.hits ... = 0, want 1`, all four).
 - Step 2 done: the mechanism; the four tests pass (30 runs each), and
   `go test ./...` passes.
+- Step 3 done: `engine/finalization_escape_channels_test.go`, one test per
+  reachable channel, each for a task-created WAIF and anonymous object, with
+  the sweep throttled so only the boundary decision could recycle in the
+  window: numbered property (plain, under the slice's grant, and permanent
+  after the holder lets go), tentative from an earlier slice, anonymous
+  property, WAIF property, fork, resume, task_stack, queued_tasks (Barn
+  extensions off so the finished-tasks record does not also hold it), the
+  finished-tasks record, set_connection_option, hook arguments (tag level:
+  `RunServerVerbTaskWithArgstr` with a stamped WAIF); positive controls: the
+  C2 case (published under the grant, holder recycled in the slice) recycled
+  before resume, a plain confined value recycled at suspend and before
+  completion is delivered. Each channel test was checked by removing its
+  mark (`mutcheck.py`, outside the repo): every one then fails.
 
 Where the mechanism lives:
 - `types/finalizer_tag.go`: `FinalizerTag` (creator task id; state confined /
@@ -680,6 +693,23 @@ Where the mechanism lives:
   hold would test, at the one place each boundary queues its rest.
 
 ### Surprises
+
+- Channels with no test because MOO code cannot reach them with a
+  finalizable value: `move()` raises E_TYPE for a TYPE_ANON object (and a
+  WAIF) before anything holds it; `listen()` rejects a non-OBJ object by its
+  signature; `background_test()` takes a string; `sort()` of a list holding a
+  WAIF raises E_TYPE. Their marks stay (cheap, conservative). all_members()
+  and the sqlite builtins accept any value; not tested because of the next
+  item.
+- A threaded builtin's resumed task is sometimes never run by the engine
+  test harness (`ProcessReadyTasks` loop): `r = sort({3, 1}); return r;`
+  stays queued with its wake value set in 3 of 4 runs on origin/master too,
+  so it is not this change. Not investigated further.
+- A compiler temporary keeps the base of an indexed or property assignment
+  (`w2.ref = v`) in a hidden local slot past the statement, so the task's own
+  VM still "holds" `w2` (and, through it, `v`) at the next boundary. That
+  only makes the fast path say alive (safe), but it hides garbage from it;
+  the WAIF-property test makes its write inside a verb for that reason.
 
 ### Escape channels (file:line)
 
