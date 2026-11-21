@@ -362,13 +362,19 @@ func (r *slowTimelines) list() []TaskTimeline {
 }
 
 // finishTimeline closes a finished task's timeline, logging and keeping it when
-// it spans slowTimelineThreshold or more.
+// it spans slowTimelineThreshold or more. It acts once per task: a suspended
+// task's first invocation can reach its terminal-state check after a resumed
+// slice on another worker has finished the task and called this already.
 func (s *Runtime) finishTimeline(t *Task, state string) {
 	tl := t.timeline.Load()
 	if tl == nil {
 		return
 	}
 	tl.mu.Lock()
+	if tl.tl.Finished {
+		tl.mu.Unlock()
+		return
+	}
 	tl.tl.Finished = true
 	tl.mu.Unlock()
 	snap := tl.snapshot(state, true)
