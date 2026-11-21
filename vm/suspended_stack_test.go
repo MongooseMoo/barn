@@ -1,10 +1,12 @@
 package vm
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
+	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/fuzzseed"
 )
 
@@ -177,6 +179,44 @@ func TestSuspendedStackKindsReachCheckpoint(t *testing.T) {
 				t.Fatalf("choices %x: %s\nsource:\n%s", seed, difference, source)
 			}
 		})
+	}
+}
+
+// A task suspended in a verb that create(), recreate() or recycle() called,
+// directly or through call_function, is refused at that verb's frame with
+// ErrToastLosesObjectContinuation, before any other frame is exported.
+func TestExportRefusesObjectContinuation(t *testing.T) {
+	want := map[string]string{
+		"create-initialize":   "frame 1 (#4:initialize): create: " + ErrToastLosesObjectContinuation.Error(),
+		"recreate-initialize": "frame 1 (#4:initialize): recreate: " + ErrToastLosesObjectContinuation.Error(),
+		"recycle-recycle":     "frame 1 (#4:recycle): recycle: " + ErrToastLosesObjectContinuation.Error(),
+		"recycle-exitfunc":    "frame 1 (#5:exitfunc): recycle: " + ErrToastLosesObjectContinuation.Error(),
+	}
+	seeds := suspendedStackSeeds()
+	for kind, reason := range want {
+		// The first seed calls the builtin directly, the third through
+		// call_function.
+		for _, seed := range [][]byte{seeds[kind][0], seeds[kind][2]} {
+			t.Run(kind, func(t *testing.T) {
+				var refusals []string
+				record := func(t *testing.T, machine *VM, store *dbstore.Store, forks []sourceFuzzFork) (*VM, *dbstore.Store, []sourceFuzzFork) {
+					snapshot := suspendedSnapshot(machine)
+					_, err := ExportNativeSnapshot(snapshot.VM, machine.Task.GetCallStack(), machine.Builtins.Registry().Compiler())
+					if !errors.Is(err, ErrToastLosesObjectContinuation) {
+						t.Fatalf("ExportNativeSnapshot: %v, want %v", err, ErrToastLosesObjectContinuation)
+					}
+					refusals = append(refusals, err.Error())
+					return checkpointSuspendedVMInBarnForm(t, machine, store, forks)
+				}
+				source := fuzzseed.SuspendedStack(seed)
+				if difference := worldCheckpointDifference(t, source, record); difference != "" {
+					t.Fatalf("choices %x: %s\nsource:\n%s", seed, difference, source)
+				}
+				if len(refusals) != 1 || refusals[0] != reason {
+					t.Fatalf("refusals %q, want [%q]\nsource:\n%s", refusals, reason, source)
+				}
+			})
+		}
 	}
 }
 

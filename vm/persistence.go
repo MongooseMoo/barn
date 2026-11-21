@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -337,6 +338,23 @@ func withoutMoveContinuation(saved task.VMFrameSnapshot) (task.VMFrameSnapshot, 
 	return saved, move
 }
 
+// ErrToastLosesObjectContinuation is ExportNativeSnapshot's refusal of a task
+// with a verb that create(), recreate() or recycle() called and continues
+// after (initialize, the object's recycle, a location's exitfunc). The task
+// stays in Barn's frame form, because stock Toast does not resume its own form
+// of that continuation correctly (ToastStunt 03af4fa2, src/objects.cc):
+// bf_create and bf_recreate keep the object as a Var (427-428, 517-518) and
+// return var_ref(*data) when initialize returns (454, 538), but
+// bf_create_write prints only the Var's first 8 bytes as an Objid (546-548)
+// and bf_create_read allocates and reads one Objid (552-554), so the Var's
+// type is read from past that allocation; bf_recycle is the same (833-834,
+// 850; bf_recycle_write 962-964, bf_recycle_read 970-972). Recorded runs of
+// stock Toast resuming such a checkpoint returned an integer from create()
+// and recreate() and reached panic_moo (957) in recycle(). Remove this
+// refusal, and write Toast's bf_create/bf_recycle data, once the Toast
+// oracle's read functions restore the object value.
+var ErrToastLosesObjectContinuation = errors.New("stock Toast does not resume a create, recreate or recycle continuation from its checkpoint")
+
 // ExportNativeSnapshot is convertNativeSnapshot's inverse: it returns snapshot
 // with every frame as Toast holds it at the same call, so Toast can load and
 // resume it, or an error when any frame has no Toast form. Programmers are
@@ -344,6 +362,14 @@ func withoutMoveContinuation(saved task.VMFrameSnapshot) (task.VMFrameSnapshot, 
 func ExportNativeSnapshot(snapshot *task.VMSnapshot, callStack []types.ActivationFrame, compile *compiler.Compiler) (*task.VMSnapshot, error) {
 	if snapshot == nil || len(snapshot.Frames) == 0 {
 		return nil, fmt.Errorf("empty VM snapshot")
+	}
+	// Checked before any frame is exported: create()'s caller frame holds the
+	// object on its stack, which no Toast call site does.
+	for index, saved := range snapshot.Frames {
+		switch saved.BuiltinCaller {
+		case "create", "recreate", "recycle":
+			return nil, fmt.Errorf("frame %d (#%d:%s): %s: %w", index, saved.VerbLoc, saved.Verb, saved.BuiltinCaller, ErrToastLosesObjectContinuation)
+		}
 	}
 	exported := &task.VMSnapshot{MaxStackDepth: snapshot.MaxStackDepth, Frames: make([]task.VMFrameSnapshot, len(snapshot.Frames))}
 	for index, saved := range snapshot.Frames {
