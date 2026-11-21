@@ -194,7 +194,7 @@ func FuzzRestoreVMSnapshotDoesNotPanic(f *testing.F) {
 	// The registry and its compiler cache are shared by every case, so its
 	// call bound skips whichever case is running.
 	var running *testing.T
-	registry := newSourceFuzzRegistry(f, func(format string, args ...any) { running.Skipf(format, args...) })
+	registry := newSourceFuzzRegistry(f, config.Core, func(format string, args ...any) { running.Skipf(format, args...) })
 	f.Fuzz(func(t *testing.T, source string, ip int, stack uint8, handlerIP int, shift uint8) {
 		running = t
 		restoreFuzzInput(t, registry, source, ip, stack, handlerIP, shift)

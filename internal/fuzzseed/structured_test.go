@@ -2,6 +2,9 @@ package fuzzseed
 
 import (
 	"math/rand/v2"
+	"regexp"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/MongooseMoo/barn/builtins"
@@ -11,7 +14,7 @@ import (
 )
 
 func TestStructuredBuiltinNamesAreRegistered(t *testing.T) {
-	registry, err := builtins.NewRegistryFromDescriptors(config.Core, vm.Descriptors())
+	registry, err := builtins.NewRegistryFromDescriptors(config.Core|config.SQLite, vm.Descriptors())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,10 +43,162 @@ func TestStructuredBuiltinsOmitSideEffects(t *testing.T) {
 		"create", "recycle", "chr", "sort", "pcre_match", "generate_json",
 		"parse_json", "string_hash", "crypt", "kill_task", "notify", "yin",
 		"floatstr", "simplex_noise", "disassemble", "length", "suspend",
+		"verb_info", "descendants", "parents", "task_perms", "trunc", "spellcheck",
+		"sqlite_open", "sqlite_close", "sqlite_query", "sqlite_execute", "sqlite_limit",
+		"sqlite_info", "sqlite_interrupt", "sqlite_last_insert_row_id", "sqlite_handles",
 	} {
 		if !offered[name] {
 			t.Errorf("structured programs never call %q", name)
 		}
+	}
+}
+
+// The SQLite builtins follow the core builtins, so a choice byte below the
+// core count names the builtin it named before SQLite was offered.
+func TestStructuredSQLiteShapesFollowCoreShapes(t *testing.T) {
+	core := 0
+	for _, d := range builtins.Descriptors() {
+		if d.Capability == config.Core && d.Visibility == builtins.Public && !excludedBuiltins[d.Name] && !strings.HasPrefix(d.Name, "file_") {
+			core++
+		}
+	}
+	var sqlite []string
+	for i, shape := range builtinShapes {
+		if (i >= core) != shape.sqlite {
+			t.Fatalf("builtinShapes[%d] = %q (sqlite %v), want the %d core builtins first", i, shape.name, shape.sqlite, core)
+		}
+		if shape.sqlite {
+			sqlite = append(sqlite, shape.name)
+		}
+	}
+	want := []string{"sqlite_close", "sqlite_execute", "sqlite_handles", "sqlite_info", "sqlite_interrupt",
+		"sqlite_last_insert_row_id", "sqlite_limit", "sqlite_open", "sqlite_query"}
+	if !slices.Equal(sqlite, want) {
+		t.Fatalf("SQLite shapes = %v, want %v", sqlite, want)
+	}
+}
+
+// A SQLite call never opens a file and never runs SQL from an expression:
+// sqlite_open's path is the literal ":memory:" and sqlite_query's and
+// sqlite_execute's SQL is a literal from sqliteStatements.
+func TestStructuredSQLiteCallsStayInMemory(t *testing.T) {
+	rng := rand.New(rand.NewPCG(3, 4))
+	for _, shape := range builtinShapes {
+		if !shape.sqlite {
+			continue
+		}
+		for i := 0; i < 500; i++ {
+			choices := make([]byte, 64)
+			for j := range choices {
+				choices[j] = byte(rng.Uint32())
+			}
+			g := &generator{choices: choices, budget: maxNodes, scope: initializedVariables}
+			call := g.builtinCall([]builtinShape{shape}, 0)
+			if call.Name != shape.name || !g.sqlite {
+				t.Fatalf("builtinCall(%s) = %s, sqlite %v", shape.name, call.Name, g.sqlite)
+			}
+			literal := func(i int) string {
+				if i >= len(call.Args) {
+					t.Fatalf("%s has %d arguments, want more than %d", shape.name, len(call.Args), i)
+				}
+				arg, ok := call.Args[i].(*ir.LiteralExpr)
+				if !ok || arg.Kind != ir.LiteralString {
+					t.Fatalf("%s argument %d = %#v, want a string literal", shape.name, i+1, call.Args[i])
+				}
+				return arg.StringValue
+			}
+			switch shape.name {
+			case "sqlite_open":
+				if path := literal(0); path != ":memory:" {
+					t.Fatalf("sqlite_open path %q, want \":memory:\"", path)
+				}
+			case "sqlite_query", "sqlite_execute":
+				if sql := literal(1); !slices.Contains(sqliteStatements, sql) {
+					t.Fatalf("%s SQL %q is not in sqliteStatements", shape.name, sql)
+				}
+			}
+		}
+	}
+	for _, sql := range sqliteStatements {
+		for _, r := range sql {
+			if r < 0x20 || r > 0x7e {
+				t.Errorf("statement %q is not printable ASCII", sql)
+			}
+		}
+	}
+}
+
+// A program that calls a SQLite builtin runs its body inside sqliteWrap; one
+// that does not is the program it was before SQLite was offered, with no
+// handle variable.
+func TestStructuredSQLiteProgramsAreWrapped(t *testing.T) {
+	rng := rand.New(rand.NewPCG(5, 6))
+	wrapped := 0
+	for i := 0; i < 2000; i++ {
+		choices := make([]byte, 300)
+		for j := range choices {
+			choices[j] = byte(rng.Uint32())
+		}
+		program := Program(choices)
+		source := StructuredSource(t, choices)
+		prologue := len(initializedVariables)
+		body := program.Statements[prologue:]
+		calls := strings.Count(source, "sqlite_")
+		if calls == 0 {
+			if regexp.MustCompile(`\b` + sqliteHandleVar + `\b`).MatchString(source) {
+				t.Fatalf("program without SQLite names %q:\n%s", sqliteHandleVar, source)
+			}
+			continue
+		}
+		wrapped++
+		first, ok := body[0].(*ir.ExprStmt)
+		if !ok {
+			t.Fatalf("SQLite program does not begin with set_thread_mode(0):\n%s", source)
+		}
+		if call, ok := first.Expr.(*ir.BuiltinCallExpr); !ok || call.Name != "set_thread_mode" {
+			t.Fatalf("SQLite program does not begin with set_thread_mode(0):\n%s", source)
+		}
+		if len(body) != 5 {
+			t.Fatalf("SQLite program has %d top-level statements after the prologue, want 5:\n%s", len(body), source)
+		}
+		if try, ok := body[4].(*ir.TryStmt); !ok || try.Finalizer == nil || len(try.Handlers) != 0 {
+			t.Fatalf("SQLite program does not end in try ... finally:\n%s", source)
+		}
+	}
+	if wrapped == 0 {
+		t.Fatal("no generated program called a SQLite builtin")
+	}
+}
+
+// ASCIISource is Source with "é", the one non-ASCII string piece, spelled
+// "e", and is printable ASCII apart from tab and newline.
+func TestStructuredASCIISource(t *testing.T) {
+	rng := rand.New(rand.NewPCG(7, 8))
+	changed := 0
+	for i := 0; i < 2000; i++ {
+		choices := make([]byte, 300)
+		for j := range choices {
+			choices[j] = byte(rng.Uint32())
+		}
+		source := StructuredSource(t, choices)
+		ascii, err := ASCIISource(choices)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := strings.ReplaceAll(source, "é", "e"); ascii != want {
+			t.Fatalf("ASCIISource differs from Source beyond its string pieces:\n%s\n---\n%s", ascii, source)
+		}
+		if ascii != source {
+			changed++
+		}
+		for _, r := range ascii {
+			if (r < 0x20 && r != '\t' && r != '\n') || r > 0x7e {
+				t.Fatalf("ASCIISource has %q:\n%s", r, ascii)
+			}
+		}
+	}
+	if changed == 0 {
+		t.Fatal("no Source had a non-ASCII string piece")
 	}
 }
 

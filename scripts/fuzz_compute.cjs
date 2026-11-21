@@ -120,6 +120,23 @@ async function accept({github, context, core}) {
       }
     }
   }
+  // scripts/fuzz_builtin_census.py: a builtin that lost its last compared
+  // program and conformance test, or a listed one that gained coverage.
+  const censusFile = 'fuzz-differential/builtin-census.json';
+  if (selected === 'native-and-toast') {
+    const builtins = fs.existsSync(censusFile) ? JSON.parse(fs.readFileSync(censusFile, 'utf8')) : undefined;
+    if (!Array.isArray(builtins?.newly_zero) || !Array.isArray(builtins?.newly_covered)) {
+      problems.push(`${DIFFERENTIAL}: no builtin census`);
+    } else {
+      if (builtins.newly_zero.length) {
+        problems.push(`builtin census: no compared program or conformance test calls ${builtins.newly_zero.join(', ')}`);
+      }
+      if (builtins.newly_covered.length) {
+        problems.push(`builtin census: ${builtins.newly_covered.join(', ')} gained coverage; ` +
+          'remove from scripts/fuzz_zero_coverage_builtins.txt');
+      }
+    }
+  }
   const notRun = selected === 'native-only' ? 'not-run-native-only' : null;
   core.info(JSON.stringify({campaign: selected, lanes: lanes.length,
     differential: notRun ?? outcome ?? null, worlds: notRun ?? worlds ?? null, problems}));

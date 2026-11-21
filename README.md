@@ -83,6 +83,12 @@ bin/barn dump --db Test.db copy.db     # write, reload and compare
 There are also `list-verbs`, `verb-lookup`, `ancestry`, `dump-obj-raw`,
 `grep-verbs`, `eval --file`, `memory-report` and `offline-checkpoint`.
 
+Before moving a database back to Toast, `bin/barn toast-check --db game.db
+--builtins names.txt` names every verb that calls a builtin Barn registers and
+that Toast does not, or that does not parse; `names.txt` is that Toast's
+`function_info()` names, one per line (`scripts/toast-check.sh` asks a Toast
+binary for them).
+
 ## Tools
 
 | Command | What it does |

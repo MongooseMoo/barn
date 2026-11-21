@@ -30,8 +30,9 @@ func FuzzStructuredCompileVerifiable(f *testing.F) {
 func compileVerifiable(t *testing.T, source string, mustCompile bool) {
 	// A fresh registry also gives each input a fresh compiler source cache.
 	// The VM descriptors add pass() and eval(); without them every verb
-	// that calls either fails to compile and is never verified.
-	registry, err := builtins.NewRegistryFromDescriptors(config.Core, vm.Descriptors())
+	// that calls either fails to compile and is never verified. Generated
+	// programs call the SQLite builtins; compiling runs none of them.
+	registry, err := builtins.NewRegistryFromDescriptors(config.Core|config.SQLite, vm.Descriptors())
 	if err != nil {
 		t.Fatal(err)
 	}

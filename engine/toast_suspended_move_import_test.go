@@ -212,6 +212,64 @@ func TestToastSuspendedMoveExportsToastContinuation(t *testing.T) {
 	}
 }
 
+// Under call_function("move", ...) Toast records builtin call_function on the
+// hook verb's activation, naming move, with move's data inside it. See
+// testdata/toast-suspended-move.md for the producer. Barn finishes the move
+// from that file as from a direct move()'s.
+func TestToastSuspendedCallFunctionMoveImportFinishesMove(t *testing.T) {
+	database := loadNativeImportFixture(t, "testdata/toast-suspended-call-function-move-accept.db", "363d56392a024d99522536a5dbf710426af450d0cc8f835b9f0050c2bdbff5d1")
+	if len(database.SuspendedTasks) != 1 {
+		t.Fatalf("native suspended tasks=%d, want 1", len(database.SuspendedTasks))
+	}
+	frames := database.SuspendedTasks[0].Snapshot.VM.Frames
+	want := &task.NativeBuiltinSnapshot{Name: "call_function", State: "bf_call_function data: fname = move",
+		Inner: &task.NativeBuiltinSnapshot{Name: "move", State: toastSuspendedMoveData}}
+	if top := frames[len(frames)-1]; len(frames) != 3 || top.Verb != "accept" || top.Native == nil ||
+		top.BuiltinPC != 2 || !reflect.DeepEqual(top.Native.Builtin, want) {
+		t.Fatalf("fixture does not hold an accept frame with Toast's call_function move continuation at pc 2: %d frames", len(frames))
+	}
+	store, err := database.NewStoreFromDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// stack holds the names callers() gave in accept before it suspended.
+	state := func() string {
+		object, _ := store.DirectTxn().PropertyValue(1, "conformance_suspended_call_function_move_accept")
+		read := func(name string) types.Value {
+			value, code := store.DirectTxn().PropertyValue(object.Obj(), name)
+			if code != types.E_NONE {
+				t.Fatalf("%s error=%s", name, code)
+			}
+			return value
+		}
+		location, _ := store.DirectTxn().Location(read("thing").Obj())
+		return fmt.Sprintf("log=%s stack=%s moved=%t result=%s finished=%s",
+			read("log"), read("stack"), location == read("dest").Obj(), read("result"), read("finished"))
+	}
+	stack := []string{"call_function", "start", ""}
+	if got, want := state(), toastSuspendedMoveState([]string{"accept"}, stack, false, "0", 0); got != want {
+		t.Fatalf("checkpoint %s, want %s", got, want)
+	}
+	rt := newTestRuntimeWithBuiltins(t, store)
+	defer rt.Stop()
+	rt.Session().LoadServerOptionsFromStore(store)
+	rt.Session().LoadProtectedBuiltinsFromStore(store)
+	saved := database.SuspendedTasks[0]
+	saved.Snapshot.StartTime = time.Now().Add(-time.Second)
+	if err := rt.LoadSuspendedTasks(database.SuspendedTasks); err != nil {
+		t.Fatal(err)
+	}
+	restored := rt.GetTask(saved.Snapshot.ID)
+	if restored == nil {
+		t.Fatalf("native suspended task %d was not restored", saved.Snapshot.ID)
+	}
+	driveNativeImportedContinuation(t, rt, restored)
+	resumed := []string{"accept", "accept resumed", "exitfunc", "enterfunc"}
+	if got, want := state(), toastSuspendedMoveState(resumed, stack, true, "{0}", 1); got != want {
+		t.Fatalf("resumed %s, want %s", got, want)
+	}
+}
+
 // A task Barn started, suspended two verb calls above each move() hook, so the
 // hook's frame is a middle frame: the checkpoint holds every frame in Toast's
 // form with move's continuation on the hook frame, and the task finishes the

@@ -11,6 +11,7 @@ var SuspendedStackKinds = []string{
 	"verb", "eval", "fork", "except", "finally", "for-list", "for-range",
 	"for-map", "while", "scatter", "expression",
 	"in-finally", "move-accept", "move-exitfunc", "move-enterfunc",
+	"create-initialize", "recreate-initialize", "recycle-recycle", "recycle-exitfunc",
 }
 
 // SuspendedStackVariants is the number of values of a layer's variant choice.
@@ -18,7 +19,8 @@ var SuspendedStackKinds = []string{
 // through, returned, raised an error an outer except catches, or left an
 // enclosing loop with break. eval, scatter and expression read 1 as eval()
 // and 2 as call_function("eval", ...); scatter and expression read 0 and 3
-// as a verb call. The other kinds ignore it.
+// as a verb call. The move, create, recreate and recycle kinds read 2 as
+// calling their builtin through call_function. The other kinds ignore it.
 const SuspendedStackVariants = 4
 
 const (
@@ -179,7 +181,7 @@ func (s *suspendedStack) nest(depth int) []string {
 	case "in-finally":
 		return s.inFinally(variant, k, inner)
 	default:
-		return s.moveHook(kind, k, inner)
+		return s.builtinHook(kind, variant == 2, k, inner)
 	}
 }
 
@@ -236,40 +238,100 @@ func (s *suspendedStack) inFinally(variant, k int, inner []string) []string {
 	}
 }
 
-// moveHook runs inner inside a verb that move(what, where) calls: where:accept,
-// the old location's exitfunc, or where:enterfunc. The hook stores the inner
-// value and whether its argument is what. The result is move()'s return
-// value, what the hook stored, whether what ended in where, and for exitfunc
-// whether where:enterfunc then ran.
-func (s *suspendedStack) moveHook(kind string, k int, inner []string) []string {
-	what, from, where := fmt.Sprintf("t%d", k), fmt.Sprintf("a%d", k), fmt.Sprintf("c%d", k)
-	for _, object := range []string{what, where} {
-		s.setup = append(s.setup, fmt.Sprintf("%s = create(#-1);", object))
-	}
-	whatRef, whereRef := s.property(what, what), s.property(where, where)
-	hooked := s.property(fmt.Sprintf("h%d", k), "0")
-	hook := append(append([]string{}, inner...), fmt.Sprintf("%s = {%d, v, args[1] == %s};", hooked, k, whatRef))
-	result := []string{fmt.Sprintf("r%d", k), hooked, fmt.Sprintf("%s.location == %s", whatRef, whereRef)}
+// builtinHook runs inner inside a verb that a builtin calls and continues
+// after: move(what, where)'s where:accept, the old location's exitfunc or
+// where:enterfunc; create(parent)'s and recreate(old, parent)'s
+// initialize; recycle(what)'s what:recycle or the exitfunc of what's
+// location. indirect calls the builtin through call_function. The hook
+// stores the inner value and whether its this or argument is the object the
+// builtin acts on. The result is a check of the builtin's return value
+// (move()'s and recycle()'s 0 itself), what the hook stored, and the
+// builtin's effect: whether what ended in where, and for exitfunc whether
+// where:enterfunc then ran; whether the created object has parent; whether
+// what is still valid.
+func (s *suspendedStack) builtinHook(kind string, indirect bool, k int, inner []string) []string {
+	// The objects the builtin acts on: what and where for move(), parent and
+	// the object to recreate for create() and recreate(), what for recycle().
+	// Each is a setup variable of its name and a property of the test object.
+	names := []string{fmt.Sprintf("t%d", k), fmt.Sprintf("c%d", k)}
 	switch kind {
-	case "move-accept":
-		s.verb(where, "accept", append(hook, "return 1;")...)
-	case "move-exitfunc":
-		entered := s.property(fmt.Sprintf("n%d", k), "0")
-		s.setup = append(s.setup, fmt.Sprintf("%s = create(#-1);", from))
-		s.verb(from, "accept", "return 1;")
-		s.setup = append(s.setup, fmt.Sprintf("move(%s, %s);", what, from))
-		s.verb(from, "exitfunc", hook...)
-		s.verb(where, "accept", "return 1;")
-		s.verb(where, "enterfunc", entered+" = 1;")
-		result = append(result, entered)
-	default: // move-enterfunc
-		s.verb(where, "accept", "return 1;")
-		s.verb(where, "enterfunc", hook...)
+	case "create-initialize":
+		names = []string{fmt.Sprintf("p%d", k)}
+	case "recreate-initialize":
+		names = []string{fmt.Sprintf("p%d", k), fmt.Sprintf("x%d", k)}
+	case "recycle-recycle", "recycle-exitfunc":
+		names = []string{fmt.Sprintf("d%d", k)}
 	}
-	return []string{
-		fmt.Sprintf("r%d = move(%s, %s);", k, whatRef, whereRef),
-		"v = {" + strings.Join(result, ", ") + "};",
+	refs := make([]string, len(names))
+	for _, name := range names {
+		s.setup = append(s.setup, fmt.Sprintf("%s = create(#-1);", name))
 	}
+	for i, name := range names {
+		refs[i] = s.property(name, name)
+	}
+	hooked := s.property(fmt.Sprintf("h%d", k), "0")
+	hook := func(check string) []string {
+		return append(append([]string{}, inner...), fmt.Sprintf("%s = {%d, v, %s};", hooked, k, check))
+	}
+	call := func(name string, args ...string) string {
+		if indirect {
+			return fmt.Sprintf(`r%d = call_function("%s", %s);`, k, name, strings.Join(args, ", "))
+		}
+		return fmt.Sprintf("r%d = %s(%s);", k, name, strings.Join(args, ", "))
+	}
+	r := fmt.Sprintf("r%d", k)
+	var lines, result []string
+	switch kind {
+	case "move-accept", "move-exitfunc", "move-enterfunc":
+		what, where, whatRef, whereRef := names[0], names[1], refs[0], refs[1]
+		lines = []string{call("move", whatRef, whereRef)}
+		result = []string{r, hooked, fmt.Sprintf("%s.location == %s", whatRef, whereRef)}
+		hook := hook("args[1] == " + whatRef)
+		switch kind {
+		case "move-accept":
+			s.verb(where, "accept", append(hook, "return 1;")...)
+		case "move-exitfunc":
+			from, entered := fmt.Sprintf("a%d", k), s.property(fmt.Sprintf("n%d", k), "0")
+			s.setup = append(s.setup, fmt.Sprintf("%s = create(#-1);", from))
+			s.verb(from, "accept", "return 1;")
+			s.setup = append(s.setup, fmt.Sprintf("move(%s, %s);", what, from))
+			s.verb(from, "exitfunc", hook...)
+			s.verb(where, "accept", "return 1;")
+			s.verb(where, "enterfunc", entered+" = 1;")
+			result = append(result, entered)
+		default: // move-enterfunc
+			s.verb(where, "accept", "return 1;")
+			s.verb(where, "enterfunc", hook...)
+		}
+	case "create-initialize", "recreate-initialize":
+		// The created object inherits initialize from parent.
+		parent, parentRef := names[0], refs[0]
+		s.verb(parent, "initialize", hook("parent(this) == "+parentRef)...)
+		if kind == "create-initialize" {
+			lines = []string{call("create", parentRef)}
+			result = []string{fmt.Sprintf("typeof(%s) == OBJ && parent(%s) == %s", r, r, parentRef), hooked}
+			break
+		}
+		// recreate() takes the number of an object recycled in the setup.
+		old, oldRef := names[1], refs[1]
+		s.setup = append(s.setup, fmt.Sprintf("recycle(%s);", old))
+		lines = []string{call("recreate", oldRef, parentRef)}
+		result = []string{fmt.Sprintf("%s == %s && parent(%s) == %s", r, oldRef, oldRef, parentRef), hooked}
+	default: // recycle-recycle, recycle-exitfunc
+		what, whatRef := names[0], refs[0]
+		if kind == "recycle-recycle" {
+			s.verb(what, "recycle", hook("this == "+whatRef)...)
+		} else {
+			location := fmt.Sprintf("l%d", k)
+			s.setup = append(s.setup, fmt.Sprintf("%s = create(#-1);", location))
+			s.verb(location, "accept", "return 1;")
+			s.setup = append(s.setup, fmt.Sprintf("move(%s, %s);", what, location))
+			s.verb(location, "exitfunc", hook("args[1] == "+whatRef)...)
+		}
+		lines = []string{call("recycle", whatRef)}
+		result = []string{r, hooked, fmt.Sprintf("valid(%s)", whatRef)}
+	}
+	return append(lines, "v = {"+strings.Join(result, ", ")+"};")
 }
 
 // call returns an expression that runs inner in another frame, a verb's or
