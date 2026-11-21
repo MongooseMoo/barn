@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
@@ -60,7 +61,7 @@ func tracebackAttrs(err types.ErrorCode, message string, stack []types.Activatio
 	return []any{
 		slog.String("error", types.NewErr(err).String()),
 		slog.String("error_msg", message),
-		slog.String("traceback", task.FormatTracebackString(stack, err)),
+		slog.String("traceback", strings.Join(task.FormatTraceback(stack, message), "\n")),
 		slog.Any("frames", tbFrames(stack)),
 	}
 }
@@ -72,7 +73,7 @@ func (s *Runtime) SendTracebackToPlayer(player types.ObjID, result types.Result,
 		return
 	}
 
-	attrs := append([]any{slog.Int64("player", int64(player))}, tracebackAttrs(result.Error, result.Error.Message(), result.CallStack)...)
+	attrs := append([]any{slog.Int64("player", int64(player))}, tracebackAttrs(result.Error, result.ErrorMessage(), result.CallStack)...)
 	slog.Error("traceback (no output hook configured)", attrs...)
 }
 
@@ -92,6 +93,9 @@ func (s *Runtime) logTraceback(t *Task, result types.Result, stack []types.Activ
 		slog.Bool("forked", t.IsForked),
 		slog.Bool("handled", handled),
 	}, tracebackAttrs(result.Error, result.ErrorMessage(), stack)...)
+	if result.Reason != types.ExceptionReasonUnknown {
+		attrs = append(attrs, slog.String("error_reason", result.Reason.String()))
+	}
 	slog.Log(context.Background(), level, "uncaught exception", attrs...)
 }
 
