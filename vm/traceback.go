@@ -154,9 +154,14 @@ func (vm *VM) snapshotActivationFrames(topLine int) []types.ActivationFrame {
 
 		programmer := types.ObjNothing
 		serverInitiated := false
+		builtinCaller, builtinPC := frame.BuiltinCaller, frame.BuiltinPC
 		if i < len(taskStack) {
 			programmer = taskStack[i].Programmer
 			serverInitiated = taskStack[i].ServerInitiated
+			if frame.IsEvalFrame {
+				// An eval() call's builtin entry is on its activation only.
+				builtinCaller, builtinPC = taskStack[i].BuiltinCaller, taskStack[i].BuiltinPC
+			}
 		}
 
 		var runtimeVariables *types.RuntimeVariableSnapshot
@@ -182,8 +187,8 @@ func (vm *VM) snapshotActivationFrames(topLine int) []types.ActivationFrame {
 			ServerInitiated:         serverInitiated,
 			IsEvalFrame:             frame.IsEvalFrame,
 			RuntimeVariableSnapshot: runtimeVariables,
-			BuiltinCaller:           frame.BuiltinCaller,
-			BuiltinPC:               frame.BuiltinPC,
+			BuiltinCaller:           builtinCaller,
+			BuiltinPC:               builtinPC,
 		})
 	}
 

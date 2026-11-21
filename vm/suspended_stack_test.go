@@ -98,21 +98,24 @@ func TestSuspendedStackLayersMarkResult(t *testing.T) {
 			"return {{1, 0}}", "return {{{1, 1}, {0, 0}}}",
 			`return {{E_PERM, "1", 1, 0}}`, "return {{1, {0, 0}}}",
 		},
-		// move()'s 0, {layer, inner value, the hook's argument was what},
-		// what ended in where, and for exitfunc where:enterfunc then ran. The
-		// third seed calls move() through call_function.
-		"move-accept":    {"return {{0, {1, 0, 1}, 1}}", "return {{0, {1, {0, 0}, 1}, 1}}", "return {{0, {1, 0, 1}, 1}}"},
-		"move-exitfunc":  {"return {{0, {1, 0, 1}, 1, 1}}", "return {{0, {1, {0, 0}, 1}, 1, 1}}", "return {{0, {1, 0, 1}, 1, 1}}"},
-		"move-enterfunc": {"return {{0, {1, 0, 1}, 1}}", "return {{0, {1, {0, 0}, 1}, 1}}", "return {{0, {1, 0, 1}, 1}}"},
+		// move()'s 0, {layer, inner value, the hook's argument was what, the
+		// name of the builtin entry below the hook in callers()}, what ended in
+		// where, and for exitfunc the name enterfunc's builtin entry then had,
+		// which move() took from the resumed exitfunc's frame. The third seed
+		// calls move() through call_function, so Toast names that entry
+		// call_function (execute.cc OP_BI_FUNC_CALL, unwind_stack).
+		"move-accept":    {`return {{0, {1, 0, 1, "move"}, 1}}`, `return {{0, {1, {0, 0}, 1, "move"}, 1}}`, `return {{0, {1, 0, 1, "call_function"}, 1}}`},
+		"move-exitfunc":  {`return {{0, {1, 0, 1, "move"}, 1, "move"}}`, `return {{0, {1, {0, 0}, 1, "move"}, 1, "move"}}`, `return {{0, {1, 0, 1, "call_function"}, 1, "call_function"}}`},
+		"move-enterfunc": {`return {{0, {1, 0, 1, "move"}, 1}}`, `return {{0, {1, {0, 0}, 1, "move"}, 1}}`, `return {{0, {1, 0, 1, "call_function"}, 1}}`},
 		// create() and recreate() returned the object, which has parent, and
-		// {layer, inner value, initialize's this has parent}; recycle()'s 0,
-		// {layer, inner value, the hook's this or argument was what}, what is
-		// no longer valid. The third seed calls the builtin through
-		// call_function.
-		"create-initialize":   {"return {{1, {1, 0, 1}}}", "return {{1, {1, {0, 0}, 1}}}", "return {{1, {1, 0, 1}}}"},
-		"recreate-initialize": {"return {{1, {1, 0, 1}}}", "return {{1, {1, {0, 0}, 1}}}", "return {{1, {1, 0, 1}}}"},
-		"recycle-recycle":     {"return {{0, {1, 0, 1}, 0}}", "return {{0, {1, {0, 0}, 1}, 0}}", "return {{0, {1, 0, 1}, 0}}"},
-		"recycle-exitfunc":    {"return {{0, {1, 0, 1}, 0}}", "return {{0, {1, {0, 0}, 1}, 0}}", "return {{0, {1, 0, 1}, 0}}"},
+		// {layer, inner value, initialize's this has parent, builtin entry
+		// name}; recycle()'s 0, {layer, inner value, the hook's this or
+		// argument was what, builtin entry name}, what is no longer valid. The
+		// third seed calls the builtin through call_function.
+		"create-initialize":   {`return {{1, {1, 0, 1, "create"}}}`, `return {{1, {1, {0, 0}, 1, "create"}}}`, `return {{1, {1, 0, 1, "call_function"}}}`},
+		"recreate-initialize": {`return {{1, {1, 0, 1, "recreate"}}}`, `return {{1, {1, {0, 0}, 1, "recreate"}}}`, `return {{1, {1, 0, 1, "call_function"}}}`},
+		"recycle-recycle":     {`return {{0, {1, 0, 1, "recycle"}, 0}}`, `return {{0, {1, {0, 0}, 1, "recycle"}, 0}}`, `return {{0, {1, 0, 1, "call_function"}, 0}}`},
+		"recycle-exitfunc":    {`return {{0, {1, 0, 1, "recycle"}, 0}}`, `return {{0, {1, {0, 0}, 1, "recycle"}, 0}}`, `return {{0, {1, 0, 1, "call_function"}, 0}}`},
 		"fork":                {"return {1}", "return {1}"},
 		"except":              {`return {{E_RANGE, "1", 0}}`, `return {{E_RANGE, "1", {0, 0}}}`},
 		"finally":             {"return {{1, 0}}", "return {{1, {0, 0}}}"},
@@ -184,19 +187,26 @@ func TestSuspendedStackKindsReachCheckpoint(t *testing.T) {
 
 // A task suspended in a verb that create(), recreate() or recycle() called,
 // directly or through call_function, is refused at that verb's frame with
-// ErrToastLosesObjectContinuation, before any other frame is exported.
+// ErrToastLosesObjectContinuation, before any other frame is exported. The
+// refusal names the frame's builtin: call_function when the builtin was called
+// through it, as Toast names that frame.
 func TestExportRefusesObjectContinuation(t *testing.T) {
-	want := map[string]string{
-		"create-initialize":   "frame 1 (#4:initialize): create: " + ErrToastLosesObjectContinuation.Error(),
-		"recreate-initialize": "frame 1 (#4:initialize): recreate: " + ErrToastLosesObjectContinuation.Error(),
-		"recycle-recycle":     "frame 1 (#4:recycle): recycle: " + ErrToastLosesObjectContinuation.Error(),
-		"recycle-exitfunc":    "frame 1 (#5:exitfunc): recycle: " + ErrToastLosesObjectContinuation.Error(),
+	want := map[string][2]string{
+		"create-initialize":   {"frame 1 (#4:initialize)", "create"},
+		"recreate-initialize": {"frame 1 (#4:initialize)", "recreate"},
+		"recycle-recycle":     {"frame 1 (#4:recycle)", "recycle"},
+		"recycle-exitfunc":    {"frame 1 (#5:exitfunc)", "recycle"},
 	}
 	seeds := suspendedStackSeeds()
-	for kind, reason := range want {
+	for kind, frame := range want {
 		// The first seed calls the builtin directly, the third through
 		// call_function.
-		for _, seed := range [][]byte{seeds[kind][0], seeds[kind][2]} {
+		for i, seed := range [][]byte{seeds[kind][0], seeds[kind][2]} {
+			builtin := frame[1]
+			if i == 1 {
+				builtin = "call_function"
+			}
+			reason := frame[0] + ": " + builtin + ": " + ErrToastLosesObjectContinuation.Error()
 			t.Run(kind, func(t *testing.T) {
 				var refusals []string
 				record := func(t *testing.T, machine *VM, store *dbstore.Store, forks []sourceFuzzFork) (*VM, *dbstore.Store, []sourceFuzzFork) {

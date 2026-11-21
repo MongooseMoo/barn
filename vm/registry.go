@@ -149,8 +149,16 @@ func (vm *VM) pushEval(prog *bytecode.Program) types.Result {
 			Player:      ctx.Player,
 			Programmer:  ctx.Programmer,
 			Verb:        "",
+			VerbLoc:     types.ObjNothing,
 			LineNumber:  1,
 			IsEvalFrame: true,
+			// Toast's OP_BI_FUNC_CALL records the called builtin with
+			// bf_eval's pc 2 on the eval activation (execute.cc
+			// setup_activ_for_eval, verbs.cc bf_eval). Only the task's
+			// activation carries it: Barn's checkpoint forms hold eval's
+			// continuation as IsEvalFrame.
+			BuiltinCaller: "eval",
+			BuiltinPC:     2,
 		})
 	}
 
