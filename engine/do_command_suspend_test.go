@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -88,6 +89,45 @@ func TestDoCommandTaskResumesAfterEnterfuncSuspend(t *testing.T) {
 	}
 	if loc, _ := store.DirectTxn().Location(player); loc != room {
 		t.Fatalf("player location = #%d, want #%d", loc, room)
+	}
+}
+
+// A hook that suspends reports FlowSuspend even when the scheduler resumes and
+// finishes it before the caller reads the outcome. Toast's do_command_task
+// decides on run_server_task's synchronous OUTCOME_BLOCKED; Barn's scheduler
+// may run the resumed slice on another goroutine as soon as the execution lease
+// is released. The output flusher runs in that window, so draining the
+// scheduler from it forces the resumed `return 0` to finish first.
+func TestServerVerbTaskReportsSuspendWhenResumedBeforeCallerReads(t *testing.T) {
+	store := dbstore.NewStore()
+	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
+	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	addMoveHookTestVerb(t, store, 0, "do_command", "suspend(0);", "return 0;")
+
+	rt := NewRuntime(store)
+	t.Cleanup(rt.Stop)
+	var taskID int64
+	resumed := false
+	rt.SetTaskOutputFlusher(func(types.ObjID, string) {
+		if resumed {
+			return
+		}
+		resumed = true
+		for i := 0; i < 10 && rt.ProcessReadyTasks() > 0; i++ {
+		}
+		if tk := rt.GetTask(taskID); tk != nil && tk.GetState() != task.TaskCompleted {
+			t.Errorf("resumed hook state = %v, want completed", tk.GetState())
+		}
+	})
+	res, err := rt.RunServerVerbTaskWithArgstr(0, "do_command", []types.Value{types.NewStr("x")}, 2, "x", func(id int64) { taskID = id })
+	if err != nil {
+		t.Fatalf("RunServerVerbTaskWithArgstr: %v", err)
+	}
+	if !resumed {
+		t.Fatalf("output flusher was not called")
+	}
+	if res.Flow != types.FlowSuspend {
+		t.Fatalf("result = %+v, want FlowSuspend from the hook's first slice", res)
 	}
 }
 

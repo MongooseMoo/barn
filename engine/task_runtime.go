@@ -86,15 +86,24 @@ func (s *Runtime) runTask(t *Task) (retErr error) {
 	if t.GetState() == task.TaskQueued && !t.TryClaimQueued() {
 		return nil
 	}
-	return s.runTaskAdmitted(t, scope, true)
+	_, err = s.runTaskAdmitted(t, scope, true)
+	return err
 }
 
 type taskCompletion struct {
 	callback func(types.Result)
 	roots    *admissionRoot
+	// result is this invocation's outcome, read while it still held the
+	// execution lease. Once the lease is released a suspended task may be
+	// resumed by another worker, which overwrites t.Result.
+	result types.Result
 }
 
-func (s *Runtime) runTaskAdmitted(t *Task, scope *admission.Scope, ownsScope bool) (retErr error) {
+// runTaskAdmitted runs one slice of t and returns that slice's outcome. A
+// caller that must decide on the slice's own result (a suspend is FlowSuspend)
+// uses the returned value, never t.Result, which a worker resuming the task
+// may already have replaced.
+func (s *Runtime) runTaskAdmitted(t *Task, scope *admission.Scope, ownsScope bool) (sliceResult types.Result, retErr error) {
 	defer func() {
 		if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
 			if ctx := t.ContextValue(); ctx != nil {
@@ -142,12 +151,12 @@ func (s *Runtime) runTaskAdmitted(t *Task, scope *admission.Scope, ownsScope boo
 	// Explicit kills and runtime shutdown are lifecycle completion, not a Go
 	// error message to send to the player's connection or an error hook to run.
 	if errors.Is(retErr, context.Canceled) {
-		return nil
+		return completion.result, nil
 	}
 	if retErr == nil && completion.callback != nil {
 		completion.callback(t.Result)
 	}
-	return retErr
+	return completion.result, retErr
 }
 
 func (s *Runtime) runTaskSliceAdmitted(t *Task, scope *admission.Scope, ownsScope bool, completion *taskCompletion) (retErr error) {
@@ -218,6 +227,7 @@ func (s *Runtime) runTaskSliceAdmitted(t *Task, scope *admission.Scope, ownsScop
 		if executionCtx != nil {
 			s.releaseExecutionContext(executionCtx, t.ID)
 		}
+		completion.result = t.Result
 		s.releaseTaskExecution(t.ID)
 		if ownsScope {
 			scope.Finish()
@@ -1712,7 +1722,7 @@ func (s *Runtime) ExecuteVerbTaskSyncWithStart(player types.ObjID, match *comman
 	}
 
 	// Run synchronously on the runtime goroutine.
-	err := s.runTaskAdmitted(t, scope, true)
+	_, err := s.runTaskAdmitted(t, scope, true)
 	s.settleTaskResult(t, err)
 	return err
 }
