@@ -12,6 +12,8 @@ Run Barn repair, conformance and alarm work using Claude or Q's Codex subscripti
 - The WSL Codex account completed a subscription-backed smoke turn. Q confirmed the private App installation on the two repositories. Its token returned exactly those repositories, and worker label initialization succeeded.
 - The live dispatch added `codex-repair` to #987 and the worker took it. Codex recorded `cyber_policy` and produced no repair. #987 is held with `repair-needs-attention`; the queue label was removed. Policy and unclassified outcomes now stop the attempt without provider fallback.
 - The full official Codex CLI package supplies the workspace tool host. An actual workspace command returned `BARN-TOOL-READY`. The first tool-enabled conformance attempt on #919 identified the existing tests but stopped before Toast started: its fresh job cache needed PyPI packages and the locked GitHub `moo_interp` dependency. Repair and conformance now prepare the published suite's frozen environment in the disposable checkout before the model runs. A conformance result lacking a required runtime verdict stays unresolved.
+- The next #919 attempt on managed Toast returned `3 passed, 14090 deselected`. Barn's Go build initially failed when the bundled Go selected the repository's requested compiler and tried to update `~/go/pkg/sumdb/sum.golang.org/latest` outside the writable workspace. Repair and conformance now prepare Go modules with `GOPATH` inside the job and keep checksum verification on. The live page includes conformance queued on already-merged PRs and recent manually queued repairs.
+- With a job-local `GOPATH`, the same #919 job completed as `already-covered`. The App published both managed runtime verdicts, each `3 passed, 14090 deselected` with admission, in issue comment 7061490238.
 
 ## Decisions and why
 
@@ -28,4 +30,4 @@ Run Barn repair, conformance and alarm work using Claude or Q's Codex subscripti
 
 ## Next step
 
-Verify the conformance stage on the ordinary compiler repair in merged PR #919. Its already-merged companion is MongooseMoo/moo-conformance-tests #231. Verify an eligible live repair before enabling default-branch routing and finishing the integration PR.
+Verify a patch-producing repair on issue #967 and final CI before enabling default-branch routing and finishing the integration PR.

@@ -3,7 +3,8 @@
 Read Barn and the suite's AGENTS.md and CLAUDE.md. Read ../finding.json
 for the repair pull request and its comments. Barn is checked out at the
 PR's exact head, or its merge commit when already merged. The suite is the
-sibling moo-conformance-tests checkout on main.
+sibling moo-conformance-tests checkout on main. If your shell replaces the
+worker's PATH, prepend `/usr/local/libexec/barn-codex:/usr/local/go/bin`.
 
 Find which MOO-observable result, error, output, listing or stored value the
 patch fixes. Find any existing test that already covers it. Otherwise add a

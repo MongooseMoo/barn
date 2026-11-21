@@ -117,7 +117,7 @@
       const prLabels = labels(pr);
       const recent = lastAttempt.get(issue.number);
       const phase = ["repair", "investigation"].find(stage => issueLabels.includes(`codex-${stage}`));
-      const conformance = pr?.state === "open" && prLabels.includes("codex-conformance");
+      const conformance = prLabels.includes("codex-conformance");
       const blocked = issueLabels.includes("repair-needs-attention") || prLabels.includes("needs-decision");
       let status = "Awaiting repair";
       let provider = "Any";
@@ -126,6 +126,8 @@
         const targetLabels = conformance ? prLabels : issueLabels;
         const stage = conformance ? "conformance" : phase;
         status = `${targetLabels.includes("codex-running") ? "Running" : "Waiting for"} ${stage}`;
+      } else if (blocked) {
+        status = "Needs attention";
       } else if (pr?.state === "open") {
         provider = pr.head.ref.startsWith("codex/") ? "Codex" : "Claude";
         status = "PR open";
@@ -133,11 +135,10 @@
         provider = recent.display_title.endsWith(" / auto") ? "Automatic" : recent.display_title.split(" / ")[1];
         status = recent.conclusion === "failure" ? "Attempt failed" : recent.status.replaceAll("_", " ");
       }
-      if (blocked) status = "Needs attention";
       return {issue, pr, attempt: recent, status, provider};
     });
     for (const pr of pulls) {
-      if (pr.state === "open" && labels(pr).includes("codex-conformance") && !rows.some(row => row.pr?.number === pr.number)) {
+      if (labels(pr).includes("codex-conformance") && !rows.some(row => row.pr?.number === pr.number)) {
         rows.push({issue: pr, pr, attempt: lastAttempt.get(pr.number), provider: "Codex",
           status: labels(pr).includes("codex-running") ? "Running conformance" : "Waiting for conformance"});
       }

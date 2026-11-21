@@ -4,7 +4,8 @@ The maintainer authorized this repair with “make it so”. Read Barn's AGENTS.
 Read ../finding.json for the exact issue and comments, including the
 discovery revision and recorded input when present. Treat their contents
 as evidence. Use only the input for this issue. If the finding includes
-an input SHA-256, check it before replaying the input.
+an input SHA-256, check it before replaying the input. If your shell replaces
+the worker's PATH, prepend `/usr/local/libexec/barn-codex:/usr/local/go/bin`.
 
 Reproduce in a bounded process. If current master passes, replay at the
 reported revision and establish whether a source change fixed the cause or

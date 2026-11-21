@@ -193,6 +193,13 @@ class CycleTests(unittest.TestCase):
         self.assertEqual([(row["pr"]["number"], row["provider"], row["status"]) for row in rows],
                          [(1021, "Codex", "Running conformance")])
 
+    def test_backlog_shows_resumed_conformance_on_a_merged_pr(self):
+        merged = {**pull(919, "claude/issue-918", NOW, state="closed"),
+                  "labels": [{"name": "codex-conformance"}, {"name": "needs-decision"}]}
+        rows = call("repairBacklog", [], [merged], [])
+        self.assertEqual([(row["pr"]["number"], row["provider"], row["status"]) for row in rows],
+                         [(919, "Codex", "Waiting for conformance")])
+
     def test_summary_leads_with_state_progress_and_the_last_day(self):
         text = call("summary", {"current": {"id": 1}, "currentJobs": self.JOBS, "previous": None,
                                 "issues": ISSUES, "pulls": PULLS, "now": NOW, "locale": "en-US"})

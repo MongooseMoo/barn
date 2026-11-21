@@ -243,7 +243,10 @@ async function refresh() {
         get("/actions/workflows/alarm-investigate.yml/runs?per_page=30"),
       ]);
       const runs = [...repairs.workflow_runs, ...investigations.workflow_runs].sort((a, b) => b.id - a.id);
-      fill("backlog", [...showBacklog([...backlog, ...alarms], pulls, runs, now),
+      const manual = issues.filter(issue => issue.labels.some(label =>
+        label.name === "codex-repair" || label.name === "repair-needs-attention"));
+      const work = new Map([...backlog, ...alarms, ...manual].map(issue => [issue.number, issue]));
+      fill("backlog", [...showBacklog([...work.values()], pulls, runs, now),
         ...(backlog.length === 100 || alarms.length === 100 ? [el("p", "This view shows up to 100 open records per queue.")] : [])]);
     } catch (error) {
       fill("backlog", [el("p", `Could not refresh the repair backlog. ${error.message}`)]);

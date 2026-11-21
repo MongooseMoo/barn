@@ -71,7 +71,7 @@ def run(*args, cwd=None, user=None, data=None, timeout=120, cache=None):
                     "GIT_TERMINAL_PROMPT": "0", "TOAST_MOO": "/usr/local/libexec/barn-codex/moo"},
         }
         if cache:
-            options["env"].update(GOCACHE=str(cache / "go-build"), GOMODCACHE=str(cache / "go-mod"),
+            options["env"].update(GOCACHE=str(cache / "go-build"), GOPATH=str(cache / "go"),
                                   UV_CACHE_DIR=str(cache / "uv"),
                                   UV_PROJECT_ENVIRONMENT=str(cache / "conformance"),
                                   CONFORMANCE_ENV=str(cache / "conformance"))
@@ -138,6 +138,7 @@ def proposal(root, stage, number, report, user, codex):
             head = pr["merge_commit_sha"] if pr["merged"] else pr["head"]["sha"]
             git(barn, "checkout", "--detach", head, user=user)
         if stage in {"repair", "conformance"}:
+            run("go", "mod", "download", cwd=barn, user=user, cache=cache, timeout=300)
             clone(suite, SUITE, "main", user=user)
             git(suite, "submodule", "update", "--init", "--recursive", user=user)
             # The frozen suite includes a Git dependency. Fetch it before the model's network sandbox.
