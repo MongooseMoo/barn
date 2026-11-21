@@ -62,6 +62,33 @@ func TestRespondToKeepsCanonicalNames(t *testing.T) {
 	}
 }
 
+func TestRespondToRenamedAliasesRemainPlainDescriptors(t *testing.T) {
+	for _, size := range []int{64, 65} {
+		ctx := respondToSharingExecution(t, []string{"old"})
+		ctx.StoreTxn.Release()
+		ctx.StoreTxn = nil
+		alias := strings.Repeat("x", size-len("tell "))
+		if ec := ctx.Store.SetVerbInfo(3, "old", 0, dbstore.VerbExecute, []string{"tell", alias}); ec != types.E_NONE {
+			t.Fatalf("rename: %v", ec)
+		}
+		ctx.StoreTxn = ctx.Store.BeginSnapshot(0)
+		if ec := ctx.StoreTxn.SetObjectFlag(3, dbstore.FlagRead, true); ec != types.E_NONE {
+			t.Fatalf("stage read flag: %v", ec)
+		}
+		result := admitTestBuiltin("respond_to", ctx, []types.Value{types.NewObj(3), types.NewStr(alias)})
+		if !result.IsNormal() || result.Val.Type() != types.TYPE_LIST || result.Val.Len() != 2 {
+			t.Fatalf("size %d: respond_to = %+v", size, result)
+		}
+		names := result.Val.Get(2).Str()
+		if result.Val.Get(1).Obj() != 3 || names != "tell "+alias {
+			t.Fatalf("size %d: respond_to = %v", size, result.Val)
+		}
+		if _, err := ctx.StoreTxn.FindVerbOnObject(3, names); err == nil {
+			t.Fatalf("size %d: joined aliases acquired the verb's descriptor identity", size)
+		}
+	}
+}
+
 func TestRespondToDoesNotRetainLargeInputBacking(t *testing.T) {
 	ctx := respondToSharingExecution(t, []string{"tell"})
 	var before, after runtime.MemStats

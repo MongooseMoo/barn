@@ -6,7 +6,8 @@ import (
 	"sync"
 )
 
-const internMaxBytes = 64
+// MaxInternBytes is the largest string for which InternStr owns its backing bytes.
+const MaxInternBytes = 64
 
 type stringInternShard struct {
 	mu    sync.Mutex
@@ -24,7 +25,7 @@ var shortStrings = struct {
 // replacing a slot never changes a Value already returned. Empty and longer
 // strings use NewStr. Sharing and eviction are not observable MOO behavior.
 func InternStr(s string) Value {
-	if len(s) == 0 || len(s) > internMaxBytes {
+	if len(s) == 0 || len(s) > MaxInternBytes {
 		return NewStr(s)
 	}
 	h := maphash.String(shortStrings.seed, s)

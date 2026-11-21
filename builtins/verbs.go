@@ -98,10 +98,15 @@ func builtinRespondTo(ctx *Execution, args []types.Value) types.Result {
 	// transaction-aware path so staged ownership and flag changes are visible.
 	objReadable, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagRead)
 	if errCode == types.E_NONE && objReadable {
-		// Return {defining_object, verb_name}
+		names := verb.NamesString
+		if len(names) > types.MaxInternBytes {
+			// InternStr keeps long strings' backing bytes. The joined alias
+			// result has always been distinct from the store's verb descriptor.
+			names = strings.Join(verb.Names, " ")
+		}
 		return types.Ok(types.NewList([]types.Value{
 			types.NewObj(definingObj),
-			types.InternStr(strings.Join(verb.Names, " ")),
+			types.InternStr(names),
 		}))
 	}
 
