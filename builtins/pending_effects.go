@@ -31,6 +31,20 @@ func pendingServerOptions(ctx *task.Context) *task.PendingServerOptions {
 	return nil
 }
 
+// pendingBoot reports whether this task has called boot_player(player) in its
+// current transaction; the boot itself is applied when the task commits.
+func pendingBoot(ctx *Execution, player types.ObjID) bool {
+	if ctx == nil || ctx.Context == nil {
+		return false
+	}
+	for _, effect := range ctx.PendingEffects {
+		if effect.Kind == task.PendingEffectBootPlayer && effect.BootPlayer == player {
+			return true
+		}
+	}
+	return false
+}
+
 // deferServerOptions records snapshot as the task's view and queues it for
 // session-wide publication when the task commits.
 func deferServerOptions(ctx *Execution, snapshot *task.PendingServerOptions) {

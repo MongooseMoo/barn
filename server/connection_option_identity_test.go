@@ -52,13 +52,34 @@ type pausedOptionConnManager struct {
 	once     sync.Once
 }
 
+// GetConnection hands the setter a connection that pauses on its second Done()
+// call: the first is the builtin's liveness check (Toast's disconnect_me test),
+// the second is the lifetime passed to the option mutation. The disconnect the
+// test processes during the pause therefore lands after the setter was admitted
+// as live and before it mutates.
 func (m *pausedOptionConnManager) GetConnection(player types.ObjID) builtins.Connection {
 	conn := m.ConnectionManager.GetConnection(player)
-	m.once.Do(func() {
-		m.captured <- conn
-		<-m.release
-	})
-	return conn
+	if conn == nil {
+		return nil
+	}
+	return &pausedDoneConn{Connection: conn, manager: m}
+}
+
+type pausedDoneConn struct {
+	builtins.Connection
+	manager *pausedOptionConnManager
+	calls   int
+}
+
+func (c *pausedDoneConn) Done() <-chan struct{} {
+	c.calls++
+	if c.calls == 2 {
+		c.manager.once.Do(func() {
+			c.manager.captured <- c.Connection
+			<-c.manager.release
+		})
+	}
+	return c.Connection.Done()
 }
 
 func TestAdmittedOptionSetterCannotRecreateDisconnectedBag(t *testing.T) {

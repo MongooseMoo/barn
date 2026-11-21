@@ -175,6 +175,32 @@ func resolveConnection(ctx *Execution, player types.ObjID) Connection {
 	return cm.GetConnection(player)
 }
 
+// resolveLiveConnection is resolveConnection for the builtins Toast gates on
+// `!h || h->disconnect_me` (server.cc bf_connection_info, bf_connected_seconds,
+// bf_idle_seconds, bf_connection_name, bf_name_lookup, bf_set_connection_option,
+// bf_connection_options, bf_notify). boot_player closes a connection at once, but it stays
+// registered until its disconnect event is processed; like Toast's
+// disconnect_me, a closed lifetime means there is no connection.
+//
+// Inside a transaction boot_player is deferred to commit (a pending effect), but
+// Toast sets disconnect_me at the call, so the booting task's own later calls
+// already see no connection; pendingBoot gives that task-local view.
+func resolveLiveConnection(ctx *Execution, player types.ObjID) Connection {
+	if pendingBoot(ctx, player) {
+		return nil
+	}
+	conn := resolveConnection(ctx, player)
+	if conn == nil {
+		return nil
+	}
+	select {
+	case <-conn.Done():
+		return nil
+	default:
+		return conn
+	}
+}
+
 func validConnectionOption(name string) bool {
 	switch name {
 	case "hold-input", "client-echo", "disable-oob",
@@ -937,9 +963,10 @@ func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 		noFlush = args[2].Truthy()
 	}
 
-	conn := resolveConnection(ctx, player)
+	conn := resolveLiveConnection(ctx, player)
 	if conn == nil {
-		// MOO behavior: missing/disconnected target is a successful no-op.
+		// Toast bf_notify: with `!h || h->disconnect_me` nothing is sent and
+		// the result is 1 (emergency mode aside), whatever the line is.
 		return types.Ok(types.NewInt(1))
 	}
 
@@ -1087,6 +1114,11 @@ func builtinConnectedPlayers(ctx *Execution, args []types.Value) types.Result {
 		if _, ok := seen[p]; ok {
 			continue
 		}
+		// Toast bf_connected_players skips disconnect_me handles, which
+		// boot_player sets at the call; this task's deferred boots count.
+		if pendingBoot(ctx, p) {
+			continue
+		}
 		seen[p] = struct{}{}
 		players = append(players, p)
 	}
@@ -1119,7 +1151,7 @@ func builtinConnectionName(ctx *Execution, args []types.Value) types.Result {
 		hasMethod = true
 	}
 
-	conn := resolveConnection(ctx, player)
+	conn := resolveLiveConnection(ctx, player)
 	if conn == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -1230,7 +1262,7 @@ func builtinIdleSeconds(ctx *Execution, args []types.Value) types.Result {
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	conn := resolveConnection(ctx, player)
+	conn := resolveLiveConnection(ctx, player)
 	if conn == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -1252,7 +1284,7 @@ func builtinConnectedSeconds(ctx *Execution, args []types.Value) types.Result {
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	conn := resolveConnection(ctx, player)
+	conn := resolveLiveConnection(ctx, player)
 	if conn == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -1275,7 +1307,7 @@ func builtinConnectionInfo(ctx *Execution, args []types.Value) types.Result {
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	conn := resolveConnection(ctx, player)
+	conn := resolveLiveConnection(ctx, player)
 	if conn == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -1332,6 +1364,15 @@ func builtinConnectionNameLookup(ctx *Execution, args []types.Value) types.Resul
 		return types.Err(types.E_TYPE)
 	}
 
+	// Toast bf_name_lookup checks permission first, then treats
+	// `!h || h->disconnect_me` as E_INVARG.
+	if !ctx.IsWizard && player != ctx.Programmer {
+		return types.Err(types.E_PERM)
+	}
+	if resolveLiveConnection(ctx, player) == nil {
+		return types.Err(types.E_INVARG)
+	}
+
 	rewrite := false
 	if len(args) == 2 {
 		rewrite = args[1].Truthy()
@@ -1354,7 +1395,7 @@ func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result
 	if !ctx.IsWizard && player != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
-	conn := resolveConnection(ctx, player)
+	conn := resolveLiveConnection(ctx, player)
 	if conn == nil {
 		return types.Err(types.E_INVARG)
 	}
