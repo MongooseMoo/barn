@@ -106,10 +106,8 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 	// The new frame is already on vm.Frames — just continue execution.
 	if result.Flow == types.FlowEvalPush {
 		// call_function("eval", ...) names the eval activation's builtin entry
-		// call_function, as nameBuiltinCaller does a callback's.
-		if name := vm.Builtins.Registry().NameByID(funcID); name != "eval" && vm.Task != nil {
-			vm.Task.SetTopFrameBuiltinCaller(name, 2)
-		}
+		// call_function, as it does a callback's.
+		vm.nameBuiltinCaller(vm.Builtins.Registry().NameByID(funcID))
 		return nil
 	}
 	if result.Flow == types.FlowBuiltinPush {

@@ -183,6 +183,70 @@ Mutation checks: reverting the import naming (`vm/persistence.go`, name
 `"move"`) fails `TestToastSuspendedCallFunctionMoveKeepsFrameName` and the two
 suspended-stack tests.
 
+## Follow-up: eval callers() across a restart (lead, from the #1028 agent)
+
+The #1028 agent measured callers() names inside a program run by
+call_function("eval", ...) (its note, PR 1031): Toast to Toast
+`{"call_function", "start", ""}` before and after a restart; Barn master live
+`{"eval", "eval"}`; Barn after its own restart `{"start", ""}`; Toast resuming
+Barn's file `{"eval", "start", ""}`. The live value is fixed by F3 below
+(`bin/moo` now gives the eval entry, then the calling verb). The restart
+values came from the eval mark living only on the task activation and export
+writing a plain `eval` mark.
+
+Change: the eval activation's VM frame now carries the mark too
+(`vm/registry.go` pushEval; `vm/op_misc.go` FlowEvalPush uses
+nameBuiltinCaller), so Barn's own checkpoint form keeps it. Toast form:
+export clears the mark before ExportNativeFrame and writes Toast's
+`call_function` / `bf_call_function data: fname = eval` record when the mark
+is call_function; import sets the eval activation's mark from the Toast
+record's outer name (eval or call_function). The create/recreate/recycle
+refusal skips eval frames. The vm checkpoint lane now copies each reloaded
+frame's mark onto the reused task activations (as `engine/task_load.go`
+does), and eval()'s value in the generator records `callers()[1][2]`.
+
+Reading Toast's call_function eval record needs PR 1031's import
+(withoutEvalReturnContinuation unwrap); without it the lane fails at reload
+with `native builtin continuation requires conversion`.
+
+New suite test `src/moo_conformance/_tests/server/suspended_eval_callers_checkpoint.yaml`
+(kept_db_restart): direct eval() and call_function("eval", ...) in a forked
+verb, callers() names asserted before suspending and after the restart as
+`{name, "start", ""}`.
+
+Restored activations: `engine/task_load.go` now also copies `IsEvalFrame`
+from the converted VM frames; after a Toast-form import the reader's
+activation had it false (it reads the raw native frame), so the loaded eval
+activation was not treated as one.
+
+Runs for the follow-up:
+
+7. Toast to Toast, new test: `make conformance-toast ... K=suspended_eval_callers_checkpoint`
+   (run 1's form). `3 passed, 14141 deselected in 482.62s`. So Toast gives
+   `{"eval", "start", ""}` for a direct eval() and `{"call_function",
+   "start", ""}` under call_function, before and after the restart.
+8. Barn alone (this branch, before PR 1031): `go test ./vm ./engine ./builtins -run 'Eval|Native|Persist|Export|Import|Checkpoint|SuspendedStack|Toast|Callers|Traceback'`:
+   vm FAIL, `RestoreVMSnapshot after checkpoint reload: native frame 1:
+   native builtin continuation requires conversion` on the call_function eval
+   seeds (Barn now writes Toast's call_function eval record; reading it is
+   PR 1031). engine, builtins ok.
+9. Throwaway worktree `C:/Users/Q/code/barn-callers-cf-trial` = this work
+   merged with `origin/fix/call-function-eval-import` (PR 1031):
+   - same go test command: vm ok, engine ok.
+   - mutation (import ignores the Toast record's name): `TestSuspendedStackLayersMarkResult`
+     eval/scatter/expression seed 2 give `"eval"` for `"call_function"`;
+     `TestSuspendedStackKindsReachCheckpoint` `uninterrupted ...
+     "call_function" ... checkpointed ... "eval"`.
+   - `engine/toast_suspended_eval_frame_name_test.go` (new; needs PR 1031's
+     `testdata/toast-suspended-call-function-eval.db`): first failed because
+     the loaded activation's IsEvalFrame was false (above); after the
+     task_load change, ok.
+   - cross-engine suite session narrowed to the new test (scratch
+     `xengine2.sh`, the script's "suite tests" flags with `-k
+     "capability_admission or suspended_eval_callers_checkpoint"`): Barn
+     writes/Toast resumes `3 passed`; Toast writes/Barn resumes `3 passed`;
+     Barn writes/Barn resumes `3 passed`.
+
 ## Not verified
 
 - staticcheck / golangci-lint, `-race`, a `-fuzz` run, whole `go test ./...`

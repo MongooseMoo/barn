@@ -89,7 +89,9 @@ func TestSuspendedStackLayersMarkResult(t *testing.T) {
 	// a third calls eval() through call_function.
 	want := map[string][]string{
 		"verb": {"return {{1, 0}}", "return {{1, {0, 0}}}"},
-		"eval": {"return {{1, {1, 0}}}", "return {{1, {1, {0, 0}}}}", "return {{1, {1, 0}}}"},
+		// eval()'s {1, {layer, inner value, the name callers() gave its builtin
+		// entry}}: eval, and call_function for the third seed.
+		"eval": {`return {{1, {1, 0, "eval"}}}`, `return {{1, {1, {0, 0}, "eval"}}}`, `return {{1, {1, 0, "call_function"}}}`},
 		// The handler was entered by falling through (the statement after
 		// endtry ran), by a return (the verb's {args[1], 1} arrived, not its
 		// later return 0), by a raise (the outer except got code, message and
@@ -123,8 +125,8 @@ func TestSuspendedStackLayersMarkResult(t *testing.T) {
 		"for-range":           {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
 		"for-map":             {"return {{{1, -1}, 0, {3, 1}}}", "return {{{1, -1}, {0, 0}, {3, 1}}}"},
 		"while":               {"return {{1, 0, 3}}", "return {{1, {0, 0}, 3}}"},
-		"scatter":             {"return {{1, {1, 0}, {}}}", "return {{1, {1, {1, {0, 0}}}, {}}}", "return {{1, {1, {1, 0}}, {}}}"},
-		"expression":          {"return {{1, {1, 0}, 2}}", "return {{1, {1, {1, {0, 0}}}, 2}}", "return {{1, {1, {1, 0}}, 2}}"},
+		"scatter":             {"return {{1, {1, 0}, {}}}", `return {{1, {1, {1, {0, 0}, "eval"}}, {}}}`, `return {{1, {1, {1, 0, "call_function"}}, {}}}`},
+		"expression":          {"return {{1, {1, 0}, 2}}", `return {{1, {1, {1, {0, 0}, "eval"}}, 2}}`, `return {{1, {1, {1, 0, "call_function"}}, 2}}`},
 	}
 	// The fork layer's child stores its value in f1, the property defined last.
 	wantForked := [2]string{"{1, 0}", "{1, {0, 0}}"}

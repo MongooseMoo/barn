@@ -236,6 +236,14 @@ func convertNativeSnapshot(snapshot *task.VMSnapshot, store *dbstore.Store, sess
 		}
 		frame.IsVerbCall = previousCall == compiler.NativeResumeVerb || previousCall == compiler.NativeResumePass
 		frame.IsEvalFrame = evalFrame
+		if evalFrame {
+			// eval, or call_function when Toast reached eval through it: the
+			// name callers() gives the eval activation's builtin entry.
+			frame.BuiltinCaller, frame.BuiltinPC = "eval", 2
+			if builtin := snapshot.Frames[index].Native.Builtin; builtin != nil {
+				frame.BuiltinCaller = builtin.Name
+			}
+		}
 		if move != nil {
 			// The frame as pushMoveLifecycleVerb leaves a hook verb's.
 			frame.IsVerbCall = true
@@ -370,7 +378,7 @@ func ExportNativeSnapshot(snapshot *task.VMSnapshot, callStack []types.Activatio
 		// A callback of call_function("create", ...) and the others is named
 		// call_function (see nameBuiltinCaller); move's has its continuation.
 		name := saved.BuiltinCaller
-		if name == "create" || name == "recreate" || name == "recycle" || (name == "call_function" && saved.MoveContinuation == nil) {
+		if name == "create" || name == "recreate" || name == "recycle" || (name == "call_function" && saved.MoveContinuation == nil && !saved.IsEvalFrame) {
 			return nil, fmt.Errorf("frame %d (#%d:%s): %s: %w", index, saved.VerbLoc, saved.Verb, saved.BuiltinCaller, ErrToastLosesObjectContinuation)
 		}
 	}
@@ -383,6 +391,11 @@ func ExportNativeSnapshot(snapshot *task.VMSnapshot, callStack []types.Activatio
 				return nil, fmt.Errorf("frame %d (#%d:%s): move continuation has no Toast form", index, saved.VerbLoc, saved.Verb)
 			}
 			saved.MoveContinuation, saved.BuiltinCaller, saved.BuiltinPC = nil, "", 0
+		}
+		evalBuiltin := ""
+		if saved.IsEvalFrame {
+			// Written below as Toast's eval mark.
+			evalBuiltin, saved.BuiltinCaller, saved.BuiltinPC = saved.BuiltinCaller, "", 0
 		}
 		frame, vector, err := compile.ExportNativeFrame(saved, index == len(snapshot.Frames)-1)
 		if err != nil {
@@ -402,6 +415,11 @@ func ExportNativeSnapshot(snapshot *task.VMSnapshot, callStack []types.Activatio
 			// the caller the bare value instead of {1, value}.
 			native := *frame.Native
 			native.Builtin = &task.NativeBuiltinSnapshot{Name: "eval"}
+			if evalBuiltin == "call_function" {
+				// bf_call_function_write: its line naming eval; bf_eval has no
+				// data. Toast resumed from it names the entry call_function.
+				native.Builtin = &task.NativeBuiltinSnapshot{Name: "call_function", State: "bf_call_function data: fname = eval", Inner: native.Builtin}
+			}
 			frame.Native = &native
 			frame.BuiltinPC = 2
 		}

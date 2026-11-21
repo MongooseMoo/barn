@@ -543,6 +543,15 @@ func reloadCheckpoint(t *testing.T, machine *VM, store *dbstore.Store, forks []s
 		t.Fatalf("RestoreVMSnapshot after checkpoint reload: %v", err)
 	}
 	restored.Task = machine.Task
+	// The task keeps its activations, but the builtin each names below it
+	// comes from the reloaded frames, as engine.restoreTaskVM sets it.
+	restored.Task.Mu.Lock()
+	for index, frame := range restored.Frames {
+		if index < len(restored.Task.CallStack) {
+			restored.Task.CallStack[index].BuiltinCaller, restored.Task.CallStack[index].BuiltinPC = frame.BuiltinCaller, frame.BuiltinPC
+		}
+	}
+	restored.Task.Mu.Unlock()
 	restored.TickLimit = machine.TickLimit
 	restored.Ticks = machine.Ticks
 	if frame := restored.CurrentFrame(); frame == nil {

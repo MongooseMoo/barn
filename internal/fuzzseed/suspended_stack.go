@@ -355,9 +355,12 @@ func (s *suspendedStack) verbCall(k int, inner []string) string {
 }
 
 // evalCall returns a call of eval() on inner, made directly or, when indirect,
-// through call_function. A completed eval() returns {1, {k, v}}.
+// through call_function. A completed eval() returns {1, {k, v, name}}, name
+// being what callers() calls the eval activation's builtin entry once inner
+// has resumed: eval, or call_function when indirect (Toast names it by the
+// builtin the bytecode called).
 func evalCall(k int, inner []string, indirect bool) string {
-	source := mooString(strings.Join(inner, " ") + fmt.Sprintf(" return {%d, v};", k))
+	source := mooString(strings.Join(inner, " ") + fmt.Sprintf(" return {%d, v, callers()[1][2]};", k))
 	if indirect {
 		return `call_function("eval", ` + source + ")"
 	}

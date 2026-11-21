@@ -103,20 +103,25 @@ func vmDescriptors() []builtins.Descriptor {
 func (vm *VM) pushEval(prog *bytecode.Program) types.Result {
 	ctx := vm.Context
 	frame := vm.frameFrom(StackFrame{
-		Program:         prog,
-		IP:              0,
-		BasePointer:     vm.SP,
-		Locals:          vm.allocLocals(prog.NumLocals),
-		localsOnStack:   true,
-		This:            types.ObjNothing,
-		ThisValue:       types.None,
-		Player:          ctx.Player,
-		Verb:            "",
-		Caller:          ctx.ThisObj,
-		VerbLoc:         types.ObjNothing,
-		Args:            []types.Value{},
-		IsEvalFrame:     true,
-		VerbDebug:       true,
+		Program:       prog,
+		IP:            0,
+		BasePointer:   vm.SP,
+		Locals:        vm.allocLocals(prog.NumLocals),
+		localsOnStack: true,
+		This:          types.ObjNothing,
+		ThisValue:     types.None,
+		Player:        ctx.Player,
+		Verb:          "",
+		Caller:        ctx.ThisObj,
+		VerbLoc:       types.ObjNothing,
+		Args:          []types.Value{},
+		IsEvalFrame:   true,
+		VerbDebug:     true,
+		// Toast's OP_BI_FUNC_CALL records the called builtin with bf_eval's
+		// pc 2 on the eval activation (execute.cc setup_activ_for_eval,
+		// verbs.cc bf_eval); write_activ saves it.
+		BuiltinCaller:   "eval",
+		BuiltinPC:       2,
 		SavedThisObj:    ctx.ThisObj,
 		SavedThisValue:  ctx.ThisValue,
 		SavedVerb:       ctx.Verb,
@@ -144,19 +149,14 @@ func (vm *VM) pushEval(prog *bytecode.Program) types.Result {
 
 	if vm.Task != nil {
 		vm.Task.PushFrame(types.ActivationFrame{
-			This:        types.ObjNothing,
-			ThisValue:   types.None,
-			Player:      ctx.Player,
-			Programmer:  ctx.Programmer,
-			Verb:        "",
-			VerbLoc:     types.ObjNothing,
-			LineNumber:  1,
-			IsEvalFrame: true,
-			// Toast's OP_BI_FUNC_CALL records the called builtin with
-			// bf_eval's pc 2 on the eval activation (execute.cc
-			// setup_activ_for_eval, verbs.cc bf_eval). Only the task's
-			// activation carries it: Barn's checkpoint forms hold eval's
-			// continuation as IsEvalFrame.
+			This:          types.ObjNothing,
+			ThisValue:     types.None,
+			Player:        ctx.Player,
+			Programmer:    ctx.Programmer,
+			Verb:          "",
+			VerbLoc:       types.ObjNothing,
+			LineNumber:    1,
+			IsEvalFrame:   true,
 			BuiltinCaller: "eval",
 			BuiltinPC:     2,
 		})
