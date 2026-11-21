@@ -162,8 +162,9 @@ func TestClosedOptionMutationSkipsWakeAndHeldDrain(t *testing.T) {
 		result := admitTestBuiltin("set_connection_option", ctx, []types.Value{
 			types.NewObj(7), types.NewStr(option.name), types.NewInt(option.value),
 		})
-		if result.IsError() || result.Val.Type() != types.TYPE_INT || result.Val.Int() != 0 {
-			t.Fatalf("closed %s setter = %+v, want normal zero", option.name, result)
+		// Toast bf_set_connection_option: `!h || h->disconnect_me` is E_INVARG.
+		if result.Flow != types.FlowException || result.Error != types.E_INVARG {
+			t.Fatalf("closed %s setter = %+v, want E_INVARG", option.name, result)
 		}
 	}
 	if _, exists := ctx.Session.runtime.connectionOptions.byConnection[connectionID]; exists {

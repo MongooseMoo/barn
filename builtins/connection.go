@@ -170,7 +170,7 @@ func builtinConnectionOptions(ctx *Execution, args []types.Value) types.Result {
 	if !ctx.IsWizard && target != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
-	conn := resolveConnection(ctx, target)
+	conn := resolveLiveConnection(ctx, target)
 	if conn == nil {
 		return types.Err(types.E_INVARG)
 	}
