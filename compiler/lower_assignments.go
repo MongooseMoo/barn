@@ -160,7 +160,16 @@ type propertyWriteback struct {
 // back with OP_SET_PROP_KEYED.
 func (c *lowerer) prepareCollectionBase(target ir.CollectionTarget, keyedBase bool) (int, *propertyWriteback, error) {
 	if variable, ok := target.(*ir.VariableTarget); ok {
-		return c.declareVariable(variable.Name), nil, nil
+		// Toast pushes the base variable before it generates any index, range
+		// bound or value (code_gen.cc push_lvalue, EXPR_ASGN), so an unassigned
+		// base raises E_VARNF before any of them runs. The assignment updates
+		// the slot in place, so read it here only for that check; both
+		// instructions are tick-free, as Toast's OP_PUSH is.
+		slot := c.declareVariable(variable.Name)
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(slot))
+		c.emit(bytecode.OP_POP)
+		return slot, nil, nil
 	}
 	property, ok := target.(*ir.PropertyTarget)
 	if !ok {
