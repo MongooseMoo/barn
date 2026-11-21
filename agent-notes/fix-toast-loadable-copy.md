@@ -160,7 +160,12 @@ check, and `docs/going-back-to-toast.md`.
 ## Not verified
 
 - Resuming a converted copy on the Mongoose 0ff6fd7 build (only its
-  emergency-mode load was run; the harness runs used stock Toast).
+  emergency-mode load was run; the harness runs used stock Toast). Tried the
+  harness with `profiles/toast/mongoose-0ff6fd7-wsl-testdb.json` as oracle:
+  the profile gate refuses, `invalid-comparison: feature
+  option.PROMOTE_NUMBERS differs: oracle=True target=False` (Barn's testdb
+  profiles declare no PROMOTE_NUMBERS; its mongoose profiles need the
+  mongoose fixture). Not forced.
 - The command on the Mongoose dump.
 - Refusal reasons no test produced: builtin continuation with no Toast form
   (`BuiltinPC`/`MoveContinuation`/`RecycleContinuation` outside the converted
