@@ -41,6 +41,18 @@ seed's checkpoint. `FuzzSuspendedStackCheckpoint/*` are byte-for-byte copies of
 three records from Go's fuzz cache for that target; two render the same
 program.
 
+`cross-engine/master-barn-first*.xml` and
+`cross-engine/master-barn-first-toast-loadable-conversions.txt` are unchanged
+output of one local run of `scripts/fuzz_cross_engine.py` on 2026-11-21, Barn
+built from master after PR 1036, stock WSL Toast, over the two programs of the
+lane's PR 1032 findings 2 and 3 (choices `000010e38d53bab33300`, a task
+suspended in `recreate()`'s initialize; `c9c9b1cfa79e9e9eff6dc9c9c9640090`, one
+suspended in `call_function("create", ...)`'s) and the two programs of
+`FuzzSuspendedStackCheckpoint/`: the Barn-writes session (Toast does not boot
+on those two), the converted session on them (Toast boots on both), and what
+`barn offline-checkpoint --toast-loadable` printed during that session
+(`TOAST_LOADABLE_LOG`).
+
 The reporter reads existing committed corpus inputs where available; it does not
 copy them here. Missing input files remain explicit in its JSON.
 

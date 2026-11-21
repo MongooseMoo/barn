@@ -123,7 +123,16 @@ All runs on the workstation's WSL Debian, recorded in
   (`tests/mongoose-conformance/server/*checkpoint*.yaml`) pass through the
   conversion, so it keeps every task those tests leave for Toast.
 
-**Not verified:** resuming the converted copy on the `0ff6fd7` build (only
+- Each fuzz cycle, the generated cross-engine lane
+  (`scripts/fuzz_cross_engine.py`, job ToastCrossEngineCheckpoint) converts
+  every Barn-written checkpoint of a generated program that stock Toast does
+  not boot on and requires Toast to boot on the copy; its report counts the
+  omitted tasks by reason under `## converted copies`. A local run on the
+  programs that found this (a task suspended in `recreate()`'s initialize and
+  one in `call_function("create", ...)`'s): Toast booted on both copies, one
+  task omitted for each.
+
+**Not verified:** the lane on a GitHub runner; resuming the converted copy on the `0ff6fd7` build (only
 loading it was run there); the command on the Mongoose dump; how many tasks of
 the live game are in Barn's frame form at a given checkpoint.
 
