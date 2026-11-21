@@ -497,7 +497,7 @@ func builtinAllMembers(ctx *Execution, args []types.Value) types.Result {
 			}
 		}
 		return types.NewList(result)
-	})
+	}, needle, list)
 }
 
 func builtinDistance(ctx *Execution, args []types.Value) types.Result {

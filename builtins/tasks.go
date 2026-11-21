@@ -188,6 +188,8 @@ func builtinResume(ctx *Execution, args []types.Value) types.Result {
 	if row.Owner != ctx.Programmer && !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
+	// The value goes to the resumed task.
+	escapeFinalizers(ctx, value)
 	row.Status, row.Value, row.By = dbstore.TaskRowQueued, value, ctx.TaskID
 	ctx.StoreTxn.StageTaskRow(taskID, row)
 	return types.Ok(types.NewInt(0))
@@ -720,12 +722,12 @@ func tasksDescriptors() []Descriptor {
 		function("set_thread_mode", builtinSetThreadMode, 0, 1, argFlag),
 		function("task_perms", builtinTaskPerms, 0, 0),
 		function("queue_info", builtinQueueInfo, 0, 1, 1),
-		function("finished_tasks", builtinFinishedTasks, 0, 0).plainArityError().withCapability(config.BarnExtensions),
+		function("finished_tasks", escapingResult(builtinFinishedTasks), 0, 0).plainArityError().withCapability(config.BarnExtensions),
 		function("thread_pool", builtinThreadPool, 2, 3, 2, 2, 0),
 		function("threads", builtinThreads, 0, 0),
-		function("queued_tasks", builtinQueuedTasks, 0, 2, argFlag, argFlag),
+		function("queued_tasks", escapingResult(builtinQueuedTasks), 0, 2, argFlag, argFlag),
 		function("kill_task", builtinKillTask, 1, 1, 0),
-		function("task_stack", builtinTaskStack, 1, 3, 0, -1, -1).withLineSync(),
+		function("task_stack", escapingResult(builtinTaskStack), 1, 3, 0, -1, -1).withLineSync(),
 		function("suspend", builtinSuspend, 0, 1, -2),
 		function("resume", builtinResume, 1, 2, 0, -1),
 		function("callers", builtinCallers, 0, 1, -1).withLineSync(),

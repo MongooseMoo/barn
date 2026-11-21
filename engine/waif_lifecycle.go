@@ -142,7 +142,11 @@ func (s *Runtime) deferAnonGC(ctx *task.Context, minID types.ObjID, ownVM *vm.VM
 // settleCompletedTaskFinalizations chooses exactly one owner for a terminal
 // task's roots. An explicit shutdown transfers them to the checkpoint domain;
 // generic cancellation and normal completion retain the ordinary GC path.
-func (s *Runtime) settleCompletedTaskFinalizations(ctx *task.Context, exec *vm.VM, minID types.ObjID, hasAnonymousCreations, committed bool) bool {
+//
+// finalize, when not nil, asks for the boundary decision of a committed slice
+// (decideConfined); its dead values are for the caller to recycle once the
+// completion's own writes are committed.
+func (s *Runtime) settleCompletedTaskFinalizations(ctx *task.Context, exec *vm.VM, minID types.ObjID, hasAnonymousCreations, committed bool, finalize *boundaryFinalization) bool {
 	if exec == nil {
 		return s.ShutdownRequested()
 	}
@@ -162,7 +166,12 @@ func (s *Runtime) settleCompletedTaskFinalizations(ctx *task.Context, exec *vm.V
 		}
 		return true
 	}
-	s.deferPendingWaifs(ctx, exec.TakePendingWaifs(), exec)
+	waifs := exec.TakePendingWaifs()
+	if finalize != nil {
+		finalize.verdict = s.decideConfined(finalize.task, exec, waifs, finalize.held, finalize.grantSeq)
+		waifs = finalize.verdict.sweepWaifs
+	}
+	s.deferPendingWaifs(ctx, waifs, exec)
 	// A failed publication did not release the property references it staged.
 	// Keep its cleanup limited to the original creation floor.
 	if committed {
@@ -205,6 +214,12 @@ func (s *Runtime) gcRecycleContext(parent *task.Context) *task.Context {
 // gcSweepInterval once they become expensive.
 func (s *Runtime) flushDeferredGC() { s.flushDeferredGCBarrier(0, false) }
 
+// deferredWorkPendingLocked reports whether a sweep has anything to do. The
+// caller holds lifecycle.Mu.
+func (s *Runtime) deferredWorkPendingLocked() bool {
+	return len(s.lifecycle.PendingWaifs) != 0 || len(s.lifecycle.PendingAnonGC) != 0 || s.oraclePendingLocked()
+}
+
 // maintenanceBarrierPatience is how long the maintenance worker keeps trying
 // for the sweep barrier. A finishing task's flush holds it for the length of
 // one quiescence test; a checkpoint holds it for a whole serialization, which
@@ -236,7 +251,7 @@ func tryLockFor(mu *sync.Mutex, patience time.Duration) bool {
 func (s *Runtime) flushDeferredGCBarrier(patience time.Duration, handshake bool) {
 	// Avoid contending on the sweep barrier when there is plainly no work.
 	s.lifecycle.Mu.Lock()
-	if s.lifecycle.ShutdownRequested || s.lifecycle.GCRunning || s.lifecycle.FinalizationHeld || (len(s.lifecycle.PendingWaifs) == 0 && len(s.lifecycle.PendingAnonGC) == 0) {
+	if s.lifecycle.ShutdownRequested || s.lifecycle.GCRunning || s.lifecycle.FinalizationHeld || !s.deferredWorkPendingLocked() {
 		s.lifecycle.Mu.Unlock()
 		return
 	}
@@ -274,7 +289,7 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration, handshake bool)
 
 	// Another flush may have settled the batch while this goroutine waited.
 	s.lifecycle.Mu.Lock()
-	if s.lifecycle.ShutdownRequested || s.lifecycle.GCRunning || s.lifecycle.FinalizationHeld || (len(s.lifecycle.PendingWaifs) == 0 && len(s.lifecycle.PendingAnonGC) == 0) {
+	if s.lifecycle.ShutdownRequested || s.lifecycle.GCRunning || s.lifecycle.FinalizationHeld || !s.deferredWorkPendingLocked() {
 		s.lifecycle.Mu.Unlock()
 		return
 	}
@@ -324,6 +339,7 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration, handshake bool)
 			s.publishShutdown()
 		}
 	}()
+	s.oracleCheck(siblingAnon, siblingWaifs, waifBatch, anonBatch)
 
 	if len(waifBatch) > 0 {
 		roots := append([]types.Value(nil), siblingWaifs...)

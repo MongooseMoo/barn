@@ -290,6 +290,13 @@ type Store struct {
 	// (noteExclusiveGrant). BeginSnapshot uses it to tell whether a snapshot
 	// includes part of a holder's attempt.
 	exclusiveGrantClock atomic.Uint64
+	// exclusiveGrantSeq numbers the exclusive grants of commitGate. A
+	// transaction bound to a grant publishes under that number, which tells a
+	// finalizer tag the publication was tentative (types.FinalizerTag).
+	exclusiveGrantSeq atomic.Uint64
+	// anonTags holds the finalizer tag of each task-created anonymous object
+	// (types.ObjID -> *types.FinalizerTag); a WAIF carries its own.
+	anonTags sync.Map
 	// externalWrites counts writes to state outside the store that tasks read
 	// optimistically (store_external_reads.go).
 	externalWrites atomic.Uint64
@@ -503,7 +510,12 @@ func (s *Store) countEscalation(g *commitgate.Grant, err error) (*commitgate.Gra
 // taken during the hold at a later clock may include the holder's publications.
 func (s *Store) noteExclusiveGrant() {
 	s.exclusiveGrantClock.Store(s.clock.Load())
+	s.exclusiveGrantSeq.Add(1)
 }
+
+// ExclusiveGrantSeq is the number of the latest exclusive grant of the commit
+// gate. Read while holding that grant, it names the hold.
+func (s *Store) ExclusiveGrantSeq() uint64 { return s.exclusiveGrantSeq.Load() }
 
 func (s *Store) readTimestamp() uint64 {
 	return s.clock.Load()

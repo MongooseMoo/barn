@@ -40,6 +40,7 @@ type waifRep struct {
 	domain     *WaifDomain
 	images     []*WaifImage // oldest to newest; each published image is immutable
 	recycled   atomic.Bool  // finalizer has started, including a suspended callback
+	tag        FinalizerTag // creating task and escape state (finalizer_tag.go)
 }
 
 // BeginWaifRecycle claims the one finalizer invocation for this identity.

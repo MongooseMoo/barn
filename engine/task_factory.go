@@ -96,6 +96,10 @@ func (s *Runtime) RunServerVerbTaskWithArgstr(objID types.ObjID, verbName string
 }
 
 func (s *Runtime) runServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, onStart func(int64), scope *admission.Scope, system bool) (types.Result, error) {
+	// The hook's task holds its arguments, and so does whoever passed them.
+	for _, arg := range args {
+		s.store.MarkFinalizersEscaped(arg)
+	}
 	ownsScope := scope == nil
 	if ownsScope {
 		roots := s.pinAdmissionRoots(objID, args)
@@ -205,6 +209,9 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 	t.Caller = types.ObjNothing
 	t.Argstr = argstr
 	t.VerbArgsValues = append([]types.Value(nil), args...)
+	for _, arg := range args {
+		s.store.MarkFinalizersEscaped(arg)
+	}
 	t.ForkCreator = s
 	t.SetOnComplete(onComplete)
 

@@ -37,10 +37,12 @@ func threadedCall(ctx *Execution) bool {
 }
 
 // backgroundValue runs the pure work of a threaded builtin (sort,
-// all_members), which returns its result or an error value.
-func backgroundValue(ctx *Execution, work func() types.Value) types.Result {
+// all_members), which returns its result or an error value. held are the
+// values the work reads, which its goroutine holds while the task is
+// suspended.
+func backgroundValue(ctx *Execution, work func() types.Value, held ...types.Value) types.Result {
 	if threadedCall(ctx) {
-		return runInBackground(ctx, func() types.Result { return types.Ok(work()) })
+		return runInBackground(ctx, func() types.Result { return types.Ok(work()) }, held...)
 	}
 	value := work()
 	if ctx.Context != nil && !ctx.ThreadMode {
@@ -70,10 +72,15 @@ func backgroundValue(ctx *Execution, work func() types.Value) types.Result {
 // nothing ran, the attempt stays eligible for conflict retry. The generation
 // check makes any completion that no longer belongs to the suspension it was
 // started for a no-op.
-func runInBackground(ctx *Execution, operation func() types.Result) types.Result {
+//
+// held are the values operation reads. Its goroutine holds them while the task
+// is suspended, where the task's own state no longer shows them, so they
+// escape (escapeFinalizers).
+func runInBackground(ctx *Execution, operation func() types.Result, held ...types.Value) types.Result {
 	if !threadedCall(ctx) {
 		return operation()
 	}
+	escapeFinalizers(ctx, held...)
 	t := ctx.Task
 	mgr := taskManagerOf(ctx)
 	if mgr == nil {

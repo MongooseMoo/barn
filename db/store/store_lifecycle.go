@@ -27,6 +27,11 @@ func (s *Store) createAnonymous(parents []types.ObjID, owner types.ObjID) (types
 	s.anonCreations.Add(1)
 	obj.properties = s.copyInheritedPropertiesLocked(obj.parents, obj.owner)
 	s.shareCreatedProperties(obj.properties)
+	// The new object's inherited slots hold its parents' values, and the index
+	// that tracks numbered holders does not see an anonymous one.
+	for _, prop := range obj.properties.all() {
+		s.MarkFinalizersEscaped(prop.value)
+	}
 	stampObjectAll(obj, ts)
 
 	// Snapshot the numbered parents before attachChildToParentsLocked mutates
@@ -175,6 +180,8 @@ func (s *Store) Recycle(id types.ObjID) error {
 	// identity (see AddAnonymous), so it is never reused.
 	if !obj.anonymous {
 		s.ids.recycled = append(s.ids.recycled, id)
+	} else {
+		s.forgetFinalizerTag(id)
 	}
 	s.refreshDirectRefs(id)
 

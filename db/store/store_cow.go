@@ -543,11 +543,35 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 		// The index first, then the epoch, after the publishes, so a scan that
 		// read the old epoch before they landed can never memoize a root set
 		// missing these values.
+		// A publication made under this transaction's exclusive grant is
+		// tentative for the finalizer tags it reaches (FinalizerTag.NotePublished),
+		// unless the inheritance walk copied values into descendants the index
+		// does not track: then every publication here is a plain escape.
+		grantSeq := uint64(0)
+		if tx.gateExempt && len(writes.joined) == 0 {
+			grantSeq = tx.grantSeq
+		}
+		// The index tracks numbered holders only. Whatever an anonymous object
+		// written here holds is readable by every task that holds it.
 		for i := range writes.entries {
-			s.refreshDirectRefs(writes.entries[i].id)
+			if img := writes.entries[i].img; img != nil && img.anonymous {
+				for _, prop := range img.properties.all() {
+					s.MarkFinalizersEscaped(prop.value)
+				}
+			}
+		}
+		for _, img := range writes.joined {
+			if img != nil && img.anonymous {
+				for _, prop := range img.properties.all() {
+					s.MarkFinalizersEscaped(prop.value)
+				}
+			}
+		}
+		for i := range writes.entries {
+			s.refreshDirectRefsPublishing(writes.entries[i].id, grantSeq)
 		}
 		for id := range writes.joined {
-			s.refreshDirectRefs(id)
+			s.refreshDirectRefsPublishing(id, grantSeq)
 		}
 		s.noteWaifRootsChanged()
 	}

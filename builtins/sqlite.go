@@ -200,7 +200,7 @@ func sqliteExecOrQueryAsync(ctx *Execution, builtin string, handle *sqliteHandle
 	return runInBackground(ctx, func() types.Result {
 		result, _, _ := sqliteExecOrQuery(handle, sqlText, params, includeHeaders, id, store, false)
 		return result
-	})
+	}, types.NewList(params))
 }
 
 // sqliteMayReadOptimistically reports whether an inline read-only statement

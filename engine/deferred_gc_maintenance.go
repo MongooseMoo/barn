@@ -22,7 +22,7 @@ func (s *Runtime) deferredGCDeadline() time.Time {
 	s.lifecycle.Mu.Lock()
 	defer s.lifecycle.Mu.Unlock()
 	if s.lifecycle.ShutdownRequested || s.lifecycle.FinalizationHeld || s.lifecycle.GCRunning ||
-		(len(s.lifecycle.PendingWaifs) == 0 && len(s.lifecycle.PendingAnonGC) == 0) {
+		!s.deferredWorkPendingLocked() {
 		return time.Time{}
 	}
 	// Cheap collections get the ordinary task boundaries first, but repeated
@@ -74,7 +74,7 @@ func (s *Runtime) rendezvousDeferredGC() {
 	// A checkpoint or another sweep may own the barriers, or a lease may not
 	// have parked. Give up instead of spinning or blocking cancellation; the
 	// next deadline retries that pending batch.
-	if len(s.lifecycle.PendingWaifs) != 0 || len(s.lifecycle.PendingAnonGC) != 0 {
+	if s.deferredWorkPendingLocked() {
 		s.lifecycle.RetryAfter = time.Now().Add(gcSweepInterval)
 	}
 	s.lifecycle.Mu.Unlock()

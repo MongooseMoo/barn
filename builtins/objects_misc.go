@@ -127,6 +127,7 @@ func builtinNewWaif(ctx *Execution, args []types.Value) types.Result {
 	// Create the waif
 	waif := types.NewWaif(callerID, owner)
 	ctx.Store.RegisterWaif(callerID, waif)
+	stampFinalizerCreator(ctx, waif)
 	return types.Ok(waif)
 }
 
