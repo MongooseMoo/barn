@@ -49,48 +49,74 @@ equivalent.
 
 ## Final runs
 
-(filled at the end; see the bottom of this section)
+- Barn merged with master (master's f5dcc148 already reports "Task ran out
+  of ticks/seconds" through `Result.ErrorMessage`, so my override in
+  `engine/task_runtime.go` was dropped):
+  - against the suite's current main (95eced1, no new tests of mine):
+    13854 passed, 327 skipped, 0 failed (load 11.66 / 12.31). The pre-merge
+    build had failed one main test,
+    `server/task_timeout_traceback_lines.yaml::forked_tick_abort_reports_ticks_and_current_lines`
+    (line 0 instead of 2), which master's f5dcc148 fixes; the merge brings it in.
+  - against test/max-concat-catchable-abort: 13848 passed, 325 skipped,
+    0 failed (load 12.53 / 10.95).
+  - after the last performance commit, against the branch: 13848 passed,
+    325 skipped, 0 failed (load 16.68 / 9.90).
 
 ## Performance
 
-- The first argument-list check measured `types.ListBytes` on every call with
-  two or more arguments: `BenchmarkVM/builtin_two_args_200k` (new workload,
-  `maphaskey(m, i)` in a loop) +6% with alignment controlled (12 interleaved
-  rounds: base 30.9-31.7 ms, fixed 33.2-33.8 ms; load 22-25). Removed: the
-  check now reads one atomic flag (`Session.ListLimitLowered`, set by
-  `load_server_options()`, or the task's own pending options) and measures
-  nothing while max_list_value_bytes is at or above its default 64537861.
-  Same benchmark after: base 32.44 ms, fixed 32.80 ms (12 rounds, load 25.28
-  / 24.20). Knowing divergence: with the default list limit Barn does not
-  refuse an argument list over 64537861 bytes; Toast does. That needs more
-  than 61 MiB of arguments in one call.
-- The BenchmarkVM set showed a second effect unrelated to any changed code:
-  every workload, including int_arith, nested loops and while_lt, ran 5-15%
-  slower in the default `go test` build. Bisect: reverting either of two
-  cold, unrelated edits (builtins/crypto.go or builtins/lists.go) removed it;
-  reverting vm/vm.go, task, types did not. In all eight builds measured,
-  `vm.(*VM).executeLoop` started on a 64-byte boundary in every fast build and
-  at 32 mod 64 in every slow one (`go tool nm`). The Go linker aligns
-  functions to 32 bytes, so any edit anywhere can move the interpreter loop
-  across a 64-byte line. With `-ldflags=-funcalign=64` on both builds, the
-  whole BenchmarkVM set is within 2% (5 interleaved rounds, load 23.01 /
-  16.76): builtin_abs 28.84/28.87, builtin_two_args 31.26/31.95, float_arith
-  48.70/48.33, if_chain 96.73/95.93, int_arith 45.74/45.59, list_append
-  2.44/2.30, list_index 70.96/71.27, list_iter 44.26/44.37, nested
-  45.58/45.44, prop_access 200.3/201.3, prop_defined 212.4/207.3, prop_name
-  114.6/113.7, string_concat 1.58/1.52, tostr 63.97/64.82, typeof
-  119.4/119.2, while_lt 45.72/45.85 ms (base/fixed medians). The deployment
-  build (`GOOS=linux GOAMD64=v3`, PGO from cmd/barn/default.pgo) puts
-  executeLoop on a 64-byte boundary for both base and fixed. The default
-  test build of the fixed tree does not (32 mod 64), so a plain
-  `go test -bench BenchmarkVM` comparison still shows the layout shift.
-  Fixing that for every future change would mean building benchmarks with
-  `-ldflags=-funcalign=64`; that is a build-policy change I did not make.
-- Real-workload gate before the flag (`TestMongooseRealWorkload`,
-  mongoose.db.new, 3 interleaved runs, load 5-29): 1 player base 84/87/84 vs
-  fixed 88/84/75 cmd/s; 16 players base 422/354/331 vs fixed 408/351/404:
-  inside noise. The harness reports FAIL on both builds (failed/uncaught
-  commands from the dump's own verbs, same counts).
+All numbers are medians of interleaved runs of BenchmarkVM test binaries,
+base = Barn master at merge time, with the WSL load average recorded
+(the workstation's CPUs are shared with other agents' runs).
+
+- Alignment controls every comparison. The Go linker aligns functions to 32
+  bytes; `vm.(*VM).executeLoop` lands at 0 or 32 mod 64 depending on the
+  size of unrelated code. In every build measured, mod 64 = 0 was fast and
+  32 slow, by 5-15% on all workloads including int_arith, nested loops and
+  while_lt (bisect: reverting either of two cold edits, in
+  builtins/crypto.go or builtins/lists.go, restored speed; reverting vm/vm.go,
+  task or types did not). The default `go test` build of this branch has
+  executeLoop at 32 mod 64 and master at 0; the deployment build
+  (`GOOS=linux GOAMD64=v3`, PGO) has it at 0 for both. Comparisons below use
+  `-ldflags=-funcalign=64` on both sides so they measure the code, not the
+  placement. Making benchmark builds use that flag permanently is a build
+  policy change I did not make.
+- The first argument-list check (ListBytes on every call with two or more
+  arguments, in VM.executeCallBuiltin) cost +6% on
+  `builtin_two_args_200k`. Now: one atomic flag (`Session.ListLimitLowered`,
+  set by load_server_options(), or the task's own pending options) and no
+  measuring while max_list_value_bytes is at or above its default 64537861;
+  the builtin check lives in `Session.CallByIDWithExecution`, the verb and
+  pass() checks in vm/op_verb.go. Knowing divergence: at the default list
+  limit Barn does not refuse an argument list over 64537861 bytes (more than
+  61 MiB of arguments in one call); Toast does.
+- Two code-placement effects inside hot functions, each found by bisect:
+  the extra `if err.(secondsAbort)` in executeLoop (tostr_200k +6% with GC
+  off and one CPU; a single type switch with the existing unreportedAbort
+  test restored it: master 63.6 ms, fixed 64.4 ms), and any extra branch in
+  VM.executeCallBuiltin (removed from there).
+- Final full set, aligned, 5 rounds (load 8.33 / 11.60), master/fixed ms
+  (before the last move of the check): builtin_abs 29.59/28.83,
+  builtin_two_args 31.69/32.54, float_arith 49.90/48.41, if_chain
+  95.70/100.30, int_arith 46.44/45.53, list_append 2.50/2.30, list_index
+  73.51/71.21, list_iter 44.42/44.71, nested 46.28/45.40, prop_access
+  199.8/209.9, prop_defined 208.0/209.8, prop_name 115.2/118.1,
+  string_concat 1.63/1.65, tostr 64.92/64.23, typeof 120.6/122.4, while_lt
+  45.64/46.94. if_chain and while_lt rechecked over 8 rounds: equal.
+- Final 12-round check on one CPU (load 6.07 / 7.63), medians in ms,
+  master / fixed (check in CallByIDWithExecution) / control (all my changes
+  but no builtin argument check): builtin_two_args 31.1 / 31.7 / 31.4 (from
+  an 8-round run); typeof 119.8 / 119.9 / -; prop_access 197.3 / 207.5 / -
+  (8-round run: control 200.2-204). Two-argument calls cost about 1.6%
+  (one flag load per call); prop_access, whose path runs none of the new
+  code (typeof, which does run the new branch, is unchanged), moves 3-5%
+  with every placement of the check tried, the same class of effect as
+  above. I could not get prop_access inside noise without removing the
+  check entirely.
+- Real-workload gate (`TestMongooseRealWorkload`, mongoose.db.new, first
+  version of the check, 3 interleaved runs, load 5-29): 1 player base
+  84/87/84 vs fixed 88/84/75 cmd/s; 16 players 422/354/331 vs 408/351/404:
+  inside noise. The harness reports FAIL on both builds (the dump's own
+  failed/uncaught commands, same counts).
 
 ## Toast source (origin/master)
 
@@ -239,12 +265,12 @@ Fixes #1089
 - binary_hash, string_hmac and binary_hmac are left alone: Toast's check
   there depends on a static buffer's history (`binary_to_raw_bytes`).
 
-Performance: with both builds at `-ldflags=-funcalign=64`, the BenchmarkVM
-set (including the new `builtin_two_args_200k`) is within 2% of master. The
-default `go test` build of this tree places `executeLoop` 32 bytes off a
-64-byte line and runs every BenchmarkVM workload 5-15% slower, also loops
-that touch no changed code; reverting either of two cold, unrelated edits
-removes it. The deployment build (PGO) is 64-byte aligned for both. Numbers
-and the bisect are in the task note.
+Performance: measured with `-ldflags=-funcalign=64` on both sides, because
+the default `go test` build places `executeLoop` 32 bytes off a 64-byte line
+in this tree (5-15% on every BenchmarkVM workload, including loops that run no
+changed code; the deployment PGO build is aligned for both). Aligned:
+two-argument builtin calls +1.6% (one flag load per call), typeof and the
+other workloads unchanged, prop_access +3-5% from code placement (its path
+runs none of the new code). Numbers and bisects are in the task note.
 
 Merge before the suite PR.
