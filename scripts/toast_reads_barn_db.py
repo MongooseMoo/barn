@@ -15,7 +15,9 @@ anonymous objects' numbers included, which read as invalid) and print, per objec
   property_info, is_clear_property, and the value unless clear;
 - V: every verb defined on it: verb_info, verb_args, verb_code.
 
-The printed results must be identical. Barn also reads the written file back
+The printed results must be identical, except the order of a map's WAIF and
+anonymous-object keys inside a property value, which Toast orders by memory
+address (same_record). Barn also reads the written file back
 (``barn offline-checkpoint`` on a copy), and the counts of queued and
 suspended (with interrupted) tasks that Barn wrote, Barn read back, and Toast
 wrote when it saved its copy at ``quit`` must agree. A case fails when Toast
@@ -179,6 +181,124 @@ def public_reason(reason: str, formats: list[tuple[str, re.Pattern]]) -> str:
 NOT_SHOWN = "(not a fixed string in the Go source; not shown)"
 
 
+class LiteralError(ValueError):
+    pass
+
+
+_ATOM = re.compile(r'"(?:[^"\\]|\\.)*"|#-?\d+|\*anonymous\*|E_[A-Z_]+|true|false|'
+                   r'-?(?:\d+\.?\d*(?:[eE][-+]?\d+)?|inf|nan)', re.S)
+
+
+def parse_literal(text: str):
+    """A MOO value as toliteral() or eval prints it, as nested tuples:
+    ("list", items), ("map", ((key, value), ...)), ("waif", class, owner), or
+    ("atom", spelling). Raises LiteralError on anything else."""
+    pos = 0
+
+    def skip(token: str):
+        nonlocal pos
+        if not text.startswith(token, pos):
+            raise LiteralError(f"expected {token!r} at {pos}")
+        pos += len(token)
+
+    def value():
+        nonlocal pos
+        if text.startswith("[[class = ", pos):
+            skip("[[class = ")
+            cls = value()
+            skip(", owner = ")
+            owner = value()
+            skip("]]")
+            return ("waif", cls, owner)
+        if text.startswith("{", pos):
+            skip("{")
+            items = []
+            while not text.startswith("}", pos):
+                if items:
+                    skip(", ")
+                items.append(value())
+            skip("}")
+            return ("list", tuple(items))
+        if text.startswith("[", pos):
+            skip("[")
+            entries = []
+            while not text.startswith("]", pos):
+                if entries:
+                    skip(", ")
+                key = value()
+                skip(" -> ")
+                entries.append((key, value()))
+            skip("]")
+            return ("map", tuple(entries))
+        m = _ATOM.match(text, pos)
+        if not m or not m.group(0):
+            raise LiteralError(f"no value at {pos}")
+        pos = m.end()
+        return ("atom", m.group(0))
+
+    result = value()
+    if pos != len(text):
+        raise LiteralError(f"trailing text at {pos}")
+    return result
+
+
+def _unordered_key(key) -> bool:
+    return key[0] == "waif" or key == ("atom", "*anonymous*")
+
+
+def canonical(v):
+    """v with each map's run of WAIF or anonymous-object keys sorted. Toast
+    orders those keys by memory address (src/utils.cc compare(), TYPE_WAIF and
+    TYPE_ANON), so their order is not part of the database."""
+    if v[0] == "list":
+        return ("list", tuple(canonical(x) for x in v[1]))
+    if v[0] == "map":
+        entries = [(canonical(k), canonical(x)) for k, x in v[1]]
+        out, run = [], []
+        for entry in entries + [None]:
+            if entry is not None and _unordered_key(entry[0]):
+                run.append(entry)
+                continue
+            out += sorted(run, key=repr)
+            run = []
+            if entry is not None:
+                out.append(entry)
+        return ("map", tuple(out))
+    return v
+
+
+def unescape(spelling: str) -> str:
+    """The text of a MOO string literal."""
+    return re.sub(r"\\(.)", r"\1", spelling[1:-1], flags=re.S)
+
+
+def same_record(toast: str, barn: str) -> bool:
+    """Whether two walk records agree once the order of WAIF and anonymous
+    keys inside each P value's literal is set aside. Anything that does not
+    parse stays a difference."""
+    if toast == barn:
+        return True
+    try:
+        records = []
+        for text in (toast, barn):
+            if not text.startswith("=> "):
+                return False
+            record = parse_literal(text[3:])
+            if record[0] != "list" or len(record[1]) != 2 or record[1][0][1][:2] != '"P':
+                return False
+            entries = []
+            for entry in record[1][1][1]:
+                fields = list(entry[1])
+                if len(fields) == 5 and fields[3] == ("atom", "0") and fields[4][0] == "atom" \
+                        and fields[4][1].startswith('"'):
+                    fields[4] = canonical(parse_literal(unescape(fields[4][1])))
+                entries.append(tuple(fields))
+            records.append((record[1][0], tuple(entries)))
+        return records[0] == records[1]
+    except (LiteralError, IndexError, TypeError):
+        return False
+
+
 def first_difference(toast: str, barn: str, width: int = 300) -> tuple[str, str]:
     """Both records from just before their first differing character."""
     i = next((i for i, (a, b) in enumerate(zip(toast, barn)) if a != b), min(len(toast), len(barn)))
@@ -287,7 +407,7 @@ def run_case(name: str, source_db: Path, work: Path, barn_bin: Path, toast: str,
     case["objects"] = int(m0[1]) + 1
     differing = []
     for index, (t, b) in enumerate(zip(records["toast"][1:], records["barn"][1:]), 1):
-        if t != b:
+        if not same_record(t, b):
             m = RECORD_RE.fullmatch(b) or RECORD_RE.fullmatch(t)
             differing.append({"input": index, "key": m[1] + m[2] if m else "?", "kind": m[1] if m else "?",
                               "toast": t, "barn": b})

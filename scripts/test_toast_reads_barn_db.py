@@ -8,7 +8,7 @@ import fuzz_report
 from fuzz_differential import MAX_LINE, results
 from toast_reads_barn_db import (BARN_FORM, REPAIR_RE, RECORD_RE, SEEDS, TOAST_TASKS_RE, barn_form_tasks,
                                  divergence_section, first_difference, go_formats, load_worlds,
-                                 object_count, public_reason, walk_inputs)
+                                 object_count, parse_literal, public_reason, same_record, walk_inputs)
 
 # Excerpt of the toast lane of a real local run (seed action-0, 2026-11-20).
 TOAST_STDOUT = """
@@ -57,6 +57,41 @@ class WalkTest(unittest.TestCase):
         self.assertIsNone(REPAIR_RE.search("Nov 20 22:45:12: VALIDATE: Check for self-referential waifs ..."))
         self.assertIsNone(REPAIR_RE.search("Nov 20 23:01:02: VALIDATE: Done through #10000 ..."))
         self.assertIsNotNone(REPAIR_RE.search("VALIDATE: #3 not in it's location's (#2) contents."))
+
+
+class RecordTest(unittest.TestCase):
+    # A P record of the walk: {definer, name, info, clear, toliteral(value)}.
+    @staticmethod
+    def p_record(literal: str) -> str:
+        quoted = literal.replace("\\", "\\\\").replace('"', '\\"')
+        return '=> {"P4", {{#4, "m", {#3, "r"}, 0, "' + quoted + '"}}}'
+
+    def test_waif_keys_in_any_order_are_the_same(self):
+        a, b = "[[class = #5, owner = #3]]", "[[class = #9, owner = #3]]"
+        toast = self.p_record(f'[1 -> 2, "k" -> {{1.5}}, {a} -> "x", {b} -> ["s" -> 1]]')
+        barn = self.p_record(f'[1 -> 2, "k" -> {{1.5}}, {b} -> ["s" -> 1], {a} -> "x"]')
+        self.assertNotEqual(toast, barn)
+        self.assertTrue(same_record(toast, barn))
+        anon = self.p_record('[*anonymous* -> 1, *anonymous* -> 2]')
+        self.assertTrue(same_record(anon, self.p_record('[*anonymous* -> 2, *anonymous* -> 1]')))
+
+    def test_other_differences_stay(self):
+        a, b = "[[class = #5, owner = #3]]", "[[class = #9, owner = #3]]"
+        # Ordinary keys keep their order; a waif's value still counts.
+        self.assertFalse(same_record(self.p_record('[1 -> 2, 3 -> 4]'), self.p_record('[3 -> 4, 1 -> 2]')))
+        self.assertFalse(same_record(self.p_record(f'[{a} -> 1, {b} -> 2]'),
+                                     self.p_record(f'[{a} -> 2, {b} -> 1]')))
+        # Not a P record, or not parseable: compared as text.
+        self.assertFalse(same_record('=> {"O4", "x"}', '=> {"O4", "y"}'))
+        self.assertFalse(same_record(self.p_record("[" + a + " -> 1"), self.p_record("[" + a + " -> 1 ")))
+        self.assertFalse(same_record('=> {"P4", "raised", E_PROPNF, "x"}', self.p_record("1")))
+
+    def test_parse_literal_reads_toliteral_spellings(self):
+        value = parse_literal('{1, -2, 1.5e+30, "a\\"b", #-1, E_PERM, *anonymous*, true, [], {}, '
+                              '[[class = #1, owner = #3]]}')
+        self.assertEqual(value[0], "list")
+        self.assertEqual(len(value[1]), 11)
+        self.assertEqual(value[1][10], ("waif", ("atom", "#1"), ("atom", "#3")))
 
 
 class FileTest(unittest.TestCase):

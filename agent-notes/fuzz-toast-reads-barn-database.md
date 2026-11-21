@@ -13,11 +13,14 @@ own workflow, counts only.
 
 ## State
 
-Sources read (CLAUDE.md, AGENTS.md, plan, scripts/fuzz_differential.py,
-scripts/bench_differ.py, scripts/fuzz_report.py, scripts/fuzz_compute.cjs,
-.github/workflows/fuzz.yml, native-checkpoint-census.{yml,sh},
-internal/fuzzseed/world.go, cmd/moo-fuzz-source, internal/dbtool/offline_checkpoint.go,
-engine/task_factory.go TaskSnapshots, Toast server.cc emergency_mode). Building.
+Built, merged with origin/master (2026-11-21), committed locally; not pushed,
+no PR. Generated worlds run in fuzz.yml's ToastDifferential job each cycle and
+the accept job judges that step with its own results; the Mongoose workflow
+builds the 0ff6fd7 Toast (the live game's) and prints counts only. Unit tests
+pass. On the Mongoose dump the machine reports 8 differing P records, all
+explained by findings 6 and 7 below (engine differences, recorded, not fixed
+here), so the Mongoose workflow will be red until those are fixed in Barn.
+See "Resumed 2026-11-21" for what was verified and how.
 
 Machine load before work (WSL Debian, 8 CPUs): `load average: 0.89, 1.36, 2.60`.
 
@@ -38,7 +41,9 @@ Machine load before work (WSL Debian, 8 CPUs): `load average: 0.89, 1.36, 2.60`.
 - Mongoose dump is loaded by the Mongoose Toast build (MongooseMoo/toaststunt
   `72e3c7f96ce7a41fdeba793aef8818dc4408072e`, PROMOTE_NUMBERS on, options.h
   sha256 `6c855f6b...` = committed file, checked in WSL) because the plan
-  (lines 43-47) names it the Mongoose oracle.
+  (lines 43-47) names it the Mongoose oracle. SUPERSEDED 2026-11-21: the
+  workflow now builds 0ff6fd7 (profiles/toast/mongoose-0ff6fd7-wsl-testdb.json),
+  the build the live game runs; see Resumed.
 
 - `fuzzseed.ToastWorld` shares WorldHistory's renderer (`worldHistory(choices, toast)`).
   WorldHistory output is unchanged: sha256 over 5000 random choice records was
@@ -47,6 +52,8 @@ Machine load before work (WSL Debian, 8 CPUs): `load average: 0.89, 1.36, 2.60`.
   toast lane script; the two lanes come from lane_scripts with separate copies.
 - Object range: the written file's run of object headers `#0`, `#1`, ...
   (`# N recycled`); the walk's first record checks Barn's max_object() equals it.
+  CHANGED 2026-11-21: anonymous objects continue that run, so it is the walk's
+  upper bound and the check is that Barn's max_object() is not past it.
 
 - Nightly: three steps appended to fuzz.yml's ToastDifferential job, after the
   differ's reporter: `Compare Barn-written worlds in Toast` (id worlds, runs
@@ -56,11 +63,15 @@ Machine load before work (WSL Debian, 8 CPUs): `load average: 0.89, 1.36, 2.60`.
   `## divergence` block has fuzz_differential's shape, so fuzz_report.py
   classifies it unchanged (test_toast_reads_barn_db ReportTest).
   fuzz_compute.cjs accept: either comparison step may fail, each must agree
-  with its own results.json outcome; nothing else in the job may fail.
+  with its own results.json outcome; nothing else in the job may fail. Since
+  the 2026-11-21 merge this is a second COMPARISONS entry on the
+  ToastDifferential job (key ToastReadsBarnDatabase) beside master's
+  ToastCrossEngineCheckpoint job.
 - Mongoose: `.github/workflows/toast-reads-mongoose-checkpoint.yml`, census
   pattern (fixture path and SHA-256 read from goodput-series.yml, copy in
   RUNNER_TEMP, removed at the end). Builds the Mongoose Toast from
-  profiles/toast/mongoose-wsl-mongoose.json (ref + options.h checksum). The
+  profiles/toast/mongoose-0ff6fd7-wsl-testdb.json (ref + options.h checksum;
+  was mongoose-wsl-mongoose.json until 2026-11-21). The
   step prints only the script's stdout (counts, digests, Barn's format
   strings); stderr goes to a private file.
 - Barn-form reasons in database mode are printed only as Barn's own Go format
@@ -126,7 +137,7 @@ Classified privately by shape only:
   within each definer in the same order. Cause: ancestors() order (finding 1).
 - 4841 P: identical once WAIF spelling is normalized (finding 2).
 - 62 P: values differ beyond WAIF spelling; 7 P: Barn lists properties Toast
-  does not. Not yet classified; rerun with the final walk pending.
+  does not. Classified on the 0ff6fd7 rerun (Resumed): findings 5, 6, 7.
 - 6 V: verb code calls a builtin the Mongoose Toast lacks (`parse_ast`,
   `validate_string_lines`): Barn's verb_code shows the call, Toast's shows
   `call_function("parse_ast", ...)` (finding 3).
@@ -151,6 +162,52 @@ Classified privately by shape only:
    as `call_function("name", ...)` calls (6 verbs on the dump). They load, but
    fail at run time on Toast.
 4. Indefinite suspend start time (below, Surprises).
+5. Toast orders a map's WAIF and anonymous-object keys by memory address
+   (0ff6fd7 src/utils.cc compare(), `case TYPE_WAIF` / `case TYPE_ANON`:
+   `(uintptr_t)lhs.v.waif < ...`), so the order of those keys in toliteral()
+   is not part of the file and cannot match Barn's. 47 of the 55 differing P
+   records on the dump were exactly this (each a character permutation of the
+   other, all in records holding WAIFs, all equal after the fix).
+6. A property defined with a builtin property's name (Toast include/db.h
+   BUILTIN_PROPERTIES: name, owner, programmer, wizard, r, w, f, a, location,
+   last_move, contents): Toast's property_info() raises E_PROPNF
+   (src/property.cc:85 `if (!h.ptr || db_is_property_built_in(h)) return
+   make_error_pack(E_PROPNF)`), Barn returns the defined property's info
+   (builtins/properties.go:71 findPropertyForRead, no builtin-name check), and
+   Barn's `o.(p)` then reads the builtin. Toast logs `DB_WARNING: Property #N.x
+   has a reserved name` at load (src/db_file.cc:276). 7 P records on the dump
+   (the walk's P record of each affected object raises on Toast). Reproducer:
+   Test_conf.db with #2's propdef/propval counts (1-based lines 94-95, both
+   `0`) replaced by `1`, `location`, `1`, `0`, `5`, `3`, `1`, run through
+   run_case (scratch reserved.py): Toast
+   `=> {"P2", "raised", E_PROPNF, "Property not found"}`, Barn
+   `=> {"P2", {{#2, "location", {#3, "r"}, 0, "#-1"}}}`.
+7. A value past a size limit with `max_concat_catchable` unset (shown with
+   `max_list_value_bytes`; which limit the dump's record hit was not checked):
+   Toast aborts the task (src/list.cc make_space_pack:
+   `make_abort_pack(ABORT_SECONDS)` unless SVO_MAX_CONCAT_CATCHABLE;
+   include/options.h 359-362), Barn raises a catchable E_QUOTA (no production
+   Go code reads max_concat_catchable; only engine/server_options_*_test.go
+   set it). 1 P record on the dump (Toast `*Aborted*`, Barn
+   `{"P..", "raised", E_QUOTA, ...}`), so that object's properties are not
+   compared. Reproducer on Test_conf.db, stock lanes (scratch quota.py), Toast
+   0ff6fd7 with `;;` inputs vs `barn eval`:
+   `add_property($server_options, "max_list_value_bytes", 200, {#3, "r"}); return load_server_options();`
+   then `r = {}; try for i in [1..100] r = {@r, i}; endfor return length(r); except e (ANY) return {"raised", e[1]}; endtry`:
+   Toast `=> *Aborted*`, Barn `=> {"raised", E_QUOTA}`.
+
+Which the machine compares now:
+1. ancestors() order: not compared (definers are sorted before the walk prints them).
+2. barn eval's WAIF spelling: not compared (values go through toliteral()); a
+   WAIF's own property values are not compared either.
+3. call_function lowering: compared (V records carry verb_code). Not seen on
+   0ff6fd7: 0 differing V records on the rerun, where 72e3c7f gave 6.
+4. Indefinite-suspend start time: not compared (task counts only).
+5. WAIF/anonymous map-key order: not compared (same_record sorts each map's run
+   of those keys before comparing P values); everything else in the value is.
+6. property_info on a builtin-named property: compared, reported (7 records).
+7. max_concat_catchable abort vs E_QUOTA: compared, reported (1 record); the
+   affected object's properties themselves go uncompared while it stands.
 
 ## Surprises
 
@@ -169,7 +226,12 @@ Classified privately by shape only:
 
 ## Next step
 
-Unit tests, fuzz.yml step, accept job, Mongoose workflow and run, two copies.
+The lead publishes the branch (PR body draft at the end of this note). After
+that: findings 6 and 7 are Barn fixes for their own branches, each starting as a
+Toast-passing conformance test; the Mongoose workflow stays red until both land.
+Not verified: any run on a Linux CI runner (all runs here were on the Windows
+workstation through `wsl`), the workflow's wall time there, and the nightly
+cycle end to end.
 
 ## Resumed 2026-11-21
 
@@ -236,3 +298,93 @@ origin/master, read both commits, finish what Next step lists.
   `objects` (Barn's max_object()+1) separately. New unit test
   test_object_count_includes_anonymous_batches; 12 OK. Anonymous objects
   themselves are not walked (no number reaches them).
+- Second merge of origin/master (11 commits behind): clean, merge commit.
+  After it: `go build ./...` ok; unittest `test_toast_reads_barn_db.py` 12 OK,
+  `test_fuzz_compute.py` 34 OK, `test_fuzz_differential.py` 38 OK; `go test
+  ./cmd/moo-fuzz-source ./internal/fuzzseed` and `./internal/dbtool -run
+  OfflineCheckpoint` ok.
+- Workflow linters (ci.yml:142-143 runs them on fuzz.yml and fuzz-controller.yml
+  only): `go run .../actionlint@v1.7.12` on fuzz.yml, fuzz-controller.yml and
+  toast-reads-mongoose-checkpoint.yml: exit 0, no output. `uvx --from
+  zizmor==1.32.0 zizmor --offline --no-progress` on CI's two files: "No findings
+  to report (1 ignored, 27 suppressed)", exit 0; on the new workflow (outside
+  CI's scope): "No findings to report (1 suppressed)", exit 0.
+- Mongoose run 2 on 0ff6fd7, after the object_count fix (same command,
+  03:37-~03:52, load before `10.10, 13.19, 13.87`, EXIT 1): input sha256 =
+  FIXTURE_SHA256; Barn wrote 432301704 bytes, all three copies one digest;
+  `object headers` 289698, `objects` (max_object()+1) 287626, 869095 records
+  compared; tasks barn wrote / barn read / toast read all `[93, 12]`; 0 Toast
+  repairs; `outcome: divergence`, differing records `{"P": 55}`, 0 V, 0 O.
+  The Toast load log held one `DB_WARNING: ... has a reserved name` line.
+  Classified privately by shape (scratch scripts printing counts and masked
+  structure only): 47 records are character permutations of each other inside
+  records holding WAIFs (finding 5), 7 are Toast `raised E_PROPNF` where Barn
+  lists the object's properties (finding 6), 1 is Toast `*Aborted*` vs Barn
+  `raised E_QUOTA` (finding 7). Each class was then reproduced on Test_conf.db
+  or read in Toast source (findings 5-7).
+- Fix for finding 5 in the machine: parse_literal/canonical/same_record in
+  toast_reads_barn_db.py compare each P value with every map's run of WAIF or
+  anonymous keys sorted; anything that does not parse stays a difference.
+  Unit tests RecordTest (3 tests); `test_toast_reads_barn_db.py` 15 OK.
+  Applied to run 2's saved transcripts (not a third dump run): 47 records now
+  agree, 8 still differ (7 finding 6, 1 finding 7). The transcripts were then
+  deleted; no copy of the dump or its transcripts is left under .tmp.
+- Third merge of origin/master (PRs 1032, 1036 and others): conflicts in
+  offline_checkpoint.go/_test.go, app.go, cmd/barn/main.go (master's
+  --toast-loadable beside this branch's --run: WriteOfflineCheckpoint(out,
+  path, options, omitSuspended, toastLoadable, run); master's new
+  toast_loadable_test.go callers given `""`), fuzz.yml (this branch's world
+  steps in ToastDifferential beside master's new cross-engine job; accept
+  downloads both artifacts), fuzz_compute.cjs (master's COMPARISONS list kept;
+  the worlds step is a second entry on the ToastDifferential job, and a job's
+  comparison steps may each fail with a finding while no other step may;
+  problems are de-duplicated), fuzz_differential.py (master's text),
+  test_fuzz_compute.py (both helpers' arguments). Verified after it:
+  `go build ./...`; `go vet ./internal/dbtool ./internal/app ./cmd/barn
+  ./cmd/moo-fuzz-source`; `go test ./internal/dbtool ./cmd/moo-fuzz-source
+  ./internal/fuzzseed` ok; unittest test_toast_reads_barn_db.py 15 OK,
+  test_fuzz_compute.py 36 OK, test_fuzz_differential.py 38 OK; actionlint
+  v1.7.12 on fuzz.yml, fuzz-controller.yml, toast-reads-mongoose-checkpoint.yml
+  exit 0; zizmor 1.32.0 offline on CI's two files "No findings (1 ignored, 28
+  suppressed)" exit 0, on the new workflow "No findings (1 suppressed)" exit 0;
+  generated worlds on stock Toast with a fresh linux barn (load before
+  `19.69, 21.32, 13.70`): `outcome: success`, `worlds: 11; compared: 11;
+  failed: 0`, EXIT 0.
+
+## PR body draft
+
+Title: Check that Toast loads a Barn-written database and sees the same world
+
+Closes #976.
+
+`scripts/toast_reads_barn_db.py` has Barn write a database through its
+checkpoint writer (`barn offline-checkpoint`, which gains `--run FILE` to build
+a world first), loads identical copies of the written file in Barn (`barn
+eval`) and Toast (emergency mode, no listener), walks every object, property
+and verb on both, and compares the counts of queued and suspended tasks Barn
+wrote, Barn read back, and Toast saved. It fails when Toast refuses or repairs
+the file, when anything differs, or when Barn kept a task in its own frame
+form. The order of a map's WAIF and anonymous-object keys is set aside: Toast
+orders those by memory address (utils.cc compare()).
+
+- Nightly: `fuzz.yml`'s ToastDifferential job runs it on generated worlds
+  (`fuzzseed.ToastWorld`, rendered by `moo-fuzz-source --generator
+  toast-world` from the cycle's FuzzWorldCheckpointEffects inputs plus 11
+  committed seeds, one with strings above 127), uploads
+  `fuzz-failure-ToastReadsBarnDatabase`, and files findings through
+  `fuzz_report.py`. The accept job judges the step against its own results.
+- Mongoose: `toast-reads-mongoose-checkpoint.yml` runs it on the
+  goodput-series dump with the Toast the live game runs (0ff6fd7) and prints
+  counts, digests and fixed text only.
+
+Local results: 11 generated worlds agree on stock Toast; the Mongoose dump
+loads in Toast with 0 repairs and the same task counts ([93, 12]) on all three
+readers, and 8 property records differ, from two Barn differences this PR
+records and does not fix: property_info() on a property named after a builtin
+property (Toast E_PROPNF, Barn returns it), and a size limit hit with
+max_concat_catchable unset (Toast aborts the task, Barn raises E_QUOTA). The
+Mongoose workflow stays red until those are fixed.
+
+Tests: `scripts/test_toast_reads_barn_db.py`, `scripts/test_fuzz_compute.py`,
+`internal/dbtool` (`--run`).
+
