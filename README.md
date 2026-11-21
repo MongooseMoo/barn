@@ -88,7 +88,9 @@ Before moving a database back to Toast, `bin/barn toast-check --db game.db
 --builtins names.txt` names every verb that calls a builtin Barn registers and
 that Toast does not, or that does not parse; `names.txt` is that Toast's
 `function_info()` names, one per line (`scripts/toast-check.sh` asks a Toast
-binary for them).
+binary for them). `bin/barn offline-checkpoint --db back.db --toast-loadable`
+writes `back.db.new` without the suspended tasks Toast cannot load, naming each
+one; the steps are in `docs/going-back-to-toast.md`.
 
 ## Tools
 

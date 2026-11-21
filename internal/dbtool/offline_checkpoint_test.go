@@ -82,7 +82,7 @@ func TestOfflineCheckpointKeepsTasksWaifsAndIsStable(t *testing.T) {
 	options := config.DefaultOptions()
 
 	var out bytes.Buffer
-	if err := WriteOfflineCheckpoint(&out, source, options, false); err != nil {
+	if err := WriteOfflineCheckpoint(&out, source, options, false, false); err != nil {
 		t.Fatalf("first offline checkpoint: %v", err)
 	}
 	if !strings.Contains(out.String(), "wrote "+source+".new: 1 queued, 1 suspended or interrupted tasks, 1 connections") {
@@ -111,7 +111,7 @@ func TestOfflineCheckpointKeepsTasksWaifsAndIsStable(t *testing.T) {
 		t.Fatalf("WAIF sidecar: %v", err)
 	}
 
-	if err := WriteOfflineCheckpoint(io.Discard, first, options, false); err != nil {
+	if err := WriteOfflineCheckpoint(io.Discard, first, options, false, false); err != nil {
 		t.Fatalf("second offline checkpoint: %v", err)
 	}
 	for _, suffix := range []string{"", ".waifids"} {
@@ -131,7 +131,7 @@ func TestOfflineCheckpointKeepsTasksWaifsAndIsStable(t *testing.T) {
 
 func TestOfflineCheckpointOmitSuspendedKeepsQueuedTasks(t *testing.T) {
 	source := writeTaskAndWaifCheckpoint(t)
-	if err := WriteOfflineCheckpoint(io.Discard, source, config.DefaultOptions(), true); err != nil {
+	if err := WriteOfflineCheckpoint(io.Discard, source, config.DefaultOptions(), true, false); err != nil {
 		t.Fatalf("offline checkpoint: %v", err)
 	}
 	loaded, err := dbformat.LoadDatabaseReadOnly(source + ".new")
