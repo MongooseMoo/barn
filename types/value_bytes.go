@@ -42,3 +42,30 @@ func ValueBytes(v Value) int {
 		return valueVarSize
 	}
 }
+
+// ListBytes is ValueBytes of a list holding elements, without building it. It
+// runs on every multi-argument call, so it reads cached collection sizes in
+// place and calls ValueBytes only for an uncached one.
+func ListBytes(elements []Value) int {
+	size := listVarOverhead
+	for _, e := range elements {
+		switch e.tag {
+		case TYPE_MAP:
+			if cached := (*goMap)(e.ref).byteSize; cached > 0 {
+				size += cached
+				continue
+			}
+		case TYPE_LIST:
+			if cached := (*sliceList)(e.ref).byteSize.Load(); cached != 0 {
+				size += int(cached)
+				continue
+			}
+		case TYPE_STR, TYPE_FLOAT, TYPE_WAIF:
+		default:
+			size += valueVarSize
+			continue
+		}
+		size += ValueBytes(e)
+	}
+	return size
+}

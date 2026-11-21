@@ -14,7 +14,7 @@ func (vm *VM) executeMakeList() error {
 	elements := vm.PopN(int(count))
 	result := types.NewList(elements)
 	if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, result); errCode != types.E_NONE {
-		return newMooError(types.E_QUOTA, "list too large")
+		return vm.quotaError("list too large")
 	}
 	vm.Push(result)
 	return nil
@@ -35,7 +35,7 @@ func (vm *VM) executeMakeMap() error {
 
 	result := types.NewMap(pairs)
 	if errCode := vm.Builtins.CheckMapLimitForTask(vm.Context, result); errCode != types.E_NONE {
-		return newMooError(types.E_QUOTA, "map too large")
+		return vm.quotaError("map too large")
 	}
 	vm.Push(result)
 	return nil
@@ -43,7 +43,7 @@ func (vm *VM) executeMakeMap() error {
 
 func (vm *VM) executeCheckMapLimit() error {
 	if errCode := vm.Builtins.CheckMapLimitForTask(vm.Context, vm.Peek(0)); errCode != types.E_NONE {
-		return newMooError(types.E_QUOTA, "map too large")
+		return vm.quotaError("map too large")
 	}
 	return nil
 }
@@ -78,7 +78,7 @@ func (vm *VM) executeListAppend() error {
 	// the quota check below stays O(1) instead of re-walking the whole list.
 	result := listVal.Append(elem)
 	if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, result); errCode != types.E_NONE {
-		return newMooError(types.E_QUOTA, "list too large")
+		return vm.quotaError("list too large")
 	}
 
 	vm.Push(result)
@@ -103,7 +103,7 @@ func (vm *VM) executeListExtend() error {
 	// the quota check below stays O(1) instead of re-walking the whole list.
 	result := listVal.Concat(srcVal)
 	if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, result); errCode != types.E_NONE {
-		return newMooError(types.E_QUOTA, "list too large")
+		return vm.quotaError("list too large")
 	}
 
 	vm.Push(result)

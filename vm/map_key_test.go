@@ -227,7 +227,8 @@ func TestKeyedAssignmentCapturedBeforeRHSWriteUsesWholeDependency(t *testing.T) 
 }
 
 // Each assignment fits its snapshot's quota, but commit must check the merged
-// map too. A rejected merge leaves the first update intact; a serial retry then
+// map too (max_map_value_bytes, as Toast OP_INDEXSET checks a map). A rejected
+// merge leaves the first update intact; a serial retry then
 // encounters the ordinary VM assignment quota rather than publishing an oversize
 // value. This is a value-size contract, independent of Elle serializability.
 func TestKeyedMapRebaseRespectsTaskValueQuota(t *testing.T) {
@@ -236,7 +237,7 @@ func TestKeyedMapRebaseRespectsTaskValueQuota(t *testing.T) {
 		spare int
 	}{
 		{name: "below-limit", spare: 1},
-		{name: "at-limit", spare: 0},
+		{name: "at-limit", spare: 0}, // Toast OP_INDEXSET refuses only more than max_map_value_bytes
 		{name: "above-limit", spare: -1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -251,7 +252,7 @@ func TestKeyedMapRebaseRespectsTaskValueQuota(t *testing.T) {
 			second := initial.MapSet(keyB, types.NewStr(valueB))
 			merged := first.MapSet(keyB, types.NewStr(valueB))
 			limit := types.ValueBytes(merged) + test.spare
-			if types.ValueBytes(first) >= limit || types.ValueBytes(second) >= limit {
+			if types.ValueBytes(first) > limit || types.ValueBytes(second) > limit {
 				t.Fatal("fixture assignments do not individually fit the task quota")
 			}
 			ta, tb := store.BeginSnapshot(0), store.BeginSnapshot(0)
@@ -267,7 +268,7 @@ func TestKeyedMapRebaseRespectsTaskValueQuota(t *testing.T) {
 			} {
 				ctx := task.NewContext()
 				ctx.StoreTxn = assignment.txn
-				ctx.ServerOptions = &task.PendingServerOptions{MaxListValueBytes: limit}
+				ctx.ServerOptions = &task.PendingServerOptions{MaxMapValueBytes: limit, MaxConcatCatchable: true}
 				result := runBytecodeProgram(t, fmt.Sprintf(`#0.m[%q]=%q; return 1;`, assignment.key, assignment.value), store, ctx)
 				if result.Flow != types.FlowReturn || result.Val.Int() != 1 {
 					t.Fatalf("initial %s assignment = %+v; want successful staging", assignment.key, result)
@@ -277,7 +278,7 @@ func TestKeyedMapRebaseRespectsTaskValueQuota(t *testing.T) {
 				t.Fatalf("first commit = %v, conflicts %v", ec, ta.Conflicts())
 			}
 			want := merged
-			if test.spare > 0 {
+			if test.spare >= 0 {
 				if ec := tb.Commit(); ec != types.E_NONE {
 					t.Fatalf("below-limit merge = %v, conflicts %v", ec, tb.Conflicts())
 				}
@@ -294,7 +295,7 @@ func TestKeyedMapRebaseRespectsTaskValueQuota(t *testing.T) {
 				defer retry.Release()
 				ctx := task.NewContext()
 				ctx.StoreTxn = retry
-				ctx.ServerOptions = &task.PendingServerOptions{MaxListValueBytes: limit}
+				ctx.ServerOptions = &task.PendingServerOptions{MaxMapValueBytes: limit, MaxConcatCatchable: true}
 				result := runBytecodeProgram(t, fmt.Sprintf(`#0.m["b"]=%q; return 1;`, valueB), store, ctx)
 				if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
 					t.Fatalf("serial retry = %+v; want E_QUOTA", result)
@@ -304,8 +305,8 @@ func TestKeyedMapRebaseRespectsTaskValueQuota(t *testing.T) {
 				}
 			}
 			actual, ec := store.DirectTxn().PropertyValue(0, "m")
-			if ec != types.E_NONE || !actual.Identical(want) || types.ValueBytes(actual) >= limit {
-				t.Fatalf("published map = %v, error=%v, bytes=%d, limit=%d; want %v below limit", actual, ec, types.ValueBytes(actual), limit, want)
+			if ec != types.E_NONE || !actual.Identical(want) || types.ValueBytes(actual) > limit {
+				t.Fatalf("published map = %v, error=%v, bytes=%d, limit=%d; want %v within limit", actual, ec, types.ValueBytes(actual), limit, want)
 			}
 		})
 	}

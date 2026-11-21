@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -82,6 +83,65 @@ func (e VMException) Error() string {
 type unreportedAbort struct{}
 
 func (unreportedAbort) Error() string { return "task aborted" }
+
+// secondsAbort ends the task as out of seconds: no handler catches it, no
+// finally body runs, whatever the verb's d flag (Toast abort_task(ABORT_SECONDS)).
+type secondsAbort struct{}
+
+func (secondsAbort) Error() string { return "task ran out of seconds" }
+
+// quotaError is Toast's PUSH_ERROR_UNLESS_QUOTA(E_QUOTA) for a value past a
+// size limit: E_QUOTA when max_concat_catchable is true, else a seconds abort.
+func (vm *VM) quotaError(detail string) error {
+	if vm.Builtins.MaxConcatCatchable(vm.Context) {
+		return newMooError(types.E_QUOTA, detail)
+	}
+	return secondsAbort{}
+}
+
+// Call arguments are held to max_list_value_bytes the way Toast holds them: its
+// compiler builds f(a, b, ...) arguments as a list with OP_MAKE_SINGLETON_LIST
+// and OP_LIST_ADD_TAIL (OP_LIST_APPEND for @), and each of those but the
+// singleton checks the list. A lone unspliced argument is never checked.
+
+// checkCallArgsLimit checks a verb or pass() call's arguments; spliced is the
+// args list of a splice call, or None.
+func (vm *VM) checkCallArgsLimit(args []types.Value, spliced types.Value) error {
+	if spliced.Type() == types.TYPE_LIST {
+		return vm.checkSplicedArgsLimit(spliced)
+	}
+	if len(args) < 2 {
+		return nil
+	}
+	return vm.checkArgListLimit(args)
+}
+
+// checkArgListLimit checks two or more unspliced arguments.
+//
+//go:noinline
+func (vm *VM) checkArgListLimit(args []types.Value) error {
+	if size := types.ListBytes(args); size >= builtins.MinListValueBytesLimit {
+		return vm.checkArgBytes(size)
+	}
+	return nil
+}
+
+// checkSplicedArgsLimit checks the list a splice call passes.
+func (vm *VM) checkSplicedArgsLimit(list types.Value) error {
+	return vm.checkArgBytes(types.ValueBytes(list))
+}
+
+func (vm *VM) checkArgBytes(size int) error {
+	// No limit is below MinListValueBytesLimit, so a small list needs no lookup.
+	if size < builtins.MinListValueBytesLimit {
+		return nil
+	}
+	// OP_LIST_ADD_TAIL refuses only a list of more than max_list_value_bytes.
+	if limit := vm.Builtins.ListValueLimitForTask(vm.Context); limit > 0 && size > limit {
+		return vm.quotaError("list too large")
+	}
+	return nil
+}
 
 // Unwinding may replace a lifecycle callback's error while the outward MOO
 // result retains its original code. Only attach guard metadata to a compatible

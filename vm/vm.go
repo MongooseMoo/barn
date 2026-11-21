@@ -953,6 +953,9 @@ func (vm *VM) executeLoop() types.Result {
 		vm.syncContextTicks()
 		err = vm.Execute(op)
 		if err != nil {
+			if _, outOfSeconds := err.(secondsAbort); outOfSeconds {
+				goto secondsLimit
+			}
 			if _, aborting := err.(unreportedAbort); aborting {
 				// Not an error of this verb, whatever its d flag: the task is
 				// already ending and only enclosing finally bodies remain.

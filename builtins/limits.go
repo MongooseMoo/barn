@@ -12,6 +12,10 @@ import (
 // STRING AND VALUE LIMIT CHECKING
 // ============================================================================
 
+// MinListValueBytesLimit is Toast MIN_LIST_VALUE_BYTES_LIMIT: load_server_options()
+// raises a smaller positive max_list_value_bytes to it.
+const MinListValueBytesLimit = 1021
+
 // Each Registry caches server options (matching ToastStunt's
 // _server_int_option_cache). load_server_options() updates only the executing
 // registry and limit-checking functions read that same registry.
@@ -28,7 +32,7 @@ const (
 	defaultMaxCryptBcryptCost = 14
 	defaultMaxCryptSHARounds  = 1_000_000
 	minStringConcatLimit      = 1021
-	minListValueBytesLimit    = 1021
+	minListValueBytesLimit    = MinListValueBytesLimit
 	minMapValueBytesLimit     = 1021
 	minQueuedOutputLimit      = 2048
 	maxStringConcatLimit      = math.MaxInt32 - minStringConcatLimit
@@ -45,6 +49,40 @@ func (r *Session) IncludeRTVars(ctx *task.Context) bool {
 	state.mu.RLock()
 	defer state.mu.RUnlock()
 	return state.includeRTVars
+}
+
+// MaxConcatCatchable reports the cached max_concat_catchable flag, false by
+// default (Toast SVO_MAX_CONCAT_CATCHABLE, server.h).
+func (r *Session) MaxConcatCatchable(ctx *task.Context) bool {
+	if snapshot := pendingServerOptions(ctx); snapshot != nil {
+		return snapshot.MaxConcatCatchable
+	}
+	state := &r.runtime.serverOptions
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	return state.maxConcatCatchable
+}
+
+// SecondsAbortResult is what a task that ran out of seconds ends with. The VM
+// does not let a handler catch it: the task ends and #0:handle_task_timeout is
+// told "seconds".
+func SecondsAbortResult() types.Result {
+	return types.Result{Flow: types.FlowException, Error: types.E_MAXREC, Reason: types.ExceptionReasonSecondsBudget, Val: types.NewStr("E_MAXREC: seconds limit exceeded")}
+}
+
+// SpaceResult is Toast's make_space_pack(): a value past a size limit raises
+// E_QUOTA when max_concat_catchable is true, and otherwise aborts the task as
+// out of seconds.
+func (r *Session) SpaceResult(ctx *task.Context) types.Result {
+	if r.MaxConcatCatchable(ctx) {
+		return types.Err(types.E_QUOTA)
+	}
+	return SecondsAbortResult()
+}
+
+// spaceResult is SpaceResult for the task running ctx.
+func (ctx *Execution) spaceResult() types.Result {
+	return ctx.Session.SpaceResult(ctx.Context)
 }
 
 // GetMaxStringConcat returns the cached max_string_concat limit.
@@ -145,6 +183,7 @@ func (r *Session) applyServerOptionsSnapshot(snapshot *task.PendingServerOptions
 	state.maxCryptBcryptCost = snapshot.MaxCryptBcryptCost
 	state.maxCryptSHARounds = snapshot.MaxCryptSHARounds
 	state.includeRTVars = snapshot.IncludeRTVars
+	state.maxConcatCatchable = snapshot.MaxConcatCatchable
 	state.mu.Unlock()
 }
 
@@ -172,6 +211,10 @@ func collectServerOptions(findProperty propertyReader, findDefined propertyReade
 	serverOptsID := serverOptsRef.Obj()
 	if prop, ok := findDefined(serverOptsID, "include_rt_vars"); ok {
 		snapshot.IncludeRTVars = prop.Value.Truthy()
+		snapshot.Loaded++
+	}
+	if prop, ok := findDefined(serverOptsID, "max_concat_catchable"); ok {
+		snapshot.MaxConcatCatchable = prop.Value.Truthy()
 		snapshot.Loaded++
 	}
 
@@ -443,13 +486,20 @@ func (r *Session) CheckListLimitForTask(ctx *task.Context, list types.Value) typ
 	return types.E_NONE
 }
 
+// MapValueLimitForTask is the max_map_value_bytes limit CheckMapLimitForTask
+// applies to ctx's task: a map of more bytes than that is E_QUOTA. Zero or less
+// means no limit.
+func (r *Session) MapValueLimitForTask(ctx *task.Context) int {
+	if pending := pendingServerOptions(ctx); pending != nil {
+		return pending.MaxMapValueBytes
+	}
+	return r.GetMaxMapValueBytes()
+}
+
 // CheckMapLimitForTask checks a map against the task's pending server options,
 // falling back to the currently cached max_map_value_bytes limit.
 func (r *Session) CheckMapLimitForTask(ctx *task.Context, m types.Value) types.ErrorCode {
-	limit := r.GetMaxMapValueBytes()
-	if pending := pendingServerOptions(ctx); pending != nil {
-		limit = pending.MaxMapValueBytes
-	}
+	limit := r.MapValueLimitForTask(ctx)
 	if limit > 0 && ValueBytes(m) > limit {
 		return types.E_QUOTA
 	}

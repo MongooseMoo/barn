@@ -69,6 +69,7 @@ type serverOptionsState struct {
 	maxCryptBcryptCost int
 	maxCryptSHARounds  int
 	includeRTVars      bool
+	maxConcatCatchable bool
 }
 
 func newSessionRuntime() *sessionRuntime {

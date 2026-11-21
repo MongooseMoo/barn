@@ -62,7 +62,7 @@ func (vm *VM) executeAdd() error {
 	if a.Type() == types.TYPE_STR {
 		if b.Type() == types.TYPE_STR {
 			if errCode := vm.Builtins.CheckStringLengthForTask(vm.Context, a.Len()+b.Len()); errCode != types.E_NONE {
-				return newMooError(types.E_QUOTA, "string too long")
+				return vm.quotaError("string too long")
 			}
 			// StrAppend reuses the accumulator's uncommitted capacity when this
 			// header owns the append frontier (amortized O(1) for the
@@ -90,7 +90,7 @@ func (vm *VM) executeAdd() error {
 		// Toast's OP_ADD (execute.cc, 6505a7f) rejects a result whose
 		// value_bytes exceeds max_list_value_bytes; equal is allowed.
 		if limit := vm.Builtins.ListValueLimitForTask(vm.Context); limit > 0 && types.ValueBytes(result) > limit {
-			return newMooError(types.E_QUOTA, "list too large")
+			return vm.quotaError("list too large")
 		}
 		vm.Push(result)
 		return nil

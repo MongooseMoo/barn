@@ -170,7 +170,8 @@ func TestDecodeBinaryFullyNumericUsesPendingListValueByteLimit(t *testing.T) {
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: ValueBytes(decoded),
+			MaxListValueBytes:  ValueBytes(decoded),
+			MaxConcatCatchable: true,
 		},
 	}}
 
@@ -186,7 +187,8 @@ func TestDecodeBinaryGroupedUsesPendingListValueByteLimit(t *testing.T) {
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: ValueBytes(decoded),
+			MaxListValueBytes:  ValueBytes(decoded),
+			MaxConcatCatchable: true,
 		},
 	}}
 
