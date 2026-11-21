@@ -237,8 +237,9 @@ func TestSqliteExecuteAndQueryShapes(t *testing.T) {
 	if got := row.Get(3).Float(); got != 3.5 {
 		t.Fatalf("float column = %v, want 3.5", got)
 	}
-	if got := sqliteMustString(t, row.Get(4)); got != "#0" {
-		t.Fatalf("obj column = %q, want #0", got)
+	// Toast parses "#0" text into an object (sqlite.cc string_to_moo_type).
+	if got := row.Get(4); got.Type() != types.TYPE_OBJ || got.ID() != 0 {
+		t.Fatalf("obj column = %v, want #0", got)
 	}
 	if got := sqliteMustString(t, row.Get(5)); got != "alpha" {
 		t.Fatalf("label column = %q, want alpha", got)
@@ -301,15 +302,22 @@ func TestSqliteLimitNameAndNumberParity(t *testing.T) {
 func sqliteCloseAllHandles(ctx *Execution) {
 	rt := &ctx.Session.runtime.sqlite
 	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	for id, h := range rt.handles {
+	handles := make([]*sqliteHandle, 0, len(rt.handles))
+	for _, h := range rt.handles {
+		handles = append(handles, h)
+	}
+	rt.mu.Unlock()
+	for _, h := range handles {
+		h.mu.Lock()
+		h.closed = true
+		h.mu.Unlock()
+		removeSQLiteHandle(ctx, h.id)
 		if h.conn != nil {
 			_ = h.conn.Close()
 		}
 		if h.db != nil {
 			_ = h.db.Close()
 		}
-		delete(rt.handles, id)
 	}
 }
 
