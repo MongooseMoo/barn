@@ -63,6 +63,7 @@ func newRootCommand() *cobra.Command {
 	)
 	root.AddCommand(b.serveCommand(), b.evalCommand())
 	root.AddCommand(b.inspectCommands()...)
+	root.AddCommand(b.toastCheckCommand())
 	root.AddCommand(b.dumpCommand(), b.offlineCheckpointCommand(), b.memoryReportCommand(), b.listProfilesCommand())
 	cli.AddVersionCommand(root)
 	return root
@@ -73,6 +74,7 @@ func newRootCommand() *cobra.Command {
 func (b *barnCommand) addOptionFlags(flags *pflag.FlagSet) {
 	flags.StringVar(&b.cfg.ConfigPath, "config", "", "Server config `file`")
 	flags.BoolVar(&b.cfg.PromoteNumbers, "promote-numbers", false, "Enable numeric promotion")
+	flags.StringVar(&b.cfg.WASMDirectory, "wasm-dir", "", "Operator `dir`ectory of pure WIT builtin components")
 	flags.BoolVarP(&b.cfg.Outbound, "outbound", "o", false, "Enable outbound network connections, overriding --config")
 	flags.BoolVarP(&b.cfg.NoOutbound, "no-outbound", "O", false, "Disable outbound network connections, overriding --config")
 }
@@ -176,6 +178,31 @@ func (b *barnCommand) inspectCommands() []*cobra.Command {
 		commands = append(commands, cmd)
 	}
 	return commands
+}
+
+func (b *barnCommand) toastCheckCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "toast-check",
+		Short: "Name every verb whose code a Toast cannot run as written",
+		Long: `Name every verb whose code calls a builtin the target Toast does not register,
+or does not parse, then print a count line. --builtins lists the target Toast's
+builtin names, one per line, as its function_info() gives them. Calls through
+eval or a computed call_function name are listed as not checkable. Exits 1 when
+any verb calls a builtin Barn registers and that Toast does not, or does not
+parse; a call to a name neither registers is listed but does not fail.`,
+		GroupID: "inspect",
+		Args:    cobra.NoArgs,
+		Example: "  barn toast-check --db game.db --builtins toast-builtins.txt",
+	}
+	cmd.Flags().StringVar(&b.cfg.ToastBuiltins, "builtins", "", "The target Toast's builtin names, one per line, in this `file`")
+	b.addOptionFlags(cmd.Flags())
+	cmd.RunE = b.run(func(*cobra.Command, []string) error {
+		if b.cfg.ToastBuiltins == "" {
+			return cli.UsageErrorf("--builtins is required")
+		}
+		return nil
+	})
+	return cmd
 }
 
 func (b *barnCommand) dumpCommand() *cobra.Command {

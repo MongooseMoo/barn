@@ -3,6 +3,7 @@ module github.com/MongooseMoo/barn
 go 1.27.1
 
 require (
+	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
@@ -21,12 +22,17 @@ require (
 	github.com/go-crypt/x v0.4.12
 	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e
 	github.com/rivo/uniseg v0.4.7
+	github.com/samyfodil/wazy v0.8.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
+	github.com/tetratelabs/wazero v1.12.0
+	go.bytecodealliance.org v0.7.0
 	golang.org/x/crypto v0.46.0
-	golang.org/x/sys v0.41.0
+	golang.org/x/sys v0.44.0
 	golang.org/x/text v0.32.0
 	modernc.org/libc v1.66.10
 	modernc.org/sqlite v1.39.1
 	pgregory.net/rapid v1.3.0
 )
+
+replace github.com/samyfodil/wazy => github.com/MongooseMoo/wazy v0.8.1-0.20261121051357-b3b0e893902e

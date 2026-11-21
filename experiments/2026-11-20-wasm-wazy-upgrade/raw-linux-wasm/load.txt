@@ -1,0 +1,60 @@
+v030 run=1 load_before=22% gate=ok time=2026-11-20T17:09:53.3004534-07:00
+v030 run=1 wsl_loadavg=13.44 12.56 11.65 7/1567 2138521 (8 WSL CPUs)
+v030 run=1 exit=0
+v080 run=1 load_before=47% gate=ok time=2026-11-20T17:09:59.7288917-07:00
+v080 run=1 wsl_loadavg=13.08 12.50 11.64 18/1628 2139272 (8 WSL CPUs)
+v080 run=1 exit=0
+v030 run=2 load_before=46% gate=ok time=2026-11-20T17:10:07.0899990-07:00
+v030 run=2 wsl_loadavg=13.97 12.70 11.71 27/1670 2140641 (8 WSL CPUs)
+v030 run=2 exit=0
+v080 run=2 load_before=37% gate=ok time=2026-11-20T17:10:17.8035939-07:00
+v080 run=2 wsl_loadavg=17.69 13.54 12.00 13/1598 2141603 (8 WSL CPUs)
+v080 run=2 exit=0
+v030 run=3 load_before=35% gate=ok time=2026-11-20T17:10:31.8307429-07:00
+v030 run=3 wsl_loadavg=19.73 14.20 12.24 15/1444 2142577 (8 WSL CPUs)
+v030 run=3 exit=0
+v080 run=3 load_before=35% gate=ok time=2026-11-20T17:10:39.1991923-07:00
+v080 run=3 wsl_loadavg=20.47 14.45 12.33 8/1410 2143024 (8 WSL CPUs)
+v080 run=3 exit=0
+v030 run=4 load_before=45% gate=ok time=2026-11-20T17:10:45.6625980-07:00
+v030 run=4 wsl_loadavg=19.59 14.45 12.35 15/1371 2143900 (8 WSL CPUs)
+v030 run=4 exit=0
+v080 run=4 load_before=37% gate=ok time=2026-11-20T17:10:53.6411471-07:00
+v080 run=4 wsl_loadavg=19.78 14.58 12.41 4/1457 2145115 (8 WSL CPUs)
+v080 run=4 exit=0
+v030 run=5 load_before=40% gate=ok time=2026-11-20T17:11:12.9531407-07:00
+v030 run=5 wsl_loadavg=19.51 14.85 12.54 11/1487 2148138 (8 WSL CPUs)
+v030 run=5 exit=0
+v080 run=5 load_before=48% gate=ok time=2026-11-20T17:11:20.9832837-07:00
+v080 run=5 wsl_loadavg=18.93 14.89 12.58 7/1438 2148963 (8 WSL CPUs)
+v080 run=5 exit=0
+v030 run=6 load_before=30% gate=ok time=2026-11-20T17:11:27.9306643-07:00
+v030 run=6 wsl_loadavg=18.06 14.77 12.55 11/1434 2149261 (8 WSL CPUs)
+v030 run=6 exit=0
+v080 run=6 load_before=20% gate=ok time=2026-11-20T17:11:34.5063435-07:00
+v080 run=6 wsl_loadavg=17.57 14.73 12.55 7/1405 2149732 (8 WSL CPUs)
+v080 run=6 exit=0
+v030 run=7 load_before=9% gate=ok time=2026-11-20T17:11:40.9091946-07:00
+v030 run=7 wsl_loadavg=15.72 14.42 12.47 2/1388 2149887 (8 WSL CPUs)
+v030 run=7 exit=0
+v080 run=7 load_before=24% gate=ok time=2026-11-20T17:11:47.2143286-07:00
+v080 run=7 wsl_loadavg=14.94 14.28 12.44 2/1341 2150100 (8 WSL CPUs)
+v080 run=7 exit=0
+v030 run=8 load_before=34% gate=ok time=2026-11-20T17:11:53.8949863-07:00
+v030 run=8 wsl_loadavg=14.22 14.14 12.41 1/1303 2150509 (8 WSL CPUs)
+v030 run=8 exit=0
+v080 run=8 load_before=12% gate=ok time=2026-11-20T17:12:00.4174646-07:00
+v080 run=8 wsl_loadavg=12.80 13.84 12.33 5/1346 2151338 (8 WSL CPUs)
+v080 run=8 exit=0
+v030 run=9 load_before=40% gate=ok time=2026-11-20T17:12:06.6407985-07:00
+v030 run=9 wsl_loadavg=11.94 13.65 12.27 4/1363 2151950 (8 WSL CPUs)
+v030 run=9 exit=0
+v080 run=9 load_before=29% gate=ok time=2026-11-20T17:12:12.7487166-07:00
+v080 run=9 wsl_loadavg=11.46 13.52 12.24 2/1337 2152648 (8 WSL CPUs)
+v080 run=9 exit=0
+v030 run=10 load_before=27% gate=ok time=2026-11-20T17:12:19.1304757-07:00
+v030 run=10 wsl_loadavg=10.95 13.38 12.20 3/1340 2153205 (8 WSL CPUs)
+v030 run=10 exit=0
+v080 run=10 load_before=30% gate=ok time=2026-11-20T17:12:25.4883561-07:00
+v080 run=10 wsl_loadavg=9.71 13.03 12.10 2/1339 2154052 (8 WSL CPUs)
+v080 run=10 exit=0

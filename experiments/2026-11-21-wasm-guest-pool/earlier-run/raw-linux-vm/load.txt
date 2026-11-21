@@ -1,0 +1,14 @@
+2026-11-20T22:47:14.1317836-07:00 run=1 side=base host_load_pct=42 waited_s=7
+  wsl_loadavg=22.03 9.51 4.95 27/1122 141358
+2026-11-20T22:47:30.7314924-07:00 run=1 side=final host_load_pct=40 waited_s=7
+  wsl_loadavg=21.39 9.98 5.18 43/1097 142617
+2026-11-20T22:47:47.5981146-07:00 run=2 side=base host_load_pct=29 waited_s=7
+  wsl_loadavg=19.40 10.29 5.39 6/1126 143732
+2026-11-20T22:47:55.2448283-07:00 run=2 side=final host_load_pct=41 waited_s=1
+  wsl_loadavg=18.89 10.34 5.43 15/1114 143986
+2026-11-20T22:48:10.4742588-07:00 run=3 side=base host_load_pct=44 waited_s=7
+  wsl_loadavg=16.38 10.21 5.47 8/1158 144996
+2026-11-20T22:48:19.3781573-07:00 run=3 side=final host_load_pct=31 waited_s=1
+  wsl_loadavg=15.08 10.13 5.49 10/1169 145452
+2026-11-20T22:48:28.8752783-07:00 run=4 side=base host_load_pct=30 waited_s=1
+  wsl_loadavg=14.32 10.13 5.54 3/1123 146031

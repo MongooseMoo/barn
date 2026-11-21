@@ -249,6 +249,11 @@ func NewEvalSession(store *dbstore.Store, options config.Options) (*EvalSession,
 		return nil, errors.New("database has no wizard to evaluate as")
 	}
 	runtime := engine.NewRuntimeWithOptions(store, options)
+	if err := runtime.Session().ConfigureWASM(options.WASMDirectory); err != nil {
+		runtime.Stop()
+		_ = runtime.Session().Close()
+		return nil, fmt.Errorf("configure WASM builtins: %w", err)
+	}
 	runtime.Session().LoadServerOptionsFromStore(store)
 	return &EvalSession{runtime: runtime, wizard: wizard}, nil
 }

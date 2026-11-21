@@ -65,6 +65,7 @@ Common `barn serve` flags:
 | `--listen <url>` | Listener URL such as `tcp://:7777`; can be repeated |
 | `--config <path>` | Server options file (examples in `profiles/barn/`) |
 | `--checkpoint-interval <s>` | Seconds between checkpoints (default `3600`, `0` disables) |
+| `--wasm-dir <path>` | Load pure WIT builtin components from an operator directory; see [the authoring guide](docs/wasm-builtins.md) |
 | `-v`, `-q`, `-qq`, `--log-level` | Log debug records; only warnings; only errors; or name the level |
 | `--log-dir <dir>` | Where JSON logs go (default `logs/`, empty disables) |
 
@@ -82,6 +83,12 @@ bin/barn dump --db Test.db copy.db     # write, reload and compare
 
 There are also `list-verbs`, `verb-lookup`, `ancestry`, `dump-obj-raw`,
 `grep-verbs`, `eval --file`, `memory-report` and `offline-checkpoint`.
+
+Before moving a database back to Toast, `bin/barn toast-check --db game.db
+--builtins names.txt` names every verb that calls a builtin Barn registers and
+that Toast does not, or that does not parse; `names.txt` is that Toast's
+`function_info()` names, one per line (`scripts/toast-check.sh` asks a Toast
+binary for them).
 
 ## Tools
 

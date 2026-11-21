@@ -1,0 +1,338 @@
+diff --git i/go.mod w/go.mod
+index cef9d52e..3d3c19e9 100644
+--- i/go.mod
++++ w/go.mod
+@@ -34,3 +34,5 @@ require (
+ 	modernc.org/sqlite v1.39.1
+ 	pgregory.net/rapid v1.3.0
+ )
++
++replace github.com/samyfodil/wazy => github.com/MongooseMoo/wazy v0.8.1-0.20261121051357-b3b0e893902e
+diff --git i/go.sum w/go.sum
+index 42a3dd24..18e051b9 100644
+--- i/go.sum
++++ w/go.sum
+@@ -1,3 +1,5 @@
++github.com/MongooseMoo/wazy v0.8.1-0.20261121051357-b3b0e893902e h1:ZEmWbpxHYmBfT34KIVa5ceqVkuAs69Yt8x6xLETXw/0=
++github.com/MongooseMoo/wazy v0.8.1-0.20261121051357-b3b0e893902e/go.mod h1:jpXcoooWi9CQPnN1fzwt/A0w3AMRn/s6PQDunF55SIM=
+ github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=
+ github.com/coder/websocket v1.8.14/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
+ github.com/coreos/go-semver v0.3.1 h1:yi21YpKnrx1gt5R+la8n5WgS0kCrsPp33dmEyHReZr4=
+@@ -30,8 +32,6 @@ github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qq
+ github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
+ github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
+ github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
+-github.com/samyfodil/wazy v0.8.0 h1:6BYRDEKVZeHecH89vf/tiiwZe9WKvV4oh63vwGvZWT4=
+-github.com/samyfodil/wazy v0.8.0/go.mod h1:jpXcoooWi9CQPnN1fzwt/A0w3AMRn/s6PQDunF55SIM=
+ github.com/sergi/go-diff v1.3.1 h1:xkr+Oxo4BOQKmkn/B9eMK0g5Kg/983T9DqqPHwYqD+8=
+ github.com/sergi/go-diff v1.3.1/go.mod h1:aMJSSKb2lpPvRNec0+w3fl7LP9IOFzdc9Pa4NFbPK1I=
+ github.com/spf13/cobra v1.10.2 h1:DMTTonx5m65Ic0GOoRY2c16WCbHxOOw6xxezuLaBpcU=
+diff --git i/internal/wasmbuiltins/call_bench_test.go w/internal/wasmbuiltins/call_bench_test.go
+index 83afe6a1..26970961 100644
+--- i/internal/wasmbuiltins/call_bench_test.go
++++ w/internal/wasmbuiltins/call_bench_test.go
+@@ -4,6 +4,7 @@ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
++	"runtime"
+ 	"testing"
+ 
+ 	"github.com/MongooseMoo/barn/types"
+@@ -50,8 +51,9 @@ func benchmarkManager(b *testing.B, module string) *Manager {
+ }
+ 
+ // BenchmarkWASMCall splits a wasm_call into its fresh-guest setup and the
+-// export itself. ExecuteExisting reuses one guest and is a diagnostic floor,
+-// not a supported calling mode.
++// export itself. Full resets a pooled guest before returning. ExecuteExisting
++// reuses one guest without a reset and is a diagnostic floor, not a supported
++// calling mode.
+ func BenchmarkWASMCall(b *testing.B) {
+ 	for _, fixture := range callFixtures() {
+ 		b.Run(fixture.module, func(b *testing.B) {
+@@ -67,6 +69,44 @@ func BenchmarkWASMCall(b *testing.B) {
+ 					}
+ 				}
+ 			})
++			// The same call with the guest reset off the call path.
++			// FullBackground is a tight loop that may outrun the resetter;
++			// with GOMAXPROCS=1 every reset it starts runs in the timed
++			// window except the last PoolGuests, so ns/op is close to total
++			// CPU per call. FullBackgroundSettled stops the timer until the
++			// reset finishes: the latency of a call that finds a clean guest.
++			bg := benchmarkManager(b, fixture.module)
++			bg.backgroundReset = true
++			b.Run("FullBackground", func(b *testing.B) {
++				b.ReportAllocs()
++				for b.Loop() {
++					r := bg.Call(context.Background(), 0, target, fixture.args)
++					if r.IsError() || !r.Val.Equal(fixture.want) {
++						b.Fatalf("call: %+v", r)
++					}
++				}
++			})
++			b.Run("FullBackgroundSettled", func(b *testing.B) {
++				b.ReportAllocs()
++				for range b.N {
++					r := bg.Call(context.Background(), 0, target, fixture.args)
++					if r.IsError() || !r.Val.Equal(fixture.want) {
++						b.Fatalf("call: %+v", r)
++					}
++					b.StopTimer()
++					for {
++						bg.mu.Lock()
++						gen := bg.modules[fixture.module]
++						idle := gen.resetting == 0 && len(gen.pool) > 0
++						bg.mu.Unlock()
++						if idle {
++							break
++						}
++						runtime.Gosched()
++					}
++					b.StartTimer()
++				}
++			})
+ 			b.Run("InstantiateClose", func(b *testing.B) {
+ 				b.ReportAllocs()
+ 				for b.Loop() {
+diff --git i/internal/wasmbuiltins/runtime.go w/internal/wasmbuiltins/runtime.go
+index c364149e..5e36590d 100644
+--- i/internal/wasmbuiltins/runtime.go
++++ w/internal/wasmbuiltins/runtime.go
+@@ -29,12 +29,17 @@ const (
+ 	MaxComponentBytes = 16 << 20
+ 	MemoryPages       = 64 // Four MiB per instance; admission also bounds core instances.
+ 	CallTimeout       = 250 * time.Millisecond
++	// PoolGuests bounds the reset guests a generation keeps between calls. Each
++	// keeps its linear memory (at most MemoryPages) while it waits.
++	PoolGuests = 2
+ )
+ 
+ var moduleName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
+ 
+ // Manager owns a session's components. A module name selects an operator-owned
+-// file, never a path supplied by MOO. Every call uses fresh guest state.
++// file, never a path supplied by MOO. Every call uses fresh guest state: a
++// guest that was instantiated for the call, or one that was reset to its
++// instantiated state after a call that fully succeeded.
+ type Manager struct {
+ 	mu         sync.Mutex
+ 	root       *os.Root
+@@ -47,6 +52,9 @@ type Manager struct {
+ 	calls      chan struct{}
+ 	closeOnce  sync.Once
+ 	closeErr   error
++	// backgroundReset resets a guest on its own goroutine after the call
++	// returns instead of before. Set only before the first call.
++	backgroundReset bool
+ }
+ 
+ type generation struct {
+@@ -57,6 +65,15 @@ type generation struct {
+ 	info      Info
+ 	refs      int // Protected by Manager.mu.
+ 	retired   bool
++	// resettable is set when the component instantiates under WithReset; a
++	// generation without it instantiates and closes a guest per call.
++	resettable bool
++	// pool holds clean guests, at most PoolGuests. Protected by Manager.mu.
++	pool []*component.Instance
++	// resetting counts guests being reset off the call path; ready (on
++	// Manager.mu) is broadcast as each finishes. Protected by Manager.mu.
++	resetting int
++	ready     sync.Cond
+ }
+ 
+ // Info is detached metadata, safe to retain across replacement and unloading.
+@@ -180,6 +197,7 @@ func (m *Manager) Load(ctx context.Context, name string) (info Info, err error)
+ 	}
+ 	m.next++
+ 	g.info.Name, g.info.Generation = name, m.next
++	g.ready.L = &m.mu
+ 	old := m.modules[name]
+ 	m.modules[name] = g
+ 	installed = true
+@@ -326,7 +344,15 @@ func prepare(ctx context.Context, data []byte) (g *generation, err error) {
+ 	g.runtime = wazy.NewRuntimeWithConfig(ctx, wazy.NewRuntimeConfig().WithMemoryLimitPages(MemoryPages))
+ 	g.data = withGraphInstantiation(data)
+ 	g.cache = component.NewCompileCache()
+-	inst, err := component.Instantiate(ctx, g.runtime, g.data, component.WithCompileCache(g.cache))
++	// A component WithReset accepts keeps its validation guest as the first
++	// pooled one; any other is validated as before and instantiated per call.
++	inst, err := component.Instantiate(ctx, g.runtime, g.data, component.WithCompileCache(g.cache), component.WithReset())
++	if err == nil {
++		g.resettable = true
++		g.pool = append(g.pool, inst)
++		return g, nil
++	}
++	inst, err = component.Instantiate(ctx, g.runtime, g.data, component.WithCompileCache(g.cache))
+ 	if err != nil {
+ 		g.close()
+ 		return nil, fmt.Errorf("validate component: %w", err)
+@@ -338,7 +364,12 @@ func prepare(ctx context.Context, data []byte) (g *generation, err error) {
+ 	return g, nil
+ }
+ 
++// close runs once no call holds the generation, so no guest is in use.
+ func (g *generation) close() {
++	for _, inst := range g.pool {
++		closeGuest(inst)
++	}
++	g.pool = nil
+ 	if g.cache != nil {
+ 		_ = g.cache.Close(context.Background())
+ 	}
+@@ -408,19 +439,41 @@ func (m *Manager) Call(ctx context.Context, principal int64, target string, args
+ 	g.refs++
+ 	m.active.Add(1)
+ 	m.mu.Unlock()
++	// guest is set once the call has a guest; clean is set only after the
++	// call fully succeeded, so a guest that trapped, failed, ran past its
++	// deadline or panicked is closed and never reused.
++	var guest *component.Instance
++	clean := false
+ 	defer func() {
+ 		m.mu.Lock()
+-		g.refs--
+ 		m.principals[principal]--
+ 		if m.principals[principal] == 0 {
+ 			delete(m.principals, principal)
+ 		}
+-		dispose := g.retired && g.refs == 0
+ 		m.mu.Unlock()
+-		if dispose {
+-			g.close()
++		if !clean || !g.resettable {
++			m.release(g, guest, false)
++			return
+ 		}
+-		m.active.Done()
++		if m.backgroundReset {
++			// At most PoolGuests guests are pooled or resetting; a guest with
++			// nowhere to go is closed.
++			m.mu.Lock()
++			room := !g.retired && len(g.pool)+g.resetting < PoolGuests
++			if room {
++				g.resetting++
++			}
++			m.mu.Unlock()
++			if !room {
++				m.release(g, guest, false)
++				return
++			}
++			// The goroutine inherits the call's generation reference and
++			// active count, so unload and Close wait for it.
++			go func() { m.releaseReset(g, guest, resetGuest(guest)) }()
++			return
++		}
++		m.release(g, guest, resetGuest(guest))
+ 	}()
+ 	defer func() {
+ 		if p := recover(); p != nil {
+@@ -447,16 +500,29 @@ func (m *Manager) Call(ctx context.Context, principal int64, target string, args
+ 	if ctx.Err() != nil {
+ 		return guestError(ctx)
+ 	}
+-	inst, err := component.Instantiate(ctx, g.runtime, g.data, component.WithCompileCache(g.cache))
+-	if err != nil {
+-		return guestError(ctx)
++	m.mu.Lock()
++	// A reset in flight finishes sooner than a new guest instantiates.
++	for len(g.pool) == 0 && g.resetting > 0 {
++		g.ready.Wait()
+ 	}
+-	defer func() {
+-		if err := inst.Close(context.Background()); err != nil {
+-			slog.Error("close WASM guest", slog.Any("err", err))
++	if n := len(g.pool); n > 0 {
++		guest = g.pool[n-1]
++		g.pool[n-1] = nil
++		g.pool = g.pool[:n-1]
++	}
++	m.mu.Unlock()
++	if guest == nil {
++		opts := []component.Option{component.WithCompileCache(g.cache)}
++		if g.resettable {
++			opts = append(opts, component.WithReset())
+ 		}
+-	}()
+-	out, err := inst.Call(ctx, export, values...)
++		inst, err := component.Instantiate(ctx, g.runtime, g.data, opts...)
++		if err != nil {
++			return guestError(ctx)
++		}
++		guest = inst
++	}
++	out, err := guest.Call(ctx, export, values...)
+ 	if err != nil {
+ 		return guestError(ctx)
+ 	}
+@@ -468,6 +534,7 @@ func (m *Manager) Call(ctx context.Context, principal int64, target string, args
+ 		if len(out) != 0 {
+ 			return types.Err(types.E_INVARG)
+ 		}
++		clean = true
+ 		return types.Ok(types.NewInt(0))
+ 	}
+ 	if len(out) != 1 {
+@@ -477,8 +544,59 @@ func (m *Manager) Call(ctx context.Context, principal int64, target string, args
+ 	if e != types.E_NONE {
+ 		return types.Err(e)
+ 	}
++	clean = true
+ 	return types.Ok(v)
+ }
++
++// resetGuest restores a guest after a successful call and reports whether it
++// may be reused. A refusal means the guest must be closed.
++func resetGuest(inst *component.Instance) bool {
++	return inst.Reset(context.Background()) == nil
++}
++
++// release ends a call's hold on g: a clean guest goes back to the pool while
++// the generation is live and the pool has room, any other guest is closed, and
++// the generation is closed once retired and unreferenced.
++func (m *Manager) release(g *generation, inst *component.Instance, clean bool) {
++	m.mu.Lock()
++	m.releaseLocked(g, inst, clean)
++}
++
++// releaseReset is release for a guest reset off the call path; it wakes the
++// calls waiting for that reset in the same critical section that pools it.
++func (m *Manager) releaseReset(g *generation, inst *component.Instance, clean bool) {
++	m.mu.Lock()
++	g.resetting--
++	g.ready.Broadcast()
++	m.releaseLocked(g, inst, clean)
++}
++
++// releaseLocked is release with m.mu held; it unlocks m.mu.
++func (m *Manager) releaseLocked(g *generation, inst *component.Instance, clean bool) {
++	if inst != nil && clean && !g.retired && len(g.pool) < PoolGuests {
++		g.pool = append(g.pool, inst)
++		inst = nil
++	}
++	if inst != nil {
++		// Close while the reference still keeps the runtime open.
++		m.mu.Unlock()
++		closeGuest(inst)
++		m.mu.Lock()
++	}
++	g.refs--
++	dispose := g.retired && g.refs == 0
++	m.mu.Unlock()
++	if dispose {
++		g.close()
++	}
++	m.active.Done()
++}
++
++func closeGuest(inst *component.Instance) {
++	if err := inst.Close(context.Background()); err != nil {
++		slog.Error("close WASM guest", slog.Any("err", err))
++	}
++}
+ func guestError(ctx context.Context) types.Result {
+ 	if ctx.Err() != nil {
+ 		return types.Err(types.E_QUOTA)
