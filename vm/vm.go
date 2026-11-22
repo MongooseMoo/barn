@@ -1196,7 +1196,10 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		val := frame.Locals[idx]
 		if val.IsUnbound() {
 			if int(idx) < len(frame.Program.VarNames) {
-				return newMooErrorf(types.E_VARNF, "Variable not found: %s", frame.Program.VarNames[idx]).withMessage()
+				// Toast's PUSH_X_NOT_FOUND: the value is {#-1, name}.
+				name := frame.Program.VarNames[idx]
+				return newMooErrorf(types.E_VARNF, "Variable not found: %s", name).withMessage().
+					withValue(types.NewList([]types.Value{types.NewObj(types.ObjNothing), types.NewStr(name)}))
 			}
 			return MooError{Code: types.E_VARNF}
 		}
@@ -1560,14 +1563,18 @@ restartUnwind:
 		// Build or augment the 4-element exception value: {code, message, value, traceback}
 		if exceptionValue.IsNone() {
 			message := errCode.Message()
+			value := types.NewInt(0)
 			var native MooError
-			if errors.As(err, &native) && native.publicDetail {
-				message = native.detail()
+			if errors.As(err, &native) {
+				if native.publicDetail {
+					message = native.detail()
+				}
+				value = native.value
 			}
 			exceptionValue = types.NewList([]types.Value{
 				types.NewErr(errCode),
 				types.NewStr(message),
-				types.NewInt(0),
+				value,
 				traceback,
 			})
 		} else if exceptionValue.Type() == types.TYPE_LIST {
