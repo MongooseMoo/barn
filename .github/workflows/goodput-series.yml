@@ -52,7 +52,8 @@ jobs:
   measure:
     name: Measure goodput and latency at 1 and 16 players
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    # FIXTURE and SOUND_DB live on the workstation's C: drive.
+    runs-on: ${{ fromJSON(vars.WORKSTATION_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 90
     permissions:
       contents: read
