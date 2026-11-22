@@ -167,31 +167,31 @@ func builtinSqrt(ctx *Execution, args []types.Value) types.Result {
 // builtinSin returns sine of angle (radians)
 // sin(angle) -> float
 func builtinSin(ctx *Execution, args []types.Value) types.Result {
-	return mathFuncResult(math.Sin(numberFloat(args[0])))
+	return mathFuncResult(mathSin(numberFloat(args[0])))
 }
 
 // builtinCos returns cosine of angle (radians)
 // cos(angle) -> float
 func builtinCos(ctx *Execution, args []types.Value) types.Result {
-	return mathFuncResult(math.Cos(numberFloat(args[0])))
+	return mathFuncResult(mathCos(numberFloat(args[0])))
 }
 
 // builtinTan returns tangent of angle (radians)
 // tan(angle) -> float
 func builtinTan(ctx *Execution, args []types.Value) types.Result {
-	return mathFuncResult(math.Tan(numberFloat(args[0])))
+	return mathFuncResult(mathTan(numberFloat(args[0])))
 }
 
 // builtinAsin returns arc sine
 // asin(value) -> float
 func builtinAsin(ctx *Execution, args []types.Value) types.Result {
-	return mathFuncResult(math.Asin(numberFloat(args[0])))
+	return mathFuncResult(mathAsin(numberFloat(args[0])))
 }
 
 // builtinAcos returns arc cosine
 // acos(value) -> float
 func builtinAcos(ctx *Execution, args []types.Value) types.Result {
-	return mathFuncResult(math.Acos(numberFloat(args[0])))
+	return mathFuncResult(mathAcos(numberFloat(args[0])))
 }
 
 // builtinAtan returns arc tangent
