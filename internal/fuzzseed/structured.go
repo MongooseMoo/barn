@@ -42,7 +42,7 @@ var (
 	// parser.y "Missing quote"; parser/format.go rejects it).
 	stringPieces  = []string{"a", "b", " ", "\"", "\\", "é", "\t", "$", "%", "1"}
 	intLiterals   = []int64{0, 1, 2, -1, 3, 10, 255, 1 << 31, 9223372036854775807, -9223372036854775808}
-	floatLiterals = []float64{0, 0.5, 1, 1.5, 2.25, 1e10, 1e-7, 3.0e300}
+	floatLiterals = []float64{0, 0.5, 1, 1.5, 2.25, 1e10, 1e-7, 3.0e300, 710.4, 745.0, 1e-310}
 	objLiterals   = []int64{0, 1, 2, 3, -1, -2, 9223372036854775807}
 )
 
