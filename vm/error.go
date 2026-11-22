@@ -20,6 +20,9 @@ type MooError struct {
 	detailFormat string
 	detailArgs   []any
 	publicDetail bool
+	// value is the caught error list's third element; the zero Value is the
+	// integer 0 every error without one carries.
+	value types.Value
 }
 
 type annotatedError struct {
@@ -40,6 +43,12 @@ func (e MooError) detail() string {
 		return fmt.Sprintf(e.detailFormat, e.detailArgs...)
 	}
 	return e.Detail
+}
+
+// withValue sets the value a handler sees as the error list's third element.
+func (e MooError) withValue(value types.Value) MooError {
+	e.value = value
+	return e
 }
 
 // withMessage marks source-defined MOO error text, rather than a VM diagnostic.
