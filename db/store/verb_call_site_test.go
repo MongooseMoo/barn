@@ -88,7 +88,9 @@ func resolutionState(tx *StoreTxn, idBase uint64) txnResolutionState {
 	records := make(map[verbResolveKey]verbResolveEntry, len(tx.verbResolve))
 	for key, entry := range tx.verbResolve {
 		entry.memo = nil // a memo entry pointer differs between the two worlds
-		entry.steps = nil
+		if entry.walk != nil {
+			entry.walk = &verbWalkRecord{err: entry.walk.err}
+		}
 		entry.verb = nil
 		records[key] = entry
 	}
@@ -123,7 +125,9 @@ func requireSameResolutionState(t *testing.T, what string, want, got txnResoluti
 	}
 	for key, w := range want.records {
 		g, ok := got.records[key]
-		if !ok || g.memoSeen != w.memoSeen || g.definer != w.definer || (g.err == nil) != (w.err == nil) {
+		gotError := g.walk != nil && g.walk.err != nil
+		wantError := w.walk != nil && w.walk.err != nil
+		if !ok || g.memoSeen != w.memoSeen || g.definer != w.definer || gotError != wantError {
 			t.Fatalf("%s: record %v = %+v (present %v), want %+v", what, key, g, ok, w)
 		}
 	}

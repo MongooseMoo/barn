@@ -138,6 +138,29 @@ func BenchmarkTxnFindVerbMemoHit(b *testing.B) {
 	}
 }
 
+// A fresh transaction resolves many different receivers through the shared memo.
+func BenchmarkTxnPopulateVerbMemo(b *testing.B) {
+	const receivers = 64
+	s := benchChainStore(b, receivers, 0)
+	warm := s.BeginSnapshot(0)
+	for id := range types.ObjID(receivers) {
+		if _, _, err := warm.findVerb(id, "target", true); err != nil {
+			b.Fatal(err)
+		}
+	}
+	warm.Release()
+	b.ReportAllocs()
+	for b.Loop() {
+		tx := s.BeginSnapshot(0)
+		for id := range types.ObjID(receivers) {
+			if _, _, err := tx.findVerb(id, "target", true); err != nil {
+				b.Fatal(err)
+			}
+		}
+		tx.Release()
+	}
+}
+
 func BenchmarkTxnFindVerbMemoHitWriting(b *testing.B) {
 	tx, leaf := benchMemoHitTxn(b, "target")
 	tx.mutableObject(leaf)

@@ -818,8 +818,17 @@ func (v Value) Pairs() [][2]Value { return v.goMap().pairsList() }
 // pair container for every entry. The caller owns both returned slices.
 func (v Value) MapColumns() (values, keys []Value) {
 	m := v.goMap()
-	values = make([]Value, m.count)
 	keys = make([]Value, m.count)
+	return m.valueColumn(keys), keys
+}
+
+// MapValues returns a fresh slice of values in the same tree order as Pairs.
+func (v Value) MapValues() []Value {
+	return v.goMap().valueColumn(nil)
+}
+
+func (m *goMap) valueColumn(keys []Value) []Value {
+	values := make([]Value, m.count)
 	i := 0
 	var visit func(*toastLookupNode)
 	visit = func(node *toastLookupNode) {
@@ -828,12 +837,14 @@ func (v Value) MapColumns() (values, keys []Value) {
 		}
 		visit(node.link[0])
 		values[i] = node.entry.val
-		keys[i] = node.entry.key
+		if keys != nil {
+			keys[i] = node.entry.key
+		}
 		i++
 		visit(node.link[1])
 	}
 	visit(m.toastRoot())
-	return values, keys
+	return values
 }
 
 // PairsInInsertionOrder returns all key-value pairs in raw insertion order,

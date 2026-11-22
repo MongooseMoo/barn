@@ -25,6 +25,9 @@ const SampleTicks = 1024
 // CPU profile's pprof label so the two profiles can be lined up.
 const LabelVerb = "moo.verb"
 
+// LabelTask identifies the same task as the Go CPU profile's task label.
+const LabelTask = "moo.task"
+
 // ErrBusy is returned by Start while another session is collecting.
 var ErrBusy = errors.New("mooprof: a profile session is already active")
 
@@ -46,10 +49,16 @@ type Parent interface {
 }
 
 type sample struct {
-	stack []Frame
-	label string
-	ticks int64
-	wall  int64
+	stack  []Frame
+	label  string
+	taskID int64
+	ticks  int64
+	wall   int64
+}
+
+type sampleKey struct {
+	stack  string
+	taskID int64
 }
 
 // Session accumulates samples until Stop.
@@ -58,7 +67,7 @@ type Session struct {
 
 	mu      sync.Mutex
 	stopped bool
-	samples map[string]*sample
+	samples map[sampleKey]*sample
 	order   []*sample
 }
 
@@ -71,7 +80,7 @@ func Active() *Session {
 
 // Start begins a session. Only one session may collect at a time.
 func Start() (*Session, error) {
-	s := &Session{start: time.Now(), samples: make(map[string]*sample)}
+	s := &Session{start: time.Now(), samples: make(map[sampleKey]*sample)}
 	if !active.CompareAndSwap(nil, s) {
 		return nil, ErrBusy
 	}
@@ -80,7 +89,7 @@ func Start() (*Session, error) {
 
 // Add records ticks and wall nanoseconds against stack. Samples that arrive
 // after Stop are dropped.
-func (s *Session) Add(stack []Frame, label string, ticks, wall int64) {
+func (s *Session) Add(stack []Frame, label string, taskID, ticks, wall int64) {
 	if len(stack) == 0 || (ticks <= 0 && wall <= 0) {
 		return
 	}
@@ -92,7 +101,7 @@ func (s *Session) Add(stack []Frame, label string, ticks, wall int64) {
 		key.WriteByte(0)
 		key.WriteString(strconv.FormatInt(f.Line, 10))
 	}
-	k := key.String()
+	k := sampleKey{stack: key.String(), taskID: taskID}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -101,7 +110,7 @@ func (s *Session) Add(stack []Frame, label string, ticks, wall int64) {
 	}
 	agg := s.samples[k]
 	if agg == nil {
-		agg = &sample{stack: append([]Frame(nil), stack...), label: label}
+		agg = &sample{stack: append([]Frame(nil), stack...), label: label, taskID: taskID}
 		s.samples[k] = agg
 		s.order = append(s.order, agg)
 	}
@@ -143,7 +152,10 @@ func (s *Session) build(order []*sample, end time.Time) *profile.Profile {
 	for _, agg := range order {
 		ps := &profile.Sample{Value: []int64{agg.ticks, agg.wall}}
 		if agg.label != "" {
-			ps.Label = map[string][]string{LabelVerb: {agg.label}}
+			ps.Label = map[string][]string{
+				LabelVerb: {agg.label},
+				LabelTask: {strconv.FormatInt(agg.taskID, 10)},
+			}
 		}
 		for _, f := range agg.stack {
 			loc := locs[locKey{f.Func, f.Line}]

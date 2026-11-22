@@ -262,6 +262,16 @@ func NewList(elements []Value) Value {
 	return listValue(newSliceList(elements))
 }
 
+// NewSingletonList stores the header and its one immutable element together.
+func NewSingletonList(element Value) Value {
+	holder := struct {
+		list    sliceList
+		element [1]Value
+	}{element: [1]Value{element}}
+	holder.list.elements = holder.element[:]
+	return listValue(&holder.list)
+}
+
 // emptyList is the one empty list header every empty list value shares. Its
 // size and finalizable state are set here and never change, and appending to
 // it copies (it has no watermark), so sharing it is indistinguishable from

@@ -103,7 +103,8 @@ func (vm *VM) profileSample(s *mooprof.Session) {
 	if ticks <= 0 && wall <= 0 {
 		return
 	}
-	s.Add(vm.profileStack(), vm.profileLabel(), ticks, wall)
+	label, taskID := vm.profileLabels()
+	s.Add(vm.profileStack(), label, taskID, ticks, wall)
 }
 
 // profileStack lists the frames of this VM and every VM beneath it,
@@ -157,13 +158,12 @@ func (vm *VM) AppendProfileFrames(stack []mooprof.Frame) []mooprof.Frame {
 	return stack
 }
 
-// profileLabel is the task's entry verb, formatted as the Go profile's
-// moo.verb pprof label (engine/task_runtime.go).
-func (vm *VM) profileLabel() string {
+// profileLabels identifies the task in the same form as the Go CPU profile.
+func (vm *VM) profileLabels() (string, int64) {
 	if vm.Task == nil {
-		return ""
+		return "", 0
 	}
-	return profileFuncName(vm.Task.This, vm.Task.VerbName)
+	return profileFuncName(vm.Task.This, vm.Task.VerbName), vm.Task.ID
 }
 
 func profileFuncName(obj types.ObjID, verb string) string {

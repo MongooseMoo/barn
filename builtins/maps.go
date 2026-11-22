@@ -39,13 +39,7 @@ func builtinMapvalues(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Values in tree order, matching mapkeys.
-	pairs := m.Pairs()
-	values := make([]types.Value, len(pairs))
-	for i := range pairs {
-		values[i] = pairs[i][1]
-	}
-
-	return types.Ok(types.NewList(values))
+	return types.Ok(types.NewList(m.MapValues()))
 }
 
 // builtinMapdelete returns a new map with the key removed
