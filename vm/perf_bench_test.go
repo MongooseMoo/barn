@@ -50,6 +50,24 @@ var vmBenchWorkloads = []struct {
 	{"prop_defined_1M", "n = #0; x = 0; for i in [1..1000000]; x = n.benchprop; endfor; return x;"},
 }
 
+// vmMathBenchWorkloads call each math builtin 200k times on a float argument
+// that steps across the builtin's domain; float_abs is the same loop with a
+// builtin that does no arithmetic, so the difference is the function's cost.
+var vmMathBenchWorkloads = []struct {
+	name string
+	code string
+}{
+	{"float_abs_200k", "y = -1.0; for i in [1..200000]; y = y + 0.0000099; x = abs(y); endfor; return x;"},
+	{"exp_200k", "y = -700.0; for i in [1..200000]; y = y + 0.007; x = exp(y); endfor; return x;"},
+	{"log_200k", "y = 0.001; for i in [1..200000]; y = y + 0.01; x = log(y); endfor; return x;"},
+	{"log10_200k", "y = 0.001; for i in [1..200000]; y = y + 0.01; x = log10(y); endfor; return x;"},
+	{"sin_200k", "y = 0.0; for i in [1..200000]; y = y + 0.0001; x = sin(y); endfor; return x;"},
+	{"cos_200k", "y = 0.0; for i in [1..200000]; y = y + 0.0001; x = cos(y); endfor; return x;"},
+	{"tan_200k", "y = 0.0; for i in [1..200000]; y = y + 0.0001; x = tan(y); endfor; return x;"},
+	{"asin_200k", "y = -1.0; for i in [1..200000]; y = y + 0.0000099; x = asin(y); endfor; return x;"},
+	{"acos_200k", "y = -1.0; for i in [1..200000]; y = y + 0.0000099; x = acos(y); endfor; return x;"},
+}
+
 // newBenchStore returns a store holding #0 with one defined property so the
 // property workloads have something to read.
 func newBenchStore(b *testing.B) *dbstore.Store {
@@ -79,8 +97,13 @@ func compileBench(b *testing.B, code string) (*bytecode.Program, *builtins.Regis
 	return prog, registry
 }
 
-func BenchmarkVM(b *testing.B) {
-	for _, w := range vmBenchWorkloads {
+func BenchmarkVM(b *testing.B) { runVMBench(b, vmBenchWorkloads) }
+
+// BenchmarkVMMath times the math builtins through the VM.
+func BenchmarkVMMath(b *testing.B) { runVMBench(b, vmMathBenchWorkloads) }
+
+func runVMBench(b *testing.B, workloads []struct{ name, code string }) {
+	for _, w := range workloads {
 		w := w
 		b.Run(w.name, func(b *testing.B) {
 			prog, registry := compileBench(b, w.code)

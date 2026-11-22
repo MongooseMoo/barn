@@ -77,10 +77,14 @@ var (
 	invLn10DD [2]float64 // 1/ln 10
 	halfPiDD  [4]float64 // pi/2 as four float64 terms (about 2^-210)
 
-	// logTable[j-logTableMin] is ln(j/128) for j in [90, 181].
+	// For j in [90, 181], logInv[j-logTableMin] is the float64 nearest 128/j
+	// and logTable[j-logTableMin] is -ln(logInv[j-logTableMin]).
+	logInv   [logTableMax - logTableMin + 1]float64
 	logTable [logTableMax - logTableMin + 1][2]float64
 	// sinTable[i], cosTable[i] are sin(i/64) and cos(i/64) for i in [0, 51].
 	sinTable, cosTable [sinCosTableSize][2]float64
+	// trigTable[i] is {sin hi, sin lo, cos hi, cos lo} of i/64.
+	trigTable [sinCosTableSize][4]float64
 )
 
 const (
@@ -130,6 +134,28 @@ func inverseSeries(n int64, prec uint, alternate bool) *big.Float {
 	return sum
 }
 
+// atanhBig returns atanh z = sum over k >= 0 of z^(2k+1)/(2k+1) for
+// |z| < 1/2, to about 2^-prec relative.
+func atanhBig(z *big.Float, prec uint) *big.Float {
+	w := prec + 32
+	sum := new(big.Float).SetPrec(w).Set(z)
+	if z.Sign() == 0 {
+		return sum
+	}
+	pow := new(big.Float).SetPrec(w).Set(z)
+	z2 := new(big.Float).SetPrec(w).Mul(z, z)
+	term := new(big.Float).SetPrec(w)
+	div := new(big.Float).SetPrec(w)
+	stop := z.MantExp(nil) - int(w)
+	for k := int64(1); ; k++ {
+		pow.Mul(pow, z2)
+		if pow.Sign() == 0 || pow.MantExp(nil) < stop {
+			return sum
+		}
+		sum.Add(sum, term.Quo(pow, div.SetInt64(2*k+1)))
+	}
+}
+
 func initMathTables() {
 	// ln 2 = 2 atanh(1/3); ln 10 = 3 ln 2 + ln(5/4) = 3 ln 2 + 2 atanh(1/9).
 	ln2 := newTableFloat().Mul(atanhInv(3, tablePrec), big.NewFloat(2))
@@ -176,8 +202,18 @@ func initMathTables() {
 		cur.Sub(cur, newTableFloat().Mul(atanhInv(int64(2*j+1), tablePrec), big.NewFloat(2)))
 		logs[j] = newTableFloat().Set(cur)
 	}
+	// logInv[j] is the float64 nearest 128/j and logTable[j] is -ln(logInv[j])
+	// = ln(j/128) - ln(y) with y = logInv[j] j/128 within 2^-53 of 1, so
+	// ln y = 2 atanh((y-1)/(y+1)) converges in a few terms.
 	for j := logTableMin; j <= logTableMax; j++ {
-		logTable[j-logTableMin] = splitDD(logs[j])
+		inv := 128 / float64(j)
+		y := newTableFloat().Mul(newTableFloat().SetFloat64(inv), newTableFloat().SetInt64(int64(j)))
+		y.Quo(y, newTableFloat().SetInt64(128))
+		z := newTableFloat().Sub(y, big.NewFloat(1))
+		z.Quo(z, newTableFloat().Add(y, big.NewFloat(1)))
+		v := newTableFloat().Sub(logs[j], newTableFloat().Mul(atanhBig(z, tablePrec), big.NewFloat(2)))
+		logInv[j-logTableMin] = inv
+		logTable[j-logTableMin] = splitDD(v)
 	}
 
 	// sin and cos of i/64 by rotating (cos h, sin h), h = 1/64, from Taylor
@@ -187,6 +223,10 @@ func initMathTables() {
 	s, c := newTableFloat(), newTableFloat().SetInt64(1)
 	for i := range sinCosTableSize {
 		sinTable[i], cosTable[i] = splitDD(s), splitDD(c)
+		trigTable[i] = [4]float64{sinTable[i][0], sinTable[i][1], cosTable[i][0], cosTable[i][1]}
+		if i <= asinTableMax {
+			initAsinRow(i, s, c)
+		}
 		ns := newTableFloat().Mul(s, cosH)
 		ns.Add(ns, newTableFloat().Mul(c, sinH))
 		nc := newTableFloat().Mul(c, cosH)
@@ -354,11 +394,12 @@ func asinBig(x float64, prec uint) *big.Float {
 // logDD returns ln x for a finite x > 0, x != 1, as hi + lo with absolute
 // error below err.
 //
-// x = 2^e m with m in [sqrt(1/2), sqrt(2)); F = j/128 is the nearest such
-// fraction to m and u = (m - F)/F, |u| < 1/180, so
-// ln x = e ln2 + ln F + ln(1 + u), with ln(1+u) = u - u^2/2 + u^3/3 - ...
-// (truncated after u^10: the rest is below 2^-77 |u|). m - F is exact, u is
-// carried as uh + ul, and u, u^2/2 are summed exactly; u^3.. are in float64.
+// x = 2^e m with m in [sqrt(1/2), sqrt(2)); j = round(128 m) and r = logInv
+// (the float64 nearest 128/j), so z = m r - 1 is below 2^-7.4 and
+// ln x = e ln2 - ln r + ln(1 + z), with ln(1+z) = z - z^2/2 + z^3/3 - ...
+// truncated after z^10 (the rest is below 2^-77 |z|). m r is split exactly by
+// a two-product, z - z^2/2 is summed exactly, and z^3.. are in float64. There
+// is no division.
 func logDD(x float64) (hi, lo, err float64) {
 	e := 0
 	if x < minNormal {
@@ -372,22 +413,22 @@ func logDD(x float64) (hi, lo, err float64) {
 		m *= 0.5
 		e++
 	}
-	j := int(m*128 + 0.5)
-	F := float64(j) * (1.0 / 128)
-	f := m - F
-	uh := f / F
-	ul := math.FMA(-uh, F, f) / F
-	sq, sqe := twoProd(uh, uh)
-	poly := float64(uh*sq) * (1.0/3 + uh*(-1.0/4+uh*(1.0/5+uh*(-1.0/6+uh*(1.0/7+uh*(-1.0/8+uh*(1.0/9+uh*(-1.0/10))))))))
-	lf := logTable[j-logTableMin]
+	j := int(m*128+0.5) - logTableMin
+	p, zl := twoProd(m, logInv[j])
+	zh := p - 1 // exact: p is within 2^-7 of 1
+	sq, sqe := twoProd(zh, zh)
+	poly := float64(zh*sq) * (1.0/3 + zh*(-1.0/4+zh*(1.0/5+zh*(-1.0/6+zh*(1.0/7+zh*(-1.0/8+zh*(1.0/9+zh*(-1.0/10))))))))
+	lt := logTable[j]
 	ef := float64(e)
 	a, ae := twoProd(ef, ln2DD[0])
-	s1, e1 := twoSum(a, lf[0])
-	s2, e2 := twoSum(s1, uh)
+	s1, e1 := twoSum(a, lt[0])
+	s2, e2 := twoSum(s1, zh)
 	s3, e3 := twoSum(s2, -0.5*sq)
-	lo = e1 + e2 + e3 + ae + ef*ln2DD[1] + lf[1] + ul/(1+uh) - 0.5*sqe + poly
+	// ln(1 + zh + zl) = ln(1 + zh) + zl/(1 + zh), |zl| < 2^-53; zl(1 - zh + zh^2)
+	// is that quotient to within |zl| 2^-22.
+	lo = e1 + e2 + e3 + ae + ef*ln2DD[1] + lt[1] + zl*(1-zh+sq) - 0.5*sqe + poly
 	hi, lo = fastTwoSum(s3, lo)
-	err = 0x1p-49*math.Abs(poly) + 0x1p-76*math.Abs(uh) + 0x1p-85*math.Abs(hi)
+	err = 0x1p-49*math.Abs(poly) + 0x1p-76*math.Abs(zh) + 0x1p-85*math.Abs(hi) + 0x1p-21*math.Abs(zl)
 	return hi, lo, err
 }
 
@@ -400,10 +441,21 @@ func mathLog(x float64) float64 {
 	if x == 1 {
 		return 0
 	}
+	if r, ok := zivRound(logFast(x)); ok {
+		return r
+	}
 	if r, ok := zivRound(logDD(x)); ok {
 		return r
 	}
 	return zivBig(func(prec uint) *big.Float { return logBig(x, prec) })
+}
+
+// log10FromLn multiplies ln x = h + l (error err) by 1/ln 10 as a
+// double-double.
+func log10FromLn(h, l, err float64) (hi, lo, err10 float64) {
+	p, pe := twoProd(h, invLn10DD[0])
+	hi, lo = fastTwoSum(p, pe+h*invLn10DD[1]+l*invLn10DD[0])
+	return hi, lo, err*0.5 + 0x1p-100*math.Abs(hi)
 }
 
 // mathLog10 returns log10 x = ln x / ln 10 correctly rounded.
@@ -414,10 +466,10 @@ func mathLog10(x float64) float64 {
 	if x == 1 {
 		return 0
 	}
-	h, l, err := logDD(x)
-	p, pe := twoProd(h, invLn10DD[0])
-	hi, lo := fastTwoSum(p, pe+h*invLn10DD[1]+l*invLn10DD[0])
-	if r, ok := zivRound(hi, lo, err*0.5+0x1p-100*math.Abs(hi)); ok {
+	if r, ok := zivRound(log10FromLn(logFast(x))); ok {
+		return r
+	}
+	if r, ok := zivRound(log10FromLn(logDD(x))); ok {
 		return r
 	}
 	return zivBig(func(prec uint) *big.Float {
@@ -428,80 +480,120 @@ func mathLog10(x float64) float64 {
 
 // ---- sin, cos, tan ------------------------------------------------------------
 
+// roundToInt is 1.5 * 2^52: adding and subtracting it rounds a float64 of
+// magnitude below 2^51 to an integer.
+const roundToInt = 0x1.8p52
+
 // reduceHalfPi writes x = k pi/2 + (rh + rl) for |x| < 2^30, with |r| <= pi/4
 // plus rounding, and returns the reduction's absolute error bound. x - k P0
 // (P0 the leading term of pi/2) is exact in one fused multiply-add: for
 // |x| >= 1 both are multiples of 2^-52 and the difference is below 1.
 func reduceHalfPi(x float64) (k int, rh, rl, err float64) {
-	kf := math.RoundToEven(x * (2 / math.Pi))
+	kf := float64(x*(2/math.Pi)+roundToInt) - roundToInt
+	if kf == 0 {
+		return 0, x, 0, 0 // r = x exactly
+	}
 	r0 := math.FMA(-kf, halfPiDD[0], x)
 	p1, p1e := twoProd(kf, halfPiDD[1])
-	p2, p2e := twoProd(kf, halfPiDD[2])
 	rh, rl = twoSum(r0, -p1)
-	rl += -p1e - p2 - p2e - kf*halfPiDD[3]
+	rl += -p1e - kf*halfPiDD[2]
 	rh, rl = fastTwoSum(rh, rl)
-	if kf == 0 {
-		return 0, rh, rl, 0 // r = x exactly
-	}
-	// Rounding of the tail sum is below 2^-104 |r| + 2^-128; pi/2's
-	// truncation times |k| < 2^30 is below 2^-180.
-	return int(kf), rh, rl, 0x1p-103*math.Abs(rh) + 0x1p-127
+	// The tail sum's rounding is below 2^-104 |r| + 2^-128 (|k P2| < 2^-76);
+	// k P2's own rounding and the dropped k P3 are below 2^-128.
+	return int(kf), rh, rl, 0x1p-103*math.Abs(rh) + 0x1p-126
 }
 
-// sinCosDD returns sin r and cos r as double-doubles for |r| <= about pi/4,
-// with absolute error bounds. r = s(c + t), s the sign, c = i/64 from the
-// table, |t| <= 1/128, and sin(c+t) = S cos t + C sin t,
-// cos(c+t) = C cos t - S sin t, with Taylor series for sin t (to t^9) and
-// cos t - 1 (to t^8); t and t^2/2 are exact, the rest in float64.
-func sinCosDD(rh, rl float64) (sh, sl, serr, ch, cl, cerr float64) {
-	sign := 1.0
+// trigParts holds sin and cos of the table point c = i/64 and the Taylor
+// pieces of t = |r| - c, |t| <= 1/128, shared by sinPart and cosPart.
+type trigParts struct {
+	S, C     [2]float64 // sin c, cos c
+	th       float64    // t's leading part
+	sq       float64    // fl(th^2)
+	st       float64    // sin t - th: t's tail plus the Taylor terms t^3..t^9
+	cm       float64    // cos t - 1 + sq/2: Taylor terms t^4..t^8 and tails
+	polyErr  float64
+	negative bool // r < 0: sin r = -sin|r|
+}
+
+func newTrigParts(rh, rl float64) trigParts {
+	var tp trigParts
 	th, tl := rh, rl
 	if rh < 0 {
-		sign, th, tl = -1, -rh, -rl
+		th, tl, tp.negative = -rh, -rl, true
 	}
 	i := int(th*64 + 0.5)
 	th -= float64(i) * (1.0 / 64)
-	S, C := sinTable[i], cosTable[i]
+	tp.S, tp.C = sinTable[i], cosTable[i]
+	tp.th = th
 	sq, sqe := twoProd(th, th)
+	tp.sq = sq
 	sp := float64(th*sq) * (-1.0/6 + sq*(1.0/120+sq*(-1.0/5040+sq*(1.0/362880))))
 	cp := float64(sq*sq) * (1.0/24 + sq*(-1.0/720+sq*(1.0/40320)))
-	// sin t = th + tl + sp; cos t - 1 = -sq/2 + cm
-	cm := cp - 0.5*sqe - th*tl
-	st := tl + sp
-	polyErr := 0x1p-50 * (math.Abs(sp) + math.Abs(cp))
+	tp.cm = cp - 0.5*sqe - th*tl
+	tp.st = tl + sp
+	tp.polyErr = 0x1p-50 * (math.Abs(sp) + math.Abs(cp))
 	if i > 0 {
-		polyErr += 0x1p-104 // table rounding; sin 0 and cos 0 are exact
+		tp.polyErr += 0x1p-104 // table rounding; sin 0 and cos 0 are exact
 	}
-
-	p1, p1e := twoProd(C[0], th)
-	p2, p2e := twoProd(S[0], -0.5*sq)
-	h, e1 := twoSum(S[0], p1)
-	h, e2 := twoSum(h, p2)
-	l := e1 + e2 + p1e + p2e + S[1] + C[1]*th + C[0]*st + C[1]*st + S[0]*cm - S[1]*0.5*sq
-	sh, sl = fastTwoSum(h, l)
-	sh, sl = sign*sh, sign*sl
-	serr = polyErr + 0x1p-100*math.Abs(sh)
-
-	q1, q1e := twoProd(S[0], -th)
-	q2, q2e := twoProd(C[0], -0.5*sq)
-	h, e1 = twoSum(C[0], q1)
-	h, e2 = twoSum(h, q2)
-	l = e1 + e2 + q1e + q2e + C[1] - S[1]*th - S[0]*st - S[1]*st + C[0]*cm - C[1]*0.5*sq
-	ch, cl = fastTwoSum(h, l)
-	cerr = polyErr + 0x1p-100*math.Abs(ch)
-	return sh, sl, serr, ch, cl, cerr
+	return tp
 }
 
-// trigArg reports whether x takes the double-double path (finite, nonzero,
-// |x| < 2^30).
+// sinPart returns sin r = sin(c+t) = S cos t + C sin t
+// = S + C th - S sq/2 + S cm + C st, as hi + lo with an absolute error bound.
+func (tp *trigParts) sinPart() (hi, lo, err float64) {
+	S, C, th := tp.S, tp.C, tp.th
+	p1, p1e := twoProd(C[0], th)
+	p2, p2e := twoProd(S[0], -0.5*tp.sq)
+	h, e1 := twoSum(S[0], p1)
+	h, e2 := twoSum(h, p2)
+	l := e1 + e2 + p1e + p2e + S[1] + C[1]*th + (C[0]+C[1])*tp.st + S[0]*tp.cm - S[1]*0.5*tp.sq
+	hi, lo = fastTwoSum(h, l)
+	if tp.negative {
+		hi, lo = -hi, -lo
+	}
+	return hi, lo, tp.polyErr + 0x1p-100*math.Abs(hi)
+}
+
+// cosPart returns cos r = cos(c+t) = C cos t - S sin t
+// = C - S th - C sq/2 + C cm - S st.
+func (tp *trigParts) cosPart() (hi, lo, err float64) {
+	S, C, th := tp.S, tp.C, tp.th
+	q1, q1e := twoProd(S[0], -th)
+	q2, q2e := twoProd(C[0], -0.5*tp.sq)
+	h, e1 := twoSum(C[0], q1)
+	h, e2 := twoSum(h, q2)
+	l := e1 + e2 + q1e + q2e + C[1] - S[1]*th - (S[0]+S[1])*tp.st + C[0]*tp.cm - C[1]*0.5*tp.sq
+	hi, lo = fastTwoSum(h, l)
+	return hi, lo, tp.polyErr + 0x1p-100*math.Abs(hi)
+}
+
+// trigArg reports whether x takes the double-double path (nonzero,
+// |x| < 2^30; NaN fails the comparison).
 func trigArg(x float64) bool { return x != 0 && math.Abs(x) < 0x1p30 }
+
+// sinQuadrant returns sin(k pi/2 + r) from r's parts: sin r, cos r, -sin r,
+// -cos r for k = 0, 1, 2, 3 mod 4. Only the one needed is computed.
+func sinQuadrant(k int, tp *trigParts) (hi, lo, err float64) {
+	if k&1 == 0 {
+		hi, lo, err = tp.sinPart()
+	} else {
+		hi, lo, err = tp.cosPart()
+	}
+	if k&2 != 0 {
+		hi, lo = -hi, -lo
+	}
+	return hi, lo, err
+}
 
 // mathSin returns sin x correctly rounded.
 func mathSin(x float64) float64 {
 	if trigArg(x) {
+		if r, ok := trigFast(x, 0); ok {
+			return r
+		}
 		k, rh, rl, rerr := reduceHalfPi(x)
-		sh, sl, serr, ch, cl, cerr := sinCosDD(rh, rl)
-		hi, lo, err := quadrant(k, sh, sl, serr, ch, cl, cerr)
+		tp := newTrigParts(rh, rl)
+		hi, lo, err := sinQuadrant(k, &tp)
 		if r, ok := zivRound(hi, lo, err+rerr); ok {
 			return r
 		}
@@ -511,15 +603,18 @@ func mathSin(x float64) float64 {
 	return zivBig(func(prec uint) *big.Float { s, _ := sinCosBig(x, prec); return s })
 }
 
-// mathCos returns cos x correctly rounded.
+// mathCos returns cos x = sin(x + pi/2) correctly rounded.
 func mathCos(x float64) float64 {
 	if x == 0 {
 		return 1
 	}
 	if trigArg(x) {
+		if r, ok := trigFast(x, 1); ok {
+			return r
+		}
 		k, rh, rl, rerr := reduceHalfPi(x)
-		sh, sl, serr, ch, cl, cerr := sinCosDD(rh, rl)
-		hi, lo, err := quadrant(k+1, sh, sl, serr, ch, cl, cerr)
+		tp := newTrigParts(rh, rl)
+		hi, lo, err := sinQuadrant(k+1, &tp)
 		if r, ok := zivRound(hi, lo, err+rerr); ok {
 			return r
 		}
@@ -529,33 +624,25 @@ func mathCos(x float64) float64 {
 	return zivBig(func(prec uint) *big.Float { _, c := sinCosBig(x, prec); return c })
 }
 
-// quadrant returns sin(k pi/2 + r) from sin r and cos r.
-func quadrant(k int, sh, sl, serr, ch, cl, cerr float64) (hi, lo, err float64) {
-	switch k & 3 {
-	case 0:
-		return sh, sl, serr
-	case 1:
-		return ch, cl, cerr
-	case 2:
-		return -sh, -sl, serr
-	default:
-		return -ch, -cl, cerr
-	}
-}
-
 // mathTan returns tan x correctly rounded: sin r / cos r for even k, and
-// -cos r / sin r for odd k, divided in double-double.
+// -cos r / sin r for odd k, divided in double-double with one division.
 func mathTan(x float64) float64 {
 	if trigArg(x) {
+		if r, ok := tanFast(x); ok {
+			return r
+		}
 		k, rh, rl, rerr := reduceHalfPi(x)
-		sh, sl, serr, ch, cl, cerr := sinCosDD(rh, rl)
+		tp := newTrigParts(rh, rl)
+		sh, sl, serr := tp.sinPart()
+		ch, cl, cerr := tp.cosPart()
 		nh, nl, nerr, dh, dl, derr := sh, sl, serr+rerr, ch, cl, cerr+rerr
 		if k&1 == 1 {
 			nh, nl, nerr, dh, dl, derr = -ch, -cl, cerr+rerr, sh, sl, serr+rerr
 		}
 		if nh != 0 && dh != 0 {
-			qh := nh / dh
-			ql := (math.FMA(-qh, dh, nh) + nl - qh*dl) / dh
+			inv := 1 / dh
+			qh := nh * inv
+			ql := (math.FMA(-qh, dh, nh) + nl - qh*dl) * inv
 			hi, lo := fastTwoSum(qh, ql)
 			err := math.Abs(hi) * (nerr/math.Abs(nh) + derr/math.Abs(dh) + 0x1p-100)
 			if r, ok := zivRound(hi, lo, err); ok {
@@ -573,84 +660,126 @@ func mathTan(x float64) float64 {
 
 // ---- asin, acos -------------------------------------------------------------
 
-// asinDD returns asin(sh + sl) for |s| <= 1/2 as hi + lo with an absolute
-// error bound, by one Newton step on sin y = s from Go's asin y0:
-// y = y0 + (s - sin y0)/cos y0, whose error is about tan(y0)/2 times the
-// square of y0's (below 2^-100 relative here).
+// asinDD returns asin(sh + sl) for 0 <= s <= 1/2 + 2^-50 as hi + lo with an
+// absolute error bound. With y_i = i/64 the table point nearest asin s (found
+// from asin s ~ s + s^3/6 + 3s^5/40, within 2^-11), asin s = y_i + asin w,
+// w = sin(asin s - y_i) = s cos y_i - sqrt(1 - s^2) sin y_i, |w| < 2^-6.5,
+// and asin w = w + w^3/6 + 3w^5/40 + 5w^7/112 + 35w^9/1152 (the rest is below
+// 2^-78). The products and sqrt(1 - s^2) are carried as double-doubles.
 func asinDD(sh, sl float64) (hi, lo, err float64) {
-	y0 := math.Asin(sh)
-	s, s1, serr, c, _, _ := sinCosDD(y0, 0)
-	d := (sh - s) - s1 + sl
-	delta := d / c
-	hi, lo = fastTwoSum(y0, delta)
-	err = serr/c + 0x1p-50*math.Abs(delta) + 0x1p-100*math.Abs(hi)
+	s2 := sh * sh
+	i := int(sh*(1+s2*(1.0/6+s2*(3.0/40)))*64 + 0.5)
+	wh, wl := sh, sl
+	var e float64
+	if i > 0 {
+		S, C := sinTable[i], cosTable[i]
+		q, qe := twoProd(sh, sh)
+		zh, ze := twoSum(1, -q)
+		zl := ze - qe - 2*sh*sl
+		rh := math.Sqrt(zh)
+		rl := (math.FMA(-rh, rh, zh) + zl) * (0.5 / rh)
+		p1, p1e := twoProd(sh, C[0])
+		p2, p2e := twoProd(S[0], rh)
+		wh, e = twoSum(p1, -p2)
+		wl = e + p1e - p2e + sh*C[1] + sl*C[0] - S[0]*rl - S[1]*rh
+		wh, wl = fastTwoSum(wh, wl)
+		err = 0x1p-100
+	}
+	w2 := wh * wh
+	poly := float64(wh*w2) * (1.0/6 + w2*(3.0/40+w2*(5.0/112+w2*(35.0/1152))))
+	y := float64(i) * (1.0 / 64)
+	hi, e = twoSum(y, wh)
+	lo = e + wl*(1+0.5*w2) + poly
+	hi, lo = fastTwoSum(hi, lo)
+	err += 0x1p-50*math.Abs(poly) + 0x1p-100*math.Abs(hi)
 	return hi, lo, err
 }
+
+// asinKernel returns asin(sh + sl) for 0 <= s <= 1/2 + 2^-50 as hi + lo with
+// an absolute error bound: asinFast first, then asinDD.
+type asinKernel func(sh, sl float64) (hi, lo, err float64)
 
 // asinHalfComplement returns asin(sqrt((1-a)/2)) for a in [1/2, 1], used in
 // asin a = pi/2 - 2 asin(sqrt((1-a)/2)) and acos a = 2 asin(sqrt((1-a)/2)).
 // 1 - a and the halving are exact; the square root is carried as sh + sl.
-func asinHalfComplement(a float64) (hi, lo, err float64) {
+func asinHalfComplement(a float64, kernel asinKernel) (hi, lo, err float64) {
 	z := (1 - a) * 0.5
 	if z == 0 {
 		return 0, 0, 0
 	}
 	sh := math.Sqrt(z)
-	sl := math.FMA(-sh, sh, z) / (2 * sh)
-	return asinDD(sh, sl)
+	sl := math.FMA(-sh, sh, z) * (0.5 / sh)
+	return kernel(sh, sl)
+}
+
+// asinParts returns asin x for 0 < |x| <= 1 as hi + lo with an error bound.
+func asinParts(x float64, kernel asinKernel) (hi, lo, err float64) {
+	a := math.Abs(x)
+	if a <= 0.5 {
+		hi, lo, err = kernel(a, 0)
+	} else {
+		ah, al, aerr := asinHalfComplement(a, kernel)
+		h, e := twoSum(halfPiDD[0], -2*ah)
+		hi, lo = fastTwoSum(h, e+halfPiDD[1]-2*al)
+		err = 2*aerr + 0x1p-100*hi
+	}
+	if x < 0 {
+		hi, lo = -hi, -lo
+	}
+	return hi, lo, err
+}
+
+// acosParts returns acos x for |x| <= 1, x != 1, as hi + lo with an error
+// bound: pi/2 - asin x for |x| <= 1/2, 2 asin(sqrt((1-x)/2)) above,
+// pi - 2 asin(sqrt((1+x)/2)) below.
+func acosParts(x float64, kernel asinKernel) (hi, lo, err float64) {
+	a := math.Abs(x)
+	switch {
+	case a <= 0.5:
+		ah, al, aerr := kernel(a, 0)
+		if x < 0 {
+			ah, al = -ah, -al
+		}
+		h, e := twoSum(halfPiDD[0], -ah)
+		hi, lo = fastTwoSum(h, e+halfPiDD[1]-al)
+		return hi, lo, aerr + 0x1p-100*hi
+	case x > 0:
+		ah, al, aerr := asinHalfComplement(a, kernel)
+		return 2 * ah, 2 * al, 2 * aerr
+	default:
+		ah, al, aerr := asinHalfComplement(a, kernel)
+		h, e := twoSum(2*halfPiDD[0], -2*ah)
+		hi, lo = fastTwoSum(h, e+2*halfPiDD[1]-2*al)
+		return hi, lo, 2*aerr + 0x1p-100*hi
+	}
 }
 
 // mathAsin returns asin x correctly rounded.
 func mathAsin(x float64) float64 {
-	a := math.Abs(x)
-	if !(a <= 1) || x == 0 {
+	if !(math.Abs(x) <= 1) || x == 0 {
 		return math.Asin(x)
 	}
-	var hi, lo, err float64
-	if a <= 0.5 {
-		hi, lo, err = asinDD(x, 0)
-	} else {
-		ah, al, aerr := asinHalfComplement(a)
-		h, e := twoSum(halfPiDD[0], -2*ah)
-		hi, lo = fastTwoSum(h, e+halfPiDD[1]-2*al)
-		err = 2*aerr + 0x1p-100*hi
-		if x < 0 {
-			hi, lo = -hi, -lo
-		}
+	if r, ok := zivRound(asinParts(x, asinFast)); ok {
+		return r
 	}
-	if r, ok := zivRound(hi, lo, err); ok {
+	if r, ok := zivRound(asinParts(x, asinDD)); ok {
 		return r
 	}
 	return zivBig(func(prec uint) *big.Float { return asinBig(x, prec) })
 }
 
-// mathAcos returns acos x correctly rounded: pi/2 - asin x for |x| <= 1/2,
-// 2 asin(sqrt((1-x)/2)) above, pi - 2 asin(sqrt((1+x)/2)) below.
+// mathAcos returns acos x correctly rounded.
 func mathAcos(x float64) float64 {
-	a := math.Abs(x)
-	if !(a <= 1) {
+	if !(math.Abs(x) <= 1) {
 		return math.Acos(x)
 	}
 	if x == 1 {
 		return 0
 	}
-	var hi, lo, err float64
-	switch {
-	case a <= 0.5:
-		ah, al, aerr := asinDD(x, 0)
-		h, e := twoSum(halfPiDD[0], -ah)
-		hi, lo = fastTwoSum(h, e+halfPiDD[1]-al)
-		err = aerr + 0x1p-100*hi
-	case x > 0:
-		ah, al, aerr := asinHalfComplement(a)
-		hi, lo, err = 2*ah, 2*al, 2*aerr
-	default:
-		ah, al, aerr := asinHalfComplement(a)
-		h, e := twoSum(2*halfPiDD[0], -2*ah)
-		hi, lo = fastTwoSum(h, e+2*halfPiDD[1]-2*al)
-		err = 2*aerr + 0x1p-100*hi
+	if r, ok := zivRound(acosParts(x, asinFast)); ok {
+		return r
 	}
-	if r, ok := zivRound(hi, lo, err); ok {
+	if r, ok := zivRound(acosParts(x, asinDD)); ok {
 		return r
 	}
 	return zivBig(func(prec uint) *big.Float {

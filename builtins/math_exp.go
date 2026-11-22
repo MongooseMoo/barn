@@ -40,6 +40,9 @@ func mathExp(x float64) float64 {
 	case x < -745.2: // e^-745.2 is below 2^-1075, half the smallest subnormal
 		return 0
 	}
+	if r, ok := expFast(x); ok {
+		return r
+	}
 	const invLn2N = expTableSize / math.Ln2
 	kf := math.RoundToEven(x * invLn2N)
 	k := int(kf)

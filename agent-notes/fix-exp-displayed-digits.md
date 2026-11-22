@@ -183,6 +183,95 @@ one, or Go's sinh/cosh/tanh/asinh/cbrt kept):
   difference. No VM workload calls a math builtin; the package's init adds
   0.5-1.1 ms per process.
 
+### Per-call cost through the VM, first build (2026-11-21, after lead review)
+
+`BenchmarkVMMath` (new, `vm/perf_bench_test.go`): 200k MOO iterations of
+`y = y + step; x = f(y);` per builtin, plus `float_abs` as the loop
+baseline. Master = origin/master builtins via `go build -overlay`; both with
+`-ldflags=-funcalign=64`; 3 rounds of `-count=2` interleaved; CPU load at
+the three rounds 63%, 51%, 54% (other sessions). benchstat sec/op:
+
+| workload | master | first build | delta |
+|---|---|---|---|
+| float_abs_200k | 30.41m | 30.37m | ~ (p=0.699) |
+| exp_200k | 38.48m | 40.65m | +5.6% (p=0.015) |
+| log_200k | 40.07m | 40.88m | ~ (p=0.394) |
+| log10_200k | 38.42m | 40.86m | +6.4% (p=0.002) |
+| sin_200k | 37.51m | 45.73m | ~ (p=0.065, master +-35%) |
+| cos_200k | 37.59m | 46.03m | +22.4% (p=0.002) |
+| tan_200k | 36.97m | 48.02m | +29.9% (p=0.002) |
+| asin_200k | 38.68m | 48.98m | +26.6% (p=0.002) |
+| acos_200k | 39.05m | 47.90m | +22.7% (p=0.002) |
+
+A MOO iteration of the loop costs about 150 ns, so a 30-50 ns builtin
+difference shows.
+
+### Can Go's result be accepted by a cheap bound? (lead's first route)
+
+No. Read in `$(go env GOROOT)/src/math` (go1.27.1):
+
+- `sin.go:36-41` (sin and cos) and `tan.go:33-37` state only peak relative
+  errors observed over random trials (2.1e-16, 2.9e-16 over +-1.07e9), not a
+  proven bound; `asin.go` and `log10.go` state no accuracy at all.
+- `log.go:63-65` and `exp.go:84-86` claim "less than 1 ulp" from an error
+  analysis, but that is the pure-Go code; amd64 runs the assembly
+  `archLog`/`archExp` (`log_asm.go`, `exp_asm.go`), which has no stated
+  bound (and `archLog` is wrong on subnormals).
+- Even a proven bound of 1/2 + e ulp on the returned double gives no
+  information about where the true value sits relative to the rounding
+  midpoints, so the returned double alone can never prove that it is the
+  correctly rounded one. A first test needs an error estimate computed
+  alongside the result, which is what the double-double path is.
+
+So the route taken is to make the double-double path itself cheap (next
+section).
+
+### Making the paths cheaper (2026-11-22)
+
+Step 1, cutting work in the existing double-double paths (sin/cos compute
+only the value needed, log without divisions via a 128/j reciprocal table
+and a two-product, tan with one division, asin/acos by a table grid in y
+instead of Go's asin plus a Newton step), `BenchmarkMathCR` ns/op: log 27.0
+(was 29.8), log10 31.2 (31.6), sin 46.4 (45.4), cos 47.4 (45.9), tan 64-82
+(55.7; noisy run), asin 51.0 then 36.6 (65.7), acos 48-53 then 36.5 (66.3).
+sin/cos did not move: a profile showed the time is latency along serial
+two-sums and long tail sums, not the number of values computed.
+
+Step 2, a lean first level (`builtins/math_cr_fast.go`, about 2^-65
+instead of 2^-75: the leading product and sum exact, the smaller terms in
+float64 without renormalising) with its own Ziv test, falling back to the
+2^-75 path and then math/big. A prototype sin first level fell back on 60
+of 200,000 arguments in [-10, 10]; its first version also returned a wrong
+double that passed its test (the reduction tail's second-order term
+`rl (cos t - 1)` and `S t rl` were missing from value and bound), fixed
+before use. tan's first version divided by the leading part of an
+unnormalised cosine (error 2^-30), caught by the fast-vs-slow test, fixed
+by renormalising both parts first. `BenchmarkMathCR` ns/op (Barn / Go):
+exp 18.3 / 15.3 (master's Exp2 form 21.6), log 19.8 / 16.0, log10 23.9 /
+16.6, sin 23.3 / 13.2, cos 23.8 / 13.2, tan 33.0 / 15.3, asin 36.5 / 16.2,
+acos 36.5 / 16.4.
+
+`BenchmarkVMMath`, master vs this build, 3 rounds x 2 interleaved,
+funcalign=64, CPU load 7%, 14%, 5%: float_abs ~ (p=0.132), exp ~ (p=0.937),
+log ~ (p=0.937), log10 +5.6%, sin +6.7%, cos +4.1%, tan +11.1%, asin +12.3%,
+acos +10.8% (all p=0.002). One MOO call of a math builtin costs about 47 ns
+over the float_abs loop on master.
+
+Step 3, asin/acos first level with per-interval Taylor coefficients
+(`asinTable`: for y_i = i/64, asin(sin y_i + d) = y_i + a1 d + ... + a12 d^12,
+a1 = 1/cos y_i and the rest from the recurrence of (1-x^2) f'' = x f',
+computed at init with math/big), no square root or division for
+|x| <= 1/2; its first version dropped the d^2 cross term in the argument's
+low part (2^-62.6, caught by the fast-vs-slow test), fixed. One merged
+sin/cos table row, the reduction tail not renormalised while |k| <= 2^14,
+and table indices and k read from the bits of v + 1.5*2^52 instead of
+float-int-float conversions. `BenchmarkMathCR`, gated on CPU load (19%
+before, 9% after), ns/op Barn / Go: exp 18.8 / 14.9 (master's Exp2 form
+21.6), log 21.2 / 15.1, log10 25.5 / 15.4, sin 23.1 / 13.7, cos 23.5 /
+13.5, tan 34.8 / 15.6, asin 29.7 / 16.4, acos 29.0 / 16.8. The sweep
+transcripts of this build (exp, sin, cos, tan, asin, acos, log, log10, sinh,
+cosh) are byte-identical to the verified ones.
+
 ## Decisions and why
 
 - Correctly rounded rather than anything else: it is the only target that
