@@ -20,7 +20,7 @@ func newValueLimitReloadExecution(t *testing.T) *Execution {
 		t.Fatal(err)
 	}
 	options := dbstore.NewObjectBuilder(1)
-	for _, name := range []string{"max_list_value_bytes", "max_map_value_bytes"} {
+	for _, name := range []string{"max_list_value_bytes", "max_map_value_bytes", "max_concat_catchable"} {
 		options.SetProperty(name, dbstore.NewProperty(types.NewInt(1000000), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 	}
 	if err := store.Add(options.Build()); err != nil {

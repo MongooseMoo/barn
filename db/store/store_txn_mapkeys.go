@@ -48,7 +48,7 @@ type mapKeyState struct {
 	// writeback has not consumed yet.
 	pendingBase    types.Value
 	hasPendingBase bool
-	// sizeLimit is the smallest positive list-value limit a keyed write here
+	// sizeLimit is the smallest positive map-size limit a keyed write here
 	// was checked against: a map of that many bytes or more is E_QUOTA. The
 	// map built at commit is held to it. Zero means none.
 	sizeLimit int

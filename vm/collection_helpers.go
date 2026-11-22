@@ -59,7 +59,7 @@ func setAtIndex(session *builtins.Session, ctx *task.Context, coll types.Value, 
 			return types.None, types.E_TYPE
 		}
 		result := coll.MapSet(index, value)
-		if err := session.CheckListLimitForTask(ctx, result); err != types.E_NONE {
+		if err := session.CheckMapLimitForTask(ctx, result); err != types.E_NONE {
 			return types.None, err
 		}
 		return result, types.E_NONE

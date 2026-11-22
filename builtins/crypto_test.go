@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/MongooseMoo/barn/task"
@@ -170,13 +171,14 @@ func TestDecodeBinaryFullyNumericUsesPendingListValueByteLimit(t *testing.T) {
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: ValueBytes(decoded),
+			MaxListValueBytes:  ValueBytes(decoded) - 1,
+			MaxConcatCatchable: true,
 		},
 	}}
 
 	result := admitTestBuiltin("decode_binary", ctx, []types.Value{types.NewStr("xx"), types.NewInt(1)})
 	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
-		t.Fatalf("fully numeric decode at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
+		t.Fatalf("fully numeric decode over pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 	}
 }
 
@@ -186,12 +188,36 @@ func TestDecodeBinaryGroupedUsesPendingListValueByteLimit(t *testing.T) {
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: ValueBytes(decoded),
+			MaxListValueBytes:  ValueBytes(decoded) - 1,
+			MaxConcatCatchable: true,
 		},
 	}}
 
 	result := admitTestBuiltin("decode_binary", ctx, []types.Value{types.NewStr("xx")})
 	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
-		t.Fatalf("grouped decode at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
+		t.Fatalf("grouped decode over pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
+	}
+}
+
+// Toast base64.cc: decode_base64 refuses (len / 4) * 3 past max_string_concat
+// + 1 with make_space_pack(), E_QUOTA when max_concat_catchable is true.
+func TestDecodeBase64UsesStringLimit(t *testing.T) {
+	input := types.NewStr(strings.Repeat("QUFB", 400)) // decodes to 1200 bytes
+	for _, tc := range []struct {
+		limit int
+		want  types.ErrorCode
+	}{{1100, types.E_QUOTA}, {1199, types.E_NONE}} {
+		ctx := newTestExecution()
+		ctx.PendingEffects = []task.PendingEffect{{
+			Kind:          task.PendingEffectServerOptions,
+			ServerOptions: &task.PendingServerOptions{MaxStringConcat: tc.limit, MaxConcatCatchable: true},
+		}}
+		result := admitTestBuiltin("decode_base64", ctx, []types.Value{input})
+		if tc.want == types.E_NONE && result.Flow == types.FlowException {
+			t.Fatalf("limit %d: decode_base64 raised %s", tc.limit, result.Error)
+		}
+		if tc.want != types.E_NONE && (result.Flow != types.FlowException || result.Error != tc.want) {
+			t.Fatalf("limit %d: decode_base64 = %+v, want %s", tc.limit, result, tc.want)
+		}
 	}
 }

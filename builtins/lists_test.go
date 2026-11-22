@@ -113,17 +113,18 @@ func TestSetaddUsesPendingListValueByteLimit(t *testing.T) {
 	ctx := newTestExecution()
 	list := types.NewList([]types.Value{types.NewInt(1)})
 	value := types.NewInt(2)
-	limit := ValueBytes(list.Append(value))
+	limit := ValueBytes(list.Append(value)) - 1 // Toast refuses only more bytes than the limit
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: limit,
+			MaxListValueBytes:  limit,
+			MaxConcatCatchable: true,
 		},
 	}}
 
 	result := admitTestBuiltin("setadd", ctx, []types.Value{list, value})
 	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
-		t.Fatalf("setadd at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
+		t.Fatalf("setadd over pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 	}
 }
 
@@ -131,17 +132,18 @@ func TestListinsertUsesPendingListValueByteLimit(t *testing.T) {
 	ctx := newTestExecution()
 	list := types.NewList([]types.Value{types.NewInt(1)})
 	value := types.NewInt(2)
-	limit := ValueBytes(list.InsertAt(1, value))
+	limit := ValueBytes(list.InsertAt(1, value)) - 1 // Toast refuses only more bytes than the limit
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: limit,
+			MaxListValueBytes:  limit,
+			MaxConcatCatchable: true,
 		},
 	}}
 
 	result := admitTestBuiltin("listinsert", ctx, []types.Value{list, value})
 	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
-		t.Fatalf("listinsert at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
+		t.Fatalf("listinsert over pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 	}
 }
 
@@ -149,17 +151,18 @@ func TestListappendUsesPendingListValueByteLimit(t *testing.T) {
 	ctx := newTestExecution()
 	list := types.NewList([]types.Value{types.NewInt(1)})
 	value := types.NewInt(2)
-	limit := ValueBytes(list.InsertAt(list.Len()+1, value))
+	limit := ValueBytes(list.InsertAt(list.Len()+1, value)) - 1 // Toast refuses only more bytes than the limit
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: limit,
+			MaxListValueBytes:  limit,
+			MaxConcatCatchable: true,
 		},
 	}}
 
 	result := admitTestBuiltin("listappend", ctx, []types.Value{list, value})
 	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
-		t.Fatalf("listappend at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
+		t.Fatalf("listappend over pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 	}
 }
 
@@ -167,16 +170,17 @@ func TestListsetUsesPendingListValueByteLimit(t *testing.T) {
 	ctx := newTestExecution()
 	list := types.NewList([]types.Value{types.NewInt(1)})
 	value := types.NewList([]types.Value{types.NewInt(2)})
-	limit := ValueBytes(list.Set(1, value))
+	limit := ValueBytes(list.Set(1, value)) - 1 // Toast refuses only more bytes than the limit
 	ctx.PendingEffects = []task.PendingEffect{{
 		Kind: task.PendingEffectServerOptions,
 		ServerOptions: &task.PendingServerOptions{
-			MaxListValueBytes: limit,
+			MaxListValueBytes:  limit,
+			MaxConcatCatchable: true,
 		},
 	}}
 
 	result := admitTestBuiltin("listset", ctx, []types.Value{list, value, types.NewInt(1)})
 	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
-		t.Fatalf("listset at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
+		t.Fatalf("listset over pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 	}
 }

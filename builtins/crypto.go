@@ -54,10 +54,10 @@ func builtinEncodeBase64(ctx *Execution, args []types.Value) types.Result {
 		encoded = base64.StdEncoding.EncodeToString(bytes)
 	}
 
-	// Check string length limit (update from load_server_options cache first)
-	ctx.Session.UpdateContextLimits(ctx.Context)
-	if err := ctx.CheckStringLimit(len(encoded)); err != types.E_NONE {
-		return types.Err(err)
+	// Toast base64.cc bf_encode_base64 refuses (len / 3) * 4 past the stream
+	// maximum, max_string_concat + 1, before encoding.
+	if ctx.Session.CheckStringLengthForTask(ctx.Context, len(bytes)/3*4-1) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(types.NewStr(encoded))
@@ -90,6 +90,11 @@ func builtinDecodeBase64(ctx *Execution, args []types.Value) types.Result {
 
 	if err != nil {
 		return types.Err(types.E_INVARG)
+	}
+	// Toast base64.cc bf_decode_base64 refuses (len / 4) * 3 past the stream
+	// maximum, max_string_concat + 1, once the input is valid.
+	if ctx.Session.CheckStringLengthForTask(ctx.Context, str.Len()/4*3-1) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	// Encode the result as a binary string with ~XX escapes
@@ -141,8 +146,8 @@ func builtinEncodeBinary(ctx *Execution, args []types.Value) types.Result {
 	// Check string length limit (update from load_server_options cache first)
 	ctx.Session.UpdateContextLimits(ctx.Context)
 	resultStr := result.String()
-	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
-		return types.Err(err)
+	if ctx.CheckStringLimit(len(resultStr)) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(types.NewStr(resultStr))
@@ -228,8 +233,8 @@ func builtinDecodeBinary(ctx *Execution, args []types.Value) types.Result {
 		}
 		result := types.NewList(elements)
 		// Check size limit
-		if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
-			return types.Err(err)
+		if ctx.Session.CheckListLimitForTask(ctx.Context, result) != types.E_NONE {
+			return ctx.spaceResult()
 		}
 		return types.Ok(result)
 	}
@@ -260,8 +265,8 @@ func builtinDecodeBinary(ctx *Execution, args []types.Value) types.Result {
 
 	result := types.NewList(elements)
 	// Check size limit
-	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
-		return types.Err(err)
+	if ctx.Session.CheckListLimitForTask(ctx.Context, result) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(result)
@@ -1074,6 +1079,11 @@ func builtinValueHash(ctx *Execution, args []types.Value) types.Result {
 	if args[0].Type() == types.TYPE_ANON {
 		literal = "*anonymous*"
 	}
+	// Toast crypto.cc bf_value_hash unparses the value into a stream; past
+	// max_string_concat that is make_space_pack().
+	if ctx.Session.CheckStringLengthForTask(ctx.Context, len(literal)) != types.E_NONE {
+		return ctx.spaceResult()
+	}
 	hasher.Write([]byte(literal))
 	hashBytes := hasher.Sum(nil)
 
@@ -1234,8 +1244,14 @@ func builtinValueHmac(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
+	// Toast crypto.cc bf_value_hmac unparses the value into a stream; past
+	// max_string_concat that is make_space_pack().
+	literal := args[0].String()
+	if ctx.Session.CheckStringLengthForTask(ctx.Context, len(literal)) != types.E_NONE {
+		return ctx.spaceResult()
+	}
 	mac := hmac.New(h, key)
-	mac.Write([]byte(args[0].String()))
+	mac.Write([]byte(literal))
 	hashBytes := mac.Sum(nil)
 
 	// Toast exempts HMAC results from max_string_concat; do not apply CheckStringLimit here.
@@ -1425,8 +1441,8 @@ func builtinRandomBytes(ctx *Execution, args []types.Value) types.Result {
 	// The encoded string will be longer than count due to ~XX escapes
 	// but checking count first prevents unnecessary work
 	ctx.Session.UpdateContextLimits(ctx.Context)
-	if errCode := ctx.CheckStringLimit(count); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if ctx.CheckStringLimit(count) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	bytes := make([]byte, count)
@@ -1438,8 +1454,8 @@ func builtinRandomBytes(ctx *Execution, args []types.Value) types.Result {
 	resultStr := EncodeRawToBinary(bytes)
 
 	// Check actual encoded length (may be longer due to escapes)
-	if errCode := ctx.CheckStringLimit(len(resultStr)); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if ctx.CheckStringLimit(len(resultStr)) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(types.NewStr(resultStr))

@@ -165,9 +165,13 @@ func (vm *VM) executeSetPropKeyed() error {
 			if err := vm.checkPropertyWritePerm(view); err != nil {
 				return err
 			}
-			// OP_INDEX_SET checked value against the task's list limit; the store
-			// holds the map it builds at commit to the same limit.
-			limit := vm.Builtins.ListValueLimitForTask(vm.Context)
+			// OP_INDEX_SET checked value against the task's map limit (more
+			// bytes than it is E_QUOTA); the store holds the map it builds at
+			// commit to the same limit, stated as the first size refused.
+			limit := vm.Builtins.MapValueLimitForTask(vm.Context)
+			if limit > 0 {
+				limit++
+			}
 			if errCode := txn.SetPropertyMapKey(objID, propName, key, value, limit); errCode != types.E_NONE {
 				return fmt.Errorf("%s: property not set: %s", errCode, propName)
 			}

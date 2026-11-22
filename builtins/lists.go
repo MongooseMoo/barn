@@ -42,8 +42,8 @@ func builtinListappend(ctx *Execution, args []types.Value) types.Result {
 	result := list.InsertAt(index+1, value)
 
 	// Check size limit
-	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
-		return types.Err(err)
+	if ctx.Session.CheckListLimitForTask(ctx.Context, result) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(result)
@@ -77,8 +77,8 @@ func builtinListinsert(ctx *Execution, args []types.Value) types.Result {
 	result := list.InsertAt(index, value)
 
 	// Check size limit
-	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
-		return types.Err(err)
+	if ctx.Session.CheckListLimitForTask(ctx.Context, result) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(result)
@@ -101,8 +101,8 @@ func builtinListdelete(ctx *Execution, args []types.Value) types.Result {
 	result := list.DeleteAt(index)
 
 	// Check size limit (even for deletions, to be thorough)
-	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
-		return types.Err(err)
+	if ctx.Session.CheckListLimitForTask(ctx.Context, result) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(result)
@@ -127,8 +127,8 @@ func builtinListset(ctx *Execution, args []types.Value) types.Result {
 	result := list.Set(index, value)
 
 	// Check size limit
-	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
-		return types.Err(err)
+	if ctx.Session.CheckListLimitForTask(ctx.Context, result) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(result)
@@ -152,8 +152,8 @@ func builtinSetadd(ctx *Execution, args []types.Value) types.Result {
 	result := list.Append(value)
 
 	// Check size limit
-	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
-		return types.Err(err)
+	if ctx.Session.CheckListLimitForTask(ctx.Context, result) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 
 	return types.Ok(result)
@@ -177,8 +177,8 @@ func builtinSetremove(ctx *Execution, args []types.Value) types.Result {
 
 	// Toast list.cc bf_setremove checks the returned list whether or not the
 	// value was found.
-	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
-		return types.Err(err)
+	if ctx.Session.CheckListLimitForTask(ctx.Context, result) != types.E_NONE {
+		return ctx.spaceResult()
 	}
 	return types.Ok(result)
 }

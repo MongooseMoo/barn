@@ -81,6 +81,9 @@ func (vm *VM) executeCallVerbNamed(name types.Value, argc int, site *verbCallSit
 
 	// Pop the object
 	objVal := vm.Pop()
+	if err := vm.checkCallArgsLimit(args, argsList); err != nil {
+		return err
+	}
 	return vm.startVerbCallResolved(objVal, name.Str(), name, args, argsList, nil, site)
 }
 
@@ -414,6 +417,11 @@ func (vm *VM) executePass() error {
 			passArgs = frame.Args
 		} else {
 			passArgs = []types.Value{}
+		}
+	}
+	if argc != 0 {
+		if err := vm.checkCallArgsLimit(passArgs, passList); err != nil {
+			return err
 		}
 	}
 

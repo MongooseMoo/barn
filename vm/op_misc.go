@@ -57,6 +57,9 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 			return newMooError(types.E_TYPE, "expected list for spliced builtin args")
 		}
 		args = splicedArgs(listVal)
+		if err := vm.checkSplicedArgsLimit(listVal); err != nil {
+			return err
+		}
 	} else {
 		n := int(argc)
 		if vm.SP < n {
@@ -87,6 +90,10 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 	}
 
 	if result.Flow == types.FlowException {
+		if result.Error == types.E_MAXREC && result.Reason == types.ExceptionReasonSecondsBudget {
+			// The task ran out of seconds (make_space_pack's abort included).
+			return secondsAbort{}
+		}
 		// Propagate builtin exceptions to executeLoop() so traceback capture
 		// happens before any stack unwinding.
 		return VMException{Code: result.Error, Value: result.Val, Reason: result.Reason}
