@@ -4,11 +4,16 @@
 (function (live) {
   // Jobs that are not native fuzz lanes (fuzz_compute.cjs NOT_LANES).
   const ROUTE = "Validate compute routing", DIFFERENTIAL = "ToastDifferential";
+  const WORLDS = "ToastReadsBarnDatabase", CROSS_ENGINE = "ToastCrossEngineCheckpoint";
   const ACCEPT = "Accept discovery cycle", SUCCESSOR = "Submit continuous successor";
-  const NOT_LANES = new Set([ROUTE, DIFFERENTIAL, ACCEPT, SUCCESSOR]);
+  const NOT_LANES = new Set([ROUTE, DIFFERENTIAL, WORLDS, CROSS_ENGINE, ACCEPT, SUCCESSOR]);
+  const COMPARISONS = {
+    [DIFFERENTIAL]: "Compare retained public source on Barn and Toast",
+    [WORLDS]: "Compare Barn-written worlds in Toast",
+    [CROSS_ENGINE]: "Resume retained suspended stacks on the other engine",
+  };
   // The one step allowed to fail when a job finds something (fuzz_compute.cjs accept).
-  const campaignStep = name => name === DIFFERENTIAL
-    ? "Compare retained public source on Barn and Toast" : `Fuzz ${name}`;
+  const campaignStep = name => COMPARISONS[name] ?? `Fuzz ${name}`;
   const WAITING = new Set(["queued", "waiting", "pending", "requested"]);
   // Issue reports finish in the job's last steps; allow for clock skew.
   const SLACK_MS = 60 * 1000;
@@ -107,7 +112,9 @@
     const lastAttempt = new Map();
     for (const run of runs) {
       const match = /^(Repair|Investigate) #(\d+) \/ (auto|claude|codex)$/.exec(run.display_title || "");
-      if (match && !lastAttempt.has(Number(match[2]))) lastAttempt.set(Number(match[2]), run);
+      if (match && run.conclusion !== "skipped" && !lastAttempt.has(Number(match[2]))) {
+        lastAttempt.set(Number(match[2]), run);
+      }
     }
     const open = issues.filter(i => i.state === "open" && !i.pull_request);
     const labels = item => (item?.labels || []).map(label => label.name);
@@ -119,7 +126,7 @@
       const phase = ["repair", "investigation"].find(stage => issueLabels.includes(`codex-${stage}`));
       const conformance = prLabels.includes("codex-conformance");
       const blocked = issueLabels.includes("repair-needs-attention") || prLabels.includes("needs-decision");
-      let status = "Awaiting repair";
+      let status = "No repair run found";
       let provider = "Any";
       if (phase || conformance) {
         provider = "Codex";
@@ -133,7 +140,11 @@
         status = "PR open";
       } else if (recent) {
         provider = recent.display_title.endsWith(" / auto") ? "Automatic" : recent.display_title.split(" / ")[1];
-        status = recent.conclusion === "failure" ? "Attempt failed" : recent.status.replaceAll("_", " ");
+        if (recent.status === "completed") {
+          status = recent.conclusion === "success" ? "Attempt ended without a PR" : `Attempt ${recent.conclusion}`;
+        } else {
+          status = recent.status.replaceAll("_", " ");
+        }
       }
       return {issue, pr, attempt: recent, status, provider};
     });

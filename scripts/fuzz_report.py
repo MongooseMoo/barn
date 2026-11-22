@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shlex
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -22,6 +23,7 @@ TAIL_LIMIT = 12000
 RECORD_LIMIT = 30000
 # Exit status when a record is too large to report before its artifact exists.
 DEFERRED = 3
+REPAIR_DISPATCH = "/actions/workflows/claude-fix.yml/dispatches"
 MODULE = "github.com/MongooseMoo/barn/"
 
 
@@ -304,8 +306,22 @@ def publish(reports, api, package, target, run_url, artifact_url=None, immediate
         if not infrastructure:
             # GITHUB_TOKEN events start no other workflows, except
             # workflow_dispatch, so dispatch the fix run explicitly.
-            api("POST", "/actions/workflows/claude-fix.yml/dispatches",
-                {"ref": "master", "inputs": {"issue_number": str(issue["number"])}})
+            number = issue["number"]
+            try:
+                dispatch = api("POST", REPAIR_DISPATCH,
+                               {"ref": "master", "inputs": {"issue_number": str(number)},
+                                "return_run_details": True})
+            except (RuntimeError, OSError) as error:
+                message = f"Repair #{number}: dispatch was not confirmed"
+                if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+                    with open(summary, "a", encoding="utf-8") as output:
+                        output.write(f"{message}\n")
+                raise RuntimeError(f"{message}: {error}") from error
+            run_id = (dispatch or {}).get("workflow_run_id")
+            if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+                with open(summary, "a", encoding="utf-8") as output:
+                    run = f" (Actions run {run_id})" if isinstance(run_id, int) else ""
+                    output.write(f"Repair #{number}: dispatch accepted{run}\n")
     return 0
 
 
@@ -319,13 +335,28 @@ def github_api():
         data = None if payload is None else json.dumps(payload).encode()
         request = urllib.request.Request(base + path, data=data, method=method,
                                          headers={**headers, "Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                text = response.read()
-        except urllib.error.HTTPError as error:
-            raise RuntimeError(f"{method} {path}: HTTP {error.code}: "
-                               f"{error.read().decode(errors='replace')}") from error
-        return json.loads(text) if text else None
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    return json.load(response) if response.status != 204 else None
+            except urllib.error.HTTPError as error:
+                body = error.read().decode(errors="replace")
+                retry_after = error.headers.get("retry-after", "")
+                reset = error.headers.get("x-ratelimit-reset", "")
+                exhausted = error.headers.get("x-ratelimit-remaining") == "0"
+                limited = error.code == 429 or (error.code == 403 and (
+                    retry_after.isdigit() or exhausted or "secondary rate limit" in body.lower()))
+                delay = int(retry_after) if retry_after.isdigit() else 60 * 2**attempt
+                if exhausted and reset.isdigit():
+                    delay = max(delay, int(reset) - time.time())
+                # A rate-limit rejection confirms GitHub did not accept the
+                # dispatch. Transport errors and server failures are ambiguous.
+                if path == REPAIR_DISPATCH and limited and attempt < 2 and delay <= 120:
+                    print(f"GitHub rejected the repair dispatch with HTTP {error.code}; retrying in {delay:g}s",
+                          file=sys.stderr)
+                    time.sleep(delay)
+                    continue
+                raise RuntimeError(f"{method} {path}: HTTP {error.code}: {body}") from error
     return call
 
 

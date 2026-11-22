@@ -40,13 +40,11 @@ const SUCCESSOR = 'Submit continuous successor';
 // The jobs that compare Barn with Toast: the one step that may fail, and the
 // results file their artifact carries, whose summary.outcome is success,
 // divergence or inconclusive.
-// A job may hold several comparison steps, each with its own results; key
-// names one in the log when it is not its job's only one.
 const COMPARISONS = [
   {name: DIFFERENTIAL, step: 'Compare retained public source on Barn and Toast',
    results: 'fuzz-differential/results.json'},
   // Barn-written worlds loaded in Toast (scripts/toast_reads_barn_db.py).
-  {name: DIFFERENTIAL, key: 'ToastReadsBarnDatabase', step: 'Compare Barn-written worlds in Toast',
+  {name: 'ToastReadsBarnDatabase', step: 'Compare Barn-written worlds in Toast',
    results: 'toast-reads-barn-db/results.json'},
   {name: 'ToastCrossEngineCheckpoint', step: 'Resume retained suspended stacks on the other engine',
    results: 'fuzz-cross-engine/results.json'},
@@ -107,10 +105,10 @@ async function accept({github, context, core}) {
     if (job.conclusion === 'failure' && failed.length === 0) problems.push(`${job.name}: failure without a failed step`);
   }
   const outcomes = {};
-  for (const {name, key = name, step, results} of COMPARISONS) {
+  for (const {name, step, results} of COMPARISONS) {
     const comparison = jobs.find(job => job.name === name);
     const outcome = fs.existsSync(results) ? JSON.parse(fs.readFileSync(results, 'utf8')).summary?.outcome : undefined;
-    outcomes[key] = selected === 'native-only' ? 'not-run-native-only' : outcome ?? null;
+    outcomes[name] = selected === 'native-only' ? 'not-run-native-only' : outcome ?? null;
     if (selected === 'native-only') {
       if (comparison?.conclusion !== 'skipped' || fs.existsSync(results)) {
         problems.push(`${name}: native-only requires a skipped comparison with no results`);
@@ -118,14 +116,13 @@ async function accept({github, context, core}) {
     } else if (!comparison || !['success', 'failure'].includes(comparison.conclusion)) {
       problems.push(`${name}: job ${comparison?.conclusion ?? 'missing'}`);
     } else {
-      // Each comparison step may fail with a finding; no other step may.
-      const steps = COMPARISONS.filter(c => c.name === name).map(c => c.step);
+      // The comparison step may fail with a finding; no other step may.
       const failed = (comparison.steps || []).filter(s => s.conclusion === 'failure').map(s => s.name);
       const stepFailed = failed.includes(step);
-      if (failed.some(s => !steps.includes(s)) || (comparison.conclusion === 'failure') !== (failed.length > 0)) {
+      if (failed.some(s => s !== step) || (comparison.conclusion === 'failure') !== stepFailed) {
         problems.push(`${name}: a step other than the comparison failed`);
       } else if (outcome !== (stepFailed ? 'divergence' : 'success')) {
-        problems.push(`${key}: outcome ${outcome ?? 'missing'} with step ${stepFailed ? 'failure' : 'success'}`);
+        problems.push(`${name}: outcome ${outcome ?? 'missing'} with step ${stepFailed ? 'failure' : 'success'}`);
       }
     }
   }

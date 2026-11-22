@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import http.server
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -14,9 +15,11 @@ import tempfile
 import textwrap
 import threading
 import unittest
-from unittest.mock import mock_open, patch
+import urllib.error
+from unittest.mock import MagicMock, mock_open, patch
 
-from fuzz_report import (DEFERRED, INLINE_LIMIT, RECORD_LIMIT, TAIL_LIMIT, issue_body, publish, report,
+from fuzz_report import (DEFERRED, INLINE_LIMIT, RECORD_LIMIT, REPAIR_DISPATCH, TAIL_LIMIT, github_api,
+                         issue_body, publish, report,
                          summarize)
 
 
@@ -349,7 +352,8 @@ class PublishTests(unittest.TestCase):
         _, github = self.run_publish(result, [{"number": 5, "body": "old signature"}])
         self.assertEqual(github.names(), ["/issues", "/actions/workflows/claude-fix.yml/dispatches"])
         self.assertEqual(github.calls[1][2]["labels"], ["claude-fix"])
-        self.assertEqual(github.calls[2][2], {"ref": "master", "inputs": {"issue_number": "999"}})
+        self.assertEqual(github.calls[2][2], {"ref": "master", "inputs": {"issue_number": "999"},
+                                            "return_run_details": True})
         body = github.calls[1][2]["body"]
         _, github = self.run_publish(result, [{"number": 12, "body": body}])
         self.assertEqual(github.names(), ["/issues/12/comments"])
@@ -416,6 +420,25 @@ class PublishTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "HTTP 500"):
             publish(summarize(["panic: failure"], "./vm", "FuzzTarget", "commit"), github,
                     "./vm", "FuzzTarget", "https://run")
+
+    def test_only_confirmed_rate_limit_rejections_are_retried(self):
+        env = {"GITHUB_API_URL": "http://fixture.invalid", "GITHUB_REPOSITORY": "owner/repo",
+               "GITHUB_TOKEN": "fake"}
+        for code, headers, attempts in ((429, {"retry-after": "17"}, 2), (403, {}, 1), (502, {}, 1)):
+            with self.subTest(code=code):
+                error = urllib.error.HTTPError("http://fixture.invalid", code, "failure", headers, BytesIO(b"{}"))
+                accepted = MagicMock()
+                accepted.__enter__.return_value.status = 204
+                with (patch.dict(os.environ, env), patch("fuzz_report.time.sleep") as wait,
+                      patch("fuzz_report.urllib.request.urlopen", side_effect=[error, accepted]) as request):
+                    if attempts == 2:
+                        self.assertIsNone(github_api()("POST", REPAIR_DISPATCH))
+                        wait.assert_called_once_with(17)
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, f"HTTP {code}"):
+                            github_api()("POST", REPAIR_DISPATCH)
+                        wait.assert_not_called()
+                    self.assertEqual(request.call_count, attempts)
 
 
 def step_script(workflow, name):
@@ -544,7 +567,8 @@ echo "fuzz: elapsed: 1s, execs: 10 (10/sec), new interesting: 0 (total: 1)"
         self.assertEqual(self.sequence(), ["attempt 1", "GET /issues", "POST /issues", dispatch, "attempt 2"])
         issue = self.api_calls[1][2]
         self.assertEqual(issue["labels"], ["claude-fix"])
-        self.assertEqual(self.api_calls[2][2], {"ref": "master", "inputs": {"issue_number": "7"}})
+        self.assertEqual(self.api_calls[2][2], {"ref": "master", "inputs": {"issue_number": "7"},
+                                             "return_run_details": True})
         data, digest = decoded_record(issue["body"])
         self.assertEqual(data, record)
         self.assertEqual(digest, hashlib.sha256(record).hexdigest())
