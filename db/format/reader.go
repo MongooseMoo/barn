@@ -204,6 +204,21 @@ func loadDatabase(path string, recoverPublication bool) (*Database, error) {
 	return database, nil
 }
 
+// HeaderVersion returns the format version a database's first line names, and
+// whether the reader loads that version. It matches the complete line so
+// numeric prefixes cannot select a format.
+func HeaderVersion(header string) (int, bool) {
+	switch header {
+	case "** LambdaMOO Database, Format Version 4 **":
+		return 4, true
+	case "** LambdaMOO Database, Format Version 5 **":
+		return 5, true
+	case "** LambdaMOO Database, Format Version 17 **":
+		return 17, true
+	}
+	return 0, false
+}
+
 // parseDatabase parses database from reader
 func parseDatabaseWithWaifIdentities(r *bufio.Reader, identities []types.WaifIdentity) (*Database, error) {
 	database := &Database{
@@ -217,18 +232,11 @@ func parseDatabaseWithWaifIdentities(r *bufio.Reader, identities []types.WaifIde
 		return nil, fmt.Errorf("read header: %w", err)
 	}
 	header = strings.TrimSpace(header)
-
-	// Match the complete header so numeric prefixes cannot select a format.
-	switch header {
-	case "** LambdaMOO Database, Format Version 4 **":
-		database.Version = 4
-	case "** LambdaMOO Database, Format Version 5 **":
-		database.Version = 5
-	case "** LambdaMOO Database, Format Version 17 **":
-		database.Version = 17
-	default:
+	version, ok := HeaderVersion(header)
+	if !ok {
 		return nil, fmt.Errorf("unsupported database format: %s", header)
 	}
+	database.Version = version
 
 	// Version-specific parsing
 	switch database.Version {

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
+	"github.com/MongooseMoo/barn/db/format"
+	"github.com/MongooseMoo/barn/parser"
 	"io"
 	"os"
 	"path/filepath"
@@ -40,6 +42,9 @@ type BuildInput struct {
 	ConfigPath        string
 	Options           config.Options
 	Registry          *builtins.Registry
+	// CommandDispatch is true when the server has a listener whose
+	// connections dispatch typed commands.
+	CommandDispatch bool
 }
 
 func BuildManifest(input BuildInput) (Manifest, error) {
@@ -82,6 +87,9 @@ func BuildManifest(input BuildInput) (Manifest, error) {
 	// feature.ast: the Mongoose fork's syntax-tree builtins; conformance tests
 	// that need them declare `requires: features: [ast]`.
 	features["feature.ast"] = astBuiltinsPresent(input.Registry)
+	for name, value := range suiteFeatures(input) {
+		features[name] = value
+	}
 	// Known differences from ToastStunt that Barn keeps on purpose; conformance
 	// cases for Toast's behaviour declare `skip_if: "feature.<name>"`.
 	for name := range KnownDifferences {
@@ -118,6 +126,50 @@ var KnownDifferences = map[string]string{
 	"unfolded_double_negation": "verb_code prints - -5 as --5, not 5",
 	// The parser does not accept the fork's waif property spelling.
 	"no_waif_colon_property": "the parser rejects x.:name",
+}
+
+// suiteFeatures derives the conformance feature names that whole suite files
+// declare in `requires: features`. ToastStunt compiles every one of them in and
+// lists none in server_version("features") (src/version.cc:141-146), so a
+// profile manifest is the only place either engine states them, and Barn's
+// MOO-visible server_version stays as it is.
+func suiteFeatures(input BuildInput) map[string]any {
+	registry := input.Registry
+	_, readsToastCore := format.HeaderVersion(toastCoreFixtureHeader)
+	// `fork' and `forking' (the fork statement) are not declared yet: rows
+	// they gate fail on Barn (agent-notes/fix-run-skipped-conformance-rows.md,
+	// "Names held back").
+	return map[string]any{
+		// `^' and `$' inside index and range expressions.
+		"feature.index_extensions": parses("x = {1}; return {x[^], x[$], x[^..$]};"),
+		// Anonymous objects are made only by create(parent, 1).
+		"feature.anonymous": registry.Has("create"),
+		// Task inspection and control.
+		"feature.tasks":          allBuiltins(registry, "task_id", "queued_tasks", "kill_task", "suspend", "resume"),
+		"feature.exec_support":   registry.Has("exec"),
+		"feature.server_options": registry.Has("load_server_options"),
+		// Typed commands reach verbs only through a listener's connections.
+		"feature.command_dispatch": input.CommandDispatch,
+		// The suite's ToastCore startup fixture is a Format Version 17 database.
+		"feature.toastcore_fixture": readsToastCore,
+	}
+}
+
+const toastCoreFixtureHeader = "** LambdaMOO Database, Format Version 17 **"
+
+// parses reports whether Barn's parser accepts source.
+func parses(source string) bool {
+	_, err := parser.NewParser(source).ParseProgram()
+	return err == nil
+}
+
+func allBuiltins(registry *builtins.Registry, names ...string) bool {
+	for _, name := range names {
+		if !registry.Has(name) {
+			return false
+		}
+	}
+	return true
 }
 
 // astBuiltinsPresent reports whether all four syntax-tree builtins are installed.
