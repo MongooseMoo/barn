@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import bench_differ
 from bench_differ import REPO
-from fuzz_differential import (CRASHED, KILLED, TIMED_OUT, decode_corpus_file, engine_runner, exclusion,
+from fuzz_differential import (CRASHED, KILLED, TIMED_OUT, ComparisonDeadline, decode_corpus_file, engine_runner, exclusion,
                                load_programs, main, outcome, probe, render_choices, results, run_bounded)
 
 # Real records copied byte for byte from Go's fuzz cache of the structured
@@ -131,6 +131,25 @@ class BoundedRunTests(unittest.TestCase):
         self.assertEqual((errors, timed_out), ([], []))
         self.assertEqual([len(lines) for _, lines, _ in engine.calls], [3, 3, 2])
         self.assertTrue(all(lines[0] == ";;preamble" for _, lines, _ in engine.calls))
+
+    def test_retry_restores_only_completed_batches_and_preserves_their_transcript(self):
+        outputs = {"barn": ["=> 0"] + [value("F%05d" % i) for i in range(1, 5)]}
+        engine = FakeEngine(outputs)
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            checkpoint = out / "progress"
+            with patch("fuzz_differential.time.monotonic", side_effect=[2, 11]):
+                with self.assertRaises(ComparisonDeadline):
+                    run_bounded("barn", engine, self.lines(4), out, chunk=2, checkpoint=checkpoint, deadline=10)
+            engine.calls.clear()
+            records, errors, timed_out = run_bounded(
+                "barn", engine, self.lines(4), out, chunk=2, checkpoint=checkpoint)
+            transcript = (out / "barn_raw.txt").read_text(encoding="utf-8")
+
+        self.assertEqual((records, errors, timed_out), (outputs["barn"], [], []))
+        self.assertEqual([lines for _, lines, _ in engine.calls], [[self.lines(4)[i] for i in (0, 3, 4)]])
+        self.assertIn("process: inputs 1..2", transcript)
+        self.assertIn("process: inputs 3..4", transcript)
 
     def test_two_hanging_probes_in_one_chunk(self):
         outputs = {"toast": ["=> 0", HANG, value("F00002"), HANG]}

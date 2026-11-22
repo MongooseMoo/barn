@@ -49,11 +49,14 @@ runs:
             source=$(git show "$GITHUB_SHA:scripts/repair_provider.py")
             details=$(python3 - claude "$EXECUTION_FILE" <<< "$source")
             printf '%s\n' "$details" >> "$GITHUB_STEP_SUMMARY"
+            attention=repair-needs-attention
+            if [[ "$STAGE" == conformance ]]; then attention=needs-decision; fi
             if [[ "$CODEX_ENABLED" != true ]] || grep -Eq "^reason=(unknown|policy-block)$" <<< "$details"; then
+              gh api -X POST "$endpoint" -f "labels[]=$attention" --silent
               exit 0
             fi
             if grep -Fxq codex-unavailable <<< "$labels"; then
-              gh api -X POST "$endpoint" -f 'labels[]=repair-needs-attention' --silent
+              gh api -X POST "$endpoint" -f "labels[]=$attention" --silent
               exit 0
             fi
             gh api -X POST "$endpoint" -f 'labels[]=claude-unavailable' --silent

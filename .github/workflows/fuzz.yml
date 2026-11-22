@@ -203,11 +203,12 @@ jobs:
 
 
       - name: Capture public interesting inputs and execution census
+        id: capture
         if: always()
         env:
           CAMPAIGN_OUTCOME: ${{ steps.campaign.outputs.cycle }}
         run: |
-          python3 scripts/fuzz_retention.py capture --cache "$GOCACHE" --package '${{ matrix.package }}' --target '${{ matrix.target }}' --head "$GITHUB_SHA" --go-version "$(go version)" --logs "$RUNNER_TEMP/fuzz-logs" --campaign "$CAMPAIGN_OUTCOME"
+          python3 scripts/fuzz_retention.py capture --cache "$GOCACHE" --package '${{ matrix.package }}' --target '${{ matrix.target }}' --head "$GITHUB_SHA" --go-version "$(go version)" --logs "$RUNNER_TEMP/fuzz-logs" --campaign "$CAMPAIGN_OUTCOME" --overflow ".fuzz/overflow/${{ matrix.package }}/${{ matrix.target }}"
 
       # The source lanes also replay actual discoveries with normal cleanup in
       # one process per input. At most 60 s per 30-minute lane; mutation rate
@@ -253,8 +254,19 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload the full corpus generation before rotating the cache
+        id: overflow
+        if: ${{ !cancelled() && steps.capture.outputs.overflow == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fuzz-overflow-${{ matrix.target }}
+          path: .fuzz/overflow/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Save retained public corpus for the next host or cycle
-        if: always()
+        if: ${{ !cancelled() && steps.capture.outcome == 'success' && (steps.capture.outputs.overflow != 'true' || steps.overflow.outcome == 'success') }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
@@ -311,25 +323,28 @@ jobs:
       issues: write
       actions: write
     runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
-    timeout-minutes: 45
+    timeout-minutes: 100
     env:
       TOAST_BIN: ${{ github.workspace }}/toaststunt/build/moo
       BARN_FUZZ_CORPUS: ''
       FUZZ_TARGET: ToastDifferential
       FUZZ_PACKAGE: ./scripts
     steps:
-      - name: Check /dev/null is a device
+      - &check-null
+        name: Check /dev/null is a device
         run: |
           if [ ! -c /dev/null ]; then
             echo "::error::/dev/null on this runner is not a character device: $(stat -c '%F %U:%G %a' /dev/null). Restore it as root with: rm /dev/null && mknod -m 666 /dev/null c 1 3"
             exit 1
           fi
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - &comparison-checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - &comparison-go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: false
@@ -342,10 +357,19 @@ jobs:
           merge-multiple: true
           path: .fuzz/retained
 
-      - name: Build Toast oracle
+      - name: Download full generations from rotated lanes
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: fuzz-overflow-*
+          merge-multiple: true
+          path: .fuzz/retained
+
+      - &comparison-toast
+        name: Build Toast oracle
         run: bash scripts/build-toast-oracle.sh
 
-      - name: Build Barn
+      - &comparison-barn
+        name: Build Barn
         run: |
           go list -f '{{.ImportPath}} {{.Name}}' ./cmd/barn
           go build -o bin/ ./cmd/barn
@@ -370,21 +394,41 @@ jobs:
           set -o pipefail
           logs="$RUNNER_TEMP/fuzz-logs"
           rm -rf "$logs"
-          mkdir -p "$logs"
+          mkdir -p "$logs" fuzz-differential
+          checkpoint=$(mktemp -d "$RUNNER_TEMP/fuzz-progress.XXXXXX")
+          status=0
           {
             go version
-            python3 scripts/fuzz_differential.py --toast "$TOAST_BIN" --barn-linux bin/barn --out fuzz-differential \
+            compare=(python3 scripts/fuzz_differential.py --toast "$TOAST_BIN" --barn-linux bin/barn
+              --out fuzz-differential --checkpoint "$checkpoint" --minutes 40
               .fuzz/retained/vm/FuzzSourceExecution/inputs .fuzz/retained/compiler/FuzzCompileVerifiable/inputs \
               .fuzz/retained/vm/FuzzStructuredSourceExecution/inputs .fuzz/retained/compiler/FuzzStructuredCompileVerifiable/inputs \
               .fuzz/retained/parser/FuzzStructuredParseFormatRoundTrip/inputs \
-              vm/testdata/fuzz/FuzzSourceExecution compiler/testdata/fuzz/FuzzCompileVerifiable
-          } 2>&1 | tee "$logs/run-001.log"
+              vm/testdata/fuzz/FuzzSourceExecution compiler/testdata/fuzz/FuzzCompileVerifiable)
+            attempt=0
+            "${compare[@]}" || attempt=$?
+            if [ "$attempt" = 124 ]; then
+              for transcript in fuzz-differential/*_raw.txt; do
+                if [ -f "$transcript" ]; then cp "$transcript" "fuzz-differential/first-${transcript##*/}"; fi
+              done
+              echo "Resuming the comparison from completed batches after the first deadline."
+              "${compare[@]}"
+            else
+              exit "$attempt"
+            fi
+          } 2>&1 | tee "$logs/run-001.log" || status=$?
+          if [ "$status" = 124 ]; then
+            echo "::error::Toast differential reached its deadline; the partial run is inconclusive."
+          fi
+          cp "$logs/run-001.log" fuzz-differential/campaign.log
+          if [ -f fuzz-differential/results.json ]; then echo "results=true" >> "$GITHUB_OUTPUT"; fi
+          exit "$status"
 
       # Per builtin: compared programs and conformance tests. Written into the
       # evidence; the accept job fails the cycle when the builtins at zero on
       # both differ from scripts/fuzz_zero_coverage_builtins.txt.
       - name: Census builtin coverage
-        if: ${{ !cancelled() && steps.campaign.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.campaign.outputs.results == 'true' }}
         run: |
           python3 scripts/fuzz_builtin_census.py --toast "$TOAST_BIN" --results fuzz-differential/results.json \
             --suite moo-conformance-tests --out fuzz-differential
@@ -401,28 +445,55 @@ jobs:
 
       - *failure-reporter
 
-      # Barn writes each generated world (fuzzseed.ToastWorld, from this
-      # cycle's FuzzWorldCheckpointEffects inputs and the committed seeds)
-      # through its checkpoint writer; the same pinned Toast loads the file,
-      # and both engines' whole worlds and task counts must agree. It runs
-      # after the differ whatever the differ found.
+  worlds:
+    needs: [route, fuzz]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.route.result == 'success' && needs.route.outputs.campaign == 'native-and-toast' }}
+    name: ToastReadsBarnDatabase
+    permissions:
+      contents: read
+      issues: write
+      actions: write
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    timeout-minutes: 45
+    env:
+      TOAST_BIN: ${{ github.workspace }}/toaststunt/build/moo
+    steps:
+      - *check-null
+      - *comparison-checkout
+      - *comparison-go
+      - name: Download this cycle's generated worlds
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: fuzz-corpus-FuzzWorldCheckpointEffects
+          path: .fuzz/retained
+      - name: Download the full generation if the world corpus rotated
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: fuzz-overflow-FuzzWorldCheckpointEffects
+          merge-multiple: true
+          path: .fuzz/retained
+      - *comparison-toast
+      - *comparison-barn
       - name: Compare Barn-written worlds in Toast
         id: worlds
-        if: ${{ !cancelled() }}
+        timeout-minutes: 35
         run: |
           set -o pipefail
           logs="$RUNNER_TEMP/world-logs"
           rm -rf "$logs"
-          mkdir -p "$logs"
+          mkdir -p "$logs" toast-reads-barn-db
+          status=0
           {
             go version
             python3 scripts/toast_reads_barn_db.py worlds --toast "$TOAST_BIN" --barn-linux bin/barn \
               --out toast-reads-barn-db .fuzz/retained/vm/FuzzWorldCheckpointEffects/inputs
-          } 2>&1 | tee "$logs/run-001.log"
+          } 2>&1 | tee "$logs/run-001.log" || status=$?
+          cp "$logs/run-001.log" toast-reads-barn-db/campaign.log
+          exit "$status"
 
       - name: Upload Barn-written world evidence
         id: world-artifact
-        if: ${{ !cancelled() }}
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fuzz-failure-ToastReadsBarnDatabase
@@ -481,6 +552,13 @@ jobs:
           name: fuzz-corpus-FuzzSuspendedStackCheckpoint
           path: .fuzz/retained
 
+      - name: Download the full generation if the suspended-stack corpus rotated
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: fuzz-overflow-FuzzSuspendedStackCheckpoint
+          merge-multiple: true
+          path: .fuzz/retained
+
       - name: Build Toast oracle
         run: bash scripts/build-toast-oracle.sh
 
@@ -533,7 +611,7 @@ jobs:
       - *failure-reporter
 
   accept:
-    needs: [route, fuzz, differential, cross-engine]
+    needs: [route, fuzz, differential, worlds, cross-engine]
     # Findings keep their jobs red. This job instead judges whether the cycle
     # completed measured work with its evidence kept; replenishment needs it.
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.route.result == 'success' }}

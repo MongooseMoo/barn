@@ -200,6 +200,17 @@ class CycleTests(unittest.TestCase):
         self.assertEqual([(row["pr"]["number"], row["provider"], row["status"]) for row in rows],
                          [(919, "Codex", "Waiting for conformance")])
 
+    def test_backlog_shows_the_last_real_attempt_and_does_not_infer_a_queue(self):
+        report = issue(1124, "Nightly fuzz failure: ToastDifferential", 45003734407)
+        incomplete = issue(1027, "Nightly fuzz failure: FuzzSourceExecution", 45003734407)
+        runs = [{"id": 4, "display_title": "Repair #1124 / auto", "status": "completed", "conclusion": "skipped"},
+                {"id": 3, "display_title": "Repair #1124 / auto", "status": "completed", "conclusion": "success"},
+                {"id": 2, "display_title": "Repair", "status": "completed", "conclusion": "failure"}]
+        rows = {row["issue"]["number"]: row for row in call("repairBacklog", [report, incomplete], [], runs)}
+        self.assertEqual(rows[1124]["attempt"]["id"], 3)
+        self.assertEqual(rows[1124]["status"], "Attempt ended without a PR")
+        self.assertEqual(rows[1027]["status"], "No repair run found")
+
     def test_summary_leads_with_state_progress_and_the_last_day(self):
         text = call("summary", {"current": {"id": 1}, "currentJobs": self.JOBS, "previous": None,
                                 "issues": ISSUES, "pulls": PULLS, "now": NOW, "locale": "en-US"})

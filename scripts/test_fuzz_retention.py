@@ -216,10 +216,38 @@ class RetentionTests(unittest.TestCase):
     def test_storage_exhaustion_does_not_delete_existing_inputs(self):
         (self.native / "input").write_bytes(RECORD)
         self.run_transfer()
-        (self.native / "another").write_bytes(RECORD + b"\n")
-        with patch("fuzz_retention.MAX_BYTES", len(RECORD)), self.assertRaisesRegex(ValueError, "exceed"):
-            self.run_transfer()
+        manifest = (self.lane / "manifest.json").read_bytes()
+        (self.native / "another").write_bytes(b'go test fuzz v1\nstring("return 2;")\n')
+        logs = self.root / "logs"
+        logs.mkdir()
+        (logs / "run-001.log").write_text("fuzz: elapsed: 3s, execs: 3 (1/sec), new interesting: 0\n")
+        limit = len(manifest) + 2 * len(RECORD)
+        with patch("fuzz_retention.MAX_BYTES", limit), self.assertRaisesRegex(ValueError, "exceed"):
+            self.run_transfer(logs=logs, campaign="clean")
         self.assertEqual((self.lane / "inputs" / self.digest).read_bytes(), RECORD)
+        self.assertEqual((self.lane / "manifest.json").read_bytes(), manifest)
+        self.assertEqual(list((self.lane / "inputs").iterdir()), [self.lane / "inputs" / self.digest])
+        self.assertEqual(json.loads((self.lane / "census.json").read_bytes())["completed_executions"], 3)
+        self.assertEqual(self.run_transfer("restore")["retained_records"], 1)
+
+    def test_rotation_archives_a_complete_generation_and_keeps_a_bounded_cache(self):
+        for number in range(12):
+            (self.native / str(number)).write_bytes(f'go test fuzz v1\nstring("return {number};")\n'.encode())
+        archive = self.root / "overflow" / TARGET
+        limit = 1250
+        with patch("fuzz_retention.MAX_BYTES", limit):
+            transfer("capture", self.retained, self.cache, "./vm", TARGET,
+                     "head", "go", "profile", overflow=archive)
+            active = self.run_transfer("restore", cache=self.root / "next-cache")
+        saved = json.loads((archive / "manifest.json").read_bytes())["records"]
+        self.assertEqual(len(saved), 12)
+        self.assertEqual(set(saved), {path.name for path in (archive / "inputs").iterdir()})
+        self.assertTrue(0 < active["retained_records"] < len(saved))
+        for digest in saved:
+            self.assertEqual(hashlib.sha256((archive / "inputs" / digest).read_bytes()).hexdigest(), digest)
+        used = (self.lane / "manifest.json").stat().st_size
+        used += sum(path.stat().st_size for path in (self.lane / "inputs").iterdir())
+        self.assertLessEqual(used, limit // 2)
 
     def test_restore_enforces_storage_bound_and_manifest_identity(self):
         (self.native / "input").write_bytes(RECORD)

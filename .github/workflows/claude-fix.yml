@@ -1,5 +1,5 @@
 name: Automatic repair
-run-name: Repair #${{ inputs.issue_number || github.event.issue.number || github.event.pull_request.number }} / ${{ inputs.provider || 'auto' }}
+run-name: "Repair #${{ inputs.issue_number || github.event.issue.number || github.event.pull_request.number }} / ${{ inputs.provider || 'auto' }}"
 
 # Runs Claude Code on one issue and leaves a pull request for review.
 # Nightly fuzz dispatches this for each newly opened failure issue, as soon as

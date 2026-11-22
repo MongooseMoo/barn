@@ -279,6 +279,8 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
             cross_engine = None if campaign == "native-only" else "success"
         if not any(entry["name"] == CROSS_ENGINE for entry in jobs):
             jobs = jobs + [job(CROSS_ENGINE, "skipped" if campaign == "native-only" else "success")]
+        if not any(entry["name"] == "ToastReadsBarnDatabase" for entry in jobs):
+            jobs = jobs + [job("ToastReadsBarnDatabase", "skipped" if campaign == "native-only" else "success")]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for target, census in lanes.items():
@@ -356,12 +358,17 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertNotIn("error", self.accept(jobs, lanes, "divergence"))
         self.assertNotIn("error", self.accept(jobs[:3] + [job("ToastDifferential")], lanes))
         # A world Toast reads differently fails its own step, alone or with the differ's.
-        self.assertNotIn("error", self.accept(jobs[:3] + [job("ToastDifferential", "failure", WORLDS)], lanes,
+        world = job("ToastReadsBarnDatabase", "failure", WORLDS)
+        self.assertNotIn("error", self.accept(jobs[:3] + [job("ToastDifferential"), world], lanes,
                                               worlds="divergence"))
-        both = self.accept(jobs[:3] + [job("ToastDifferential", "failure", [COMPARE, WORLDS])], lanes,
+        both = self.accept(jobs[:4] + [world], lanes,
                            "divergence", worlds="divergence")
         self.assertNotIn("error", both)
         self.assertEqual(json.loads(both["info"][-1])["comparisons"]["ToastReadsBarnDatabase"], "divergence")
+        cancelled = self.accept(jobs[:3] + [job("ToastDifferential", "cancelled"), world], lanes,
+                                outcome=None, worlds="divergence")
+        self.assertIn("error", cancelled)
+        self.assertEqual(json.loads(cancelled["info"][-1])["comparisons"]["ToastReadsBarnDatabase"], "divergence")
 
     def test_cross_engine_divergence_is_accepted_and_its_setup_failures_are_not(self):
         lanes = {"FuzzA": {"completed_executions": 5, "campaign": "clean"}}
@@ -489,7 +496,7 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertIn("- *failure-reporter", cross)
         self.assertIn("name: fuzz-corpus-FuzzSuspendedStackCheckpoint", cross)
         self.assertIn(".fuzz/retained/vm/FuzzSuspendedStackCheckpoint/inputs", cross)
-        self.assertIn("needs: [route, fuzz, differential, cross-engine]", accept)
+        self.assertIn("needs: [route, fuzz, differential, worlds, cross-engine]", accept)
         self.assertIn(f"name: fuzz-failure-{CROSS_ENGINE}\n          path: fuzz-cross-engine\n", accept)
         compute = (ROOT / "scripts/fuzz_compute.cjs").read_text()
         self.assertIn(f"{{name: '{CROSS_ENGINE}', step: '{RESUME}',\n   results: 'fuzz-cross-engine/results.json'}}",

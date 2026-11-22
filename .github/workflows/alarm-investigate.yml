@@ -1,5 +1,5 @@
 name: Alarm investigation
-run-name: Investigate #${{ inputs.issue_number }} / ${{ inputs.provider || 'auto' }}
+run-name: "Investigate #${{ inputs.issue_number }} / ${{ inputs.provider || 'auto' }}"
 
 # Runs Claude Code on one alarm issue (goodput-alarm or conformance-suite-alarm)
 # and leaves a verdict on it: noise, explained by a named change, or a real

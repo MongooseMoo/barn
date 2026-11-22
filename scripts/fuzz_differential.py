@@ -304,8 +304,13 @@ def engine_runner(db: Path, barn_bin: Path, toast: str, out: Path, probe_timeout
     return run
 
 
+class ComparisonDeadline(TimeoutError):
+    pass
+
+
 def run_bounded(lane: str, run, lines: list[str], out: Path, probe_timeout: int = PROBE_SECONDS,
-                startup: int = STARTUP_SECONDS, chunk: int = CHUNK) -> tuple[list, list[str], list[int]]:
+                startup: int = STARTUP_SECONDS, chunk: int = CHUNK, checkpoint: Path | None = None,
+                deadline: float | None = None) -> tuple[list, list[str], list[int]]:
     """Run lines (the preamble, then one probe per line) through one engine in
     bounded processes. Returns its record per line (TIMED_OUT for a probe the
     harness killed, KILLED for one that died of a SIGKILL from elsewhere,
@@ -317,13 +322,29 @@ def run_bounded(lane: str, run, lines: list[str], out: Path, probe_timeout: int 
     timed_out: list[int] = []
     transcript = out / f"{lane}_raw.txt"
     transcript.write_text("", encoding="utf-8")
+    if checkpoint is not None:
+        checkpoint.mkdir(parents=True, exist_ok=True)
     for start in range(1, len(lines), chunk):
         ids = range(start, min(start + chunk, len(lines)))
+        saved = checkpoint / f"{lane}-{start}.json" if checkpoint is not None else None
+        if saved is not None and saved.is_file():
+            state = json.loads(saved.read_bytes())
+            if records[0] is None:
+                records[0] = state["preamble"]
+            records[ids.start:ids.stop] = state["records"]
+            timed_out.extend(i for i in ids if records[i] == TIMED_OUT)
+            with transcript.open("a", encoding="utf-8", newline="") as stream:
+                stream.write(state["transcript"])
+            continue
+        offset = transcript.stat().st_size if saved is not None else 0
+        errors_before = len(errors)
         stuck: set[int] = set()
         while True:
             run_ids = [i for i in ids if i not in stuck]
             if all(records[i] is not None for i in run_ids):
                 break
+            if deadline is not None and time.monotonic() >= deadline:
+                raise ComparisonDeadline(f"{lane}: cycle deadline before inputs {run_ids[0]}..{run_ids[-1]}")
             bound = startup + probe_timeout * (1 + len(run_ids))
             print(f"==> {lane}: inputs {run_ids[0]}..{run_ids[-1]} bound {bound}s", file=sys.stderr)
             proc = run(lane, [lines[0]] + [lines[i] for i in run_ids], bound)
@@ -364,6 +385,14 @@ def run_bounded(lane: str, run, lines: list[str], out: Path, probe_timeout: int 
                 timed_out.append(hung)
             else:
                 errors.append(f"{lane}: input {hung} completed once but timed out on replay; see {transcript}")
+        if saved is not None and len(errors) == errors_before:
+            with transcript.open("rb") as stream:
+                stream.seek(offset)
+                raw = stream.read().decode("utf-8")
+            staged = saved.with_suffix(".tmp")
+            staged.write_text(json.dumps({"preamble": records[0], "records": records[ids.start:ids.stop],
+                                          "transcript": raw}), encoding="utf-8")
+            staged.replace(saved)
     return records, errors, timed_out
 
 
@@ -435,7 +464,10 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=REPO / ".tmp" / "fuzz_differential")
     ap.add_argument("--probe-timeout", type=int, default=PROBE_SECONDS,
                     help="harness seconds per input; an engine process gets STARTUP_SECONDS plus this per input")
+    ap.add_argument("--minutes", type=int, help="Stop starting engine batches after this many minutes")
+    ap.add_argument("--checkpoint", type=Path, help="Temporary completed batches for a retry of this comparison")
     args = ap.parse_args()
+    deadline = time.monotonic() + 60 * args.minutes if args.minutes is not None else None
 
     programs, excluded, corpus_lanes = load_programs(args.corpus)
     if not programs:
@@ -457,12 +489,25 @@ def main() -> int:
         print(f"cannot identify toast binary: {ident.stdout.strip()} {ident.stderr.strip()}", file=sys.stderr)
         return 2
     lane_inputs = {"barn": [b for b, _ in inputs], "toast": [t for _, t in inputs]}
+    checkpoint = args.checkpoint
+    if checkpoint is not None:
+        identity = hashlib.sha256(json.dumps([toast_sha, STARTUP_SECONDS, CHUNK, args.probe_timeout,
+                                              lane_inputs]).encode())
+        for file in (Path(__file__), args.db, barn_bin):
+            with file.open("rb") as stream:
+                identity.update(hashlib.file_digest(stream, "sha256").digest())
+        checkpoint /= identity.hexdigest()
     for lane, lines in lane_inputs.items():
         write_inputs(args.out / f"{lane}_in.txt", lines, lane)
     run = engine_runner(args.db, barn_bin, args.toast, args.out, args.probe_timeout)
     records, record_errors, timeouts, killed, crashed = {}, [], {}, {}, {}
     for lane in ("toast", "barn"):
-        records[lane], errors, timed_out = run_bounded(lane, run, lane_inputs[lane], args.out, args.probe_timeout)
+        try:
+            records[lane], errors, timed_out = run_bounded(lane, run, lane_inputs[lane], args.out, args.probe_timeout,
+                                                          checkpoint=checkpoint, deadline=deadline)
+        except ComparisonDeadline as error:
+            print(error, file=sys.stderr)
+            return 124
         # Without one record per input the positions mean nothing.
         for message in errors:
             print(message, file=sys.stderr)
