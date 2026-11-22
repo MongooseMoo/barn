@@ -84,11 +84,11 @@ func (vm *VM) executeCallVerbNamed(name types.Value, argc int, site *verbCallSit
 	if err := vm.checkCallArgsLimit(args, argsList); err != nil {
 		return err
 	}
-	return vm.startVerbCallResolved(objVal, name.Str(), name, args, argsList, nil, site)
+	return vm.startVerbCallResolved(objVal, name.Str(), name, args, argsList, false, nil, site)
 }
 
 func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Value) error {
-	return vm.startVerbCallResolved(objVal, verbName, types.None, args, types.None, nil, nil)
+	return vm.startVerbCallResolved(objVal, verbName, types.None, args, types.None, false, nil, nil)
 }
 
 // resolvedVerb is a call target the caller has already looked up, through the
@@ -103,10 +103,12 @@ type resolvedVerb struct {
 // by the caller: a nil resolved looks the verb up here. nameValue is verbName
 // as a string value when the caller has one, and None otherwise. argsList is
 // args as a list value when the caller has one (a spliced call), which becomes
-// the callee's `args` without a copy, and None otherwise. site, when not nil,
+// the callee's `args` without a copy, and None otherwise. borrowedArgs means
+// the dispatcher owns the input slice, so the frame must take its own copy.
+// site, when not nil,
 // is the static call site making the call; only a call on a plain object
 // number uses it.
-func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameValue types.Value, args []types.Value, argsList types.Value, resolved *resolvedVerb, site *verbCallSite) error {
+func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameValue types.Value, args []types.Value, argsList types.Value, borrowedArgs bool, resolved *resolvedVerb, site *verbCallSite) error {
 	if objVal.Type() != types.TYPE_OBJ || objVal.IsAnonymous() {
 		site = nil
 	}
@@ -198,6 +200,14 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 	// leaves the caller running with its own this, permissions, and thread mode.
 	if err := vm.checkFrameLimit(); err != nil {
 		return err
+	}
+	if borrowedArgs {
+		if len(args) == 1 && prog.BuiltinSlots.Args != 0 {
+			argsList = types.NewSingletonList(args[0])
+			args = splicedArgs(argsList)
+		} else {
+			args = append([]types.Value(nil), args...)
+		}
 	}
 
 	// --- Native frame push ---
@@ -370,8 +380,7 @@ func (vm *VM) pushProtectedVerb(name types.Value, slot *atomic.Value, args []typ
 	}
 	threadMode := vm.Context.ThreadMode
 	resolved := resolvedVerb{verb: verb, definer: definer}
-	args = append([]types.Value(nil), args...)
-	if err := vm.startVerbCallResolved(types.NewObj(0), name.Str(), name, args, types.None, &resolved, site); err != nil {
+	if err := vm.startVerbCallResolved(types.NewObj(0), name.Str(), name, args, types.None, true, &resolved, site); err != nil {
 		result := types.Err(errorCode(err))
 		result.Reason = exceptionReason(err)
 		return result, true

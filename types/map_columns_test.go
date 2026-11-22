@@ -13,14 +13,16 @@ func TestMapColumnsPreserveTraversalAndIsolation(t *testing.T) {
 		m := NewMap(entries)
 		pairs := m.Pairs()
 		values, keys := m.MapColumns()
-		if len(values) != len(pairs) || len(keys) != len(pairs) {
+		standalone := m.MapValues()
+		if len(values) != len(pairs) || len(keys) != len(pairs) || len(standalone) != len(pairs) {
 			t.Fatal("column lengths differ")
 		}
 		for i, pair := range pairs {
-			if !keys[i].Equal(pair[0]) || !values[i].Equal(pair[1]) {
+			if !keys[i].Equal(pair[0]) || !values[i].Equal(pair[1]) || !standalone[i].Equal(pair[1]) {
 				t.Fatalf("column %d differs from map traversal", i)
 			}
 			keys[i], values[i] = None, None
+			standalone[i] = None
 		}
 		again := m.Pairs()
 		for i, pair := range pairs {

@@ -15,6 +15,7 @@ func TestProtectedBuiltinDispatchSemantics(t *testing.T) {
 		{"exception_value", "rxd", `raise(E_INVARG, \"wrapped\", 77);`, "try valid(#0); except e (E_INVARG) return e[3]; endtry", "{1, 77}"},
 		{"nonexecutable_wrapper", "rd", "return 99;", "return valid(#0);", "{1, 1}"},
 		{"owned_arguments", "rxd", "x = {3, 4, 5}; return args;", "return valid(7, 9);", "{1, {7, 9}}"},
+		{"owned_single_argument", "rxd", "x = {3, 4, 5}; return args;", "result = valid(7); valid(9); return result;", "{1, {7}}"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := NewRuntime(protectedRedirectStore(t))

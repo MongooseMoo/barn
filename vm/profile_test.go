@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/MongooseMoo/barn/internal/mooprof"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/google/pprof/profile"
 )
 
@@ -47,6 +48,28 @@ func TestProfileTicksSumToChargedTicks(t *testing.T) {
 	}
 	if ticks != machine.Ticks {
 		t.Fatalf("sampled ticks = %d, VM charged %d", ticks, machine.Ticks)
+	}
+}
+
+func TestProfileSeparatesTasksWithTheSameStack(t *testing.T) {
+	session := startProfile(t)
+	for _, id := range []int64{17, 18} {
+		machine, prog := newTickTestVM(t, "return 1;")
+		machine.Task = &task.State{ID: id, This: 4, VerbName: "wake"}
+		machine.Run(prog)
+	}
+	prof := session.Stop()
+	if len(prof.Sample) != 2 {
+		t.Fatalf("got %d samples for two identical stacks, want 2", len(prof.Sample))
+	}
+	for i, want := range []string{"17", "18"} {
+		sample := prof.Sample[i]
+		if got := sample.Label[mooprof.LabelTask]; len(got) != 1 || got[0] != want {
+			t.Errorf("sample %d task labels = %v, want %q", i, got, want)
+		}
+		if got := sample.Label[mooprof.LabelVerb]; len(got) != 1 || got[0] != "#4:wake" {
+			t.Errorf("sample %d verb labels = %v, want #4:wake", i, got)
+		}
 	}
 }
 

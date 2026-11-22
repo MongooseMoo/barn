@@ -171,11 +171,11 @@ func (tx *StoreTxn) FindCallableVerb(objID types.ObjID, verbName string) (VerbVi
 func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, error) {
 	cacheable := tx.verbMemoActive()
 	key := verbResolveKey{objID: objID, name: verbName, requireExecute: requireExecute}
-	entry, ok := tx.verbResolve[key]
-	if ok && entry.memo == nil && tx.verbStepsCurrent(entry.steps) {
-		tx.replayVerbSteps(entry.steps)
+	entry := tx.verbResolve[key]
+	if entry.walk != nil && tx.verbStepsCurrent(entry.walk.steps) {
+		tx.replayVerbSteps(entry.walk.steps)
 		if entry.verb == nil {
-			return nil, types.ObjNothing, entry.err
+			return nil, types.ObjNothing, entry.walk.err
 		}
 		// The read mark on the resolved verb is part of the read set the
 		// original walk produced and must be re-registered on every hit.

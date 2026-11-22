@@ -508,15 +508,15 @@ func TestResolveCacheStepIdentityCheckRejectsRebind(t *testing.T) {
 		t.Fatalf("findVerb: %v", err)
 	}
 	entry, ok := tx.verbResolve[verbResolveKey{objID: 2, name: "look"}]
-	if !ok {
+	if !ok || entry.walk == nil {
 		t.Fatal("no memo entry recorded")
 	}
-	if !tx.verbStepsCurrent(entry.steps) {
+	if !tx.verbStepsCurrent(entry.walk.steps) {
 		t.Fatal("verbStepsCurrent = false immediately after the walk")
 	}
 	// Rebind one recorded object behind the memo's back.
 	tx.objects[1] = cloneObjectForReadTxn(tx.objects[1])
-	if tx.verbStepsCurrent(entry.steps) {
+	if tx.verbStepsCurrent(entry.walk.steps) {
 		t.Fatal("verbStepsCurrent = true after the txn rebound a recorded object")
 	}
 }

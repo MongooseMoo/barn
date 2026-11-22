@@ -7,6 +7,22 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+func BenchmarkMapvaluesTreeOrder(b *testing.B) {
+	pairs := make([][2]types.Value, 1024)
+	for i := range pairs {
+		pairs[i] = [2]types.Value{types.NewInt(int64(i)), types.NewInt(int64(i + 1))}
+	}
+	args := []types.Value{types.NewMap(pairs)}
+	builtinMapvalues(nil, args) // Warm the lazy tree traversal, as with a reused ledger.
+	b.ReportAllocs()
+	for b.Loop() {
+		result := builtinMapvalues(nil, args)
+		if !result.IsNormal() || result.Val.Len() != len(pairs) {
+			b.Fatalf("mapvalues = %+v", result)
+		}
+	}
+}
+
 func TestMapvaluesMissingCompositeKeysReturnRange(t *testing.T) {
 	ctx := newTestExecution()
 	emptyMap := types.NewEmptyMap()

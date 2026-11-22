@@ -207,9 +207,20 @@ type verbResolveKey struct {
 }
 
 type verbResolveEntry struct {
-	steps   []verbWalkStep
-	verb    *Verb // nil records a negative resolution (verb not found)
-	definer types.ObjID
+	verb *Verb // nil records a negative resolution (verb not found)
+	walk *verbWalkRecord
+	// memo, when set, identifies a store-level dispatch memo hit. memoSeen
+	// records the marks it supplied, and verb identifies the marked verb on
+	// an immutable definer (see lookupVerbDispatchMemo).
+	memo     *verbDispatchMemoEntry
+	definer  types.ObjID
+	memoSeen uint8
+}
+
+// Only ancestry walks need their own steps and error. Shared memo hits keep
+// that information in the shared entry, so their transaction slots stay small.
+type verbWalkRecord struct {
+	steps []verbWalkStep
 	// err is the exact error value the miss produced, memoized alongside it.
 	// A "verb not found" error is built with fmt.Errorf on every failed lookup,
 	// and MOO code probes for absent verbs constantly (:huh dispatch,
@@ -217,12 +228,6 @@ type verbResolveEntry struct {
 	// which is part of the key — reusing the value is indistinguishable from
 	// rebuilding it, minus three allocations per probe.
 	err error
-	// memo, when set, makes this a record of a store-level dispatch memo hit
-	// rather than of a walk: steps is empty, memoSeen is what recordVerbMemoHit
-	// has recorded for memo in this txn, and verb is the resolved verb once its
-	// read mark is recorded from an unowned definer (see lookupVerbDispatchMemo).
-	memo     *verbDispatchMemoEntry
-	memoSeen uint8
 }
 
 type propResolveKey struct {
@@ -599,10 +604,9 @@ func (tx *StoreTxn) storeVerbResolve(key verbResolveKey, steps []verbWalkStep, v
 		tx.verbResolveGen++
 	}
 	tx.verbResolve[key] = verbResolveEntry{
-		steps:   append([]verbWalkStep(nil), steps...),
+		walk:    &verbWalkRecord{steps: append([]verbWalkStep(nil), steps...), err: err},
 		verb:    verb,
 		definer: definer,
-		err:     err,
 	}
 }
 
