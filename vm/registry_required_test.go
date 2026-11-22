@@ -86,7 +86,9 @@ func TestLimitOperationsUseProvidedRegistry(t *testing.T) {
 		code string
 	}{
 		{name: "string concat", code: `return "` + longValue[:750] + `" + "` + longValue[750:] + `";`},
-		{name: "list construction", code: `return {"` + longValue + `"};`},
+		// A one-element list is Toast's unchecked OP_MAKE_SINGLETON_LIST; the
+		// second element's OP_LIST_ADD_TAIL checks the limit.
+		{name: "list construction", code: `return {"` + longValue + `", 1};`},
 		{name: "map construction", code: `return ["key" -> "` + longValue + `"];`},
 	}
 	for _, test := range tests {

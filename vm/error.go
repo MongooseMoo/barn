@@ -108,62 +108,91 @@ func (vm *VM) quotaError(detail string) error {
 	return secondsAbort{}
 }
 
-// Call arguments are held to max_list_value_bytes the way Toast holds them: its
-// compiler builds f(a, b, ...) arguments as a list with OP_MAKE_SINGLETON_LIST
-// and OP_LIST_ADD_TAIL (OP_LIST_APPEND for @), and each of those but the
-// singleton checks the list. A lone unspliced argument is never checked.
+// Call arguments are held to max_list_value_bytes the way Toast holds them.
+// Its compiler builds f(a1, ..., an) arguments as a list (code_gen.cc
+// generate_arg_list): OP_MAKE_SINGLETON_LIST for a1, unchecked, then
+// OP_LIST_ADD_TAIL for each later argument, which keeps the list only while
+// value_bytes(list) <= max_list_value_bytes (execute.cc OP_LIST_ADD_TAIL) and
+// otherwise does PUSH_ERROR_UNLESS_QUOTA(E_QUOTA). Barn keeps unspliced
+// arguments on the stack instead, and checks the same prefixes:
 //
-// While max_list_value_bytes is at or above its default (64537861) no argument
-// list is measured: reaching it takes more than 61 MiB of arguments in one
-// call, and counting on every call cost a measurable share of each builtin
-// call. That is the one place Barn knowingly differs from Toast here.
+//   - OP_CHECK_ARGS k, which the compiler emits before evaluating an argument
+//     after the second unless it is a literal, checks the k arguments already
+//     pushed, so a later argument never runs once the list is refused;
+//   - the call itself checks all n (checkArgList).
+//
+// A refusal raises E_QUOTA when max_concat_catchable is true and aborts the
+// task as out of seconds when it is not. In a verb without the d flag Toast
+// pushes E_QUOTA in place of the list and keeps evaluating; every later
+// OP_LIST_ADD_TAIL then pushes E_TYPE, and the call, given a non-list, yields
+// E_TYPE. OP_CHECK_ARGS marks that state by putting None in the first
+// argument's slot (types.RefusedArgListBytes), and the call then yields E_TYPE.
+//
+// The sizes are the values' cached sizes (types.ListBytes), so a check costs
+// a few loads per argument, and a list below the smallest limit needs no
+// limit lookup. A spliced argument list is built by OP_LIST_APPEND and
+// OP_LIST_EXTEND, which check it as Toast's opcodes do.
 
-// checkCallArgsLimit checks a verb or pass() call's arguments; spliced is the
-// args list of a splice call, or None.
-func (vm *VM) checkCallArgsLimit(args []types.Value, spliced types.Value) error {
-	if spliced.Type() == types.TYPE_LIST {
-		return vm.checkSplicedArgsLimit(spliced)
-	}
-	if len(args) < 2 {
-		return nil
-	}
-	return vm.checkArgListLimit(args)
-}
-
-// checkArgListLimit checks two or more unspliced arguments.
-func (vm *VM) checkArgListLimit(args []types.Value) error {
-	if !vm.Builtins.ListLimitLowered(vm.Context) {
-		return nil
-	}
-	return vm.measureArgList(args)
-}
-
-//go:noinline
-func (vm *VM) measureArgList(args []types.Value) error {
+// checkArgList checks a call's two or more unspliced arguments.
+func (vm *VM) checkArgList(args []types.Value) error {
 	if size := types.ListBytes(args); size >= builtins.MinListValueBytesLimit {
-		return vm.checkArgBytes(size)
+		return vm.refuseArgList(args, size)
 	}
 	return nil
 }
 
-// checkSplicedArgsLimit checks the list a splice call passes.
-func (vm *VM) checkSplicedArgsLimit(list types.Value) error {
-	if !vm.Builtins.ListLimitLowered(vm.Context) {
+// refuseArgList is the error a call with arguments args, together size bytes,
+// fails with, or nil.
+//
+//go:noinline
+func (vm *VM) refuseArgList(args []types.Value, size int) error {
+	if args[0].IsNone() {
+		// Refused earlier in a verb without the d flag: the call has no list.
+		return newMooError(types.E_TYPE, "argument list refused")
+	}
+	if limit := vm.Builtins.ListValueLimitForTask(vm.Context); limit <= 0 || size <= limit {
 		return nil
 	}
-	return vm.checkArgBytes(types.ValueBytes(list))
+	if !vm.Builtins.MaxConcatCatchable(vm.Context) {
+		return secondsAbort{}
+	}
+	if frame := vm.CurrentFrame(); frame != nil && !frame.VerbDebug {
+		// E_QUOTA takes the list's place, and the call is given that.
+		return newMooError(types.E_TYPE, "argument list refused")
+	}
+	return newMooError(types.E_QUOTA, "list too large")
 }
 
-func (vm *VM) checkArgBytes(size int) error {
-	// No limit is below MinListValueBytesLimit, so a small list needs no lookup.
-	if size < builtins.MinListValueBytesLimit {
+// argsBelowSmallestLimit reports whether the count values on top of the
+// stack, as a list, are smaller than any max_list_value_bytes: OP_CHECK_ARGS's
+// dispatch fast path. Out of line, like the other fast-path helpers.
+func (vm *VM) argsBelowSmallestLimit(count int) bool {
+	return count <= vm.SP && types.ListBytes(vm.Stack[vm.SP-count:vm.SP]) < builtins.MinListValueBytesLimit
+}
+
+// executeCheckArgs runs OP_CHECK_ARGS: the arguments pushed so far, as the
+// list Toast would hold, against max_list_value_bytes.
+func (vm *VM) executeCheckArgs() error {
+	count := int(vm.FetchByte())
+	if count > vm.SP {
+		panic("stack underflow")
+	}
+	args := vm.Stack[vm.SP-count : vm.SP]
+	size := types.ListBytes(args)
+	if size < builtins.MinListValueBytesLimit || args[0].IsNone() {
 		return nil
 	}
-	// OP_LIST_ADD_TAIL refuses only a list of more than max_list_value_bytes.
-	if limit := vm.Builtins.ListValueLimitForTask(vm.Context); limit > 0 && size > limit {
-		return vm.quotaError("list too large")
+	if limit := vm.Builtins.ListValueLimitForTask(vm.Context); limit <= 0 || size <= limit {
+		return nil
 	}
-	return nil
+	if !vm.Builtins.MaxConcatCatchable(vm.Context) {
+		return secondsAbort{}
+	}
+	if frame := vm.CurrentFrame(); frame != nil && !frame.VerbDebug {
+		args[0] = types.None
+		return nil
+	}
+	return newMooError(types.E_QUOTA, "list too large")
 }
 
 // Unwinding may replace a lifecycle callback's error while the outward MOO

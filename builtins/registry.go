@@ -216,14 +216,6 @@ func (s *Session) CallByIDWithExecution(id int, ctx *Execution, args []types.Val
 		return types.Err(types.E_INVARG)
 	}
 	ctx.ensureStoreTxn()
-	// Toast builds a call's arguments as a list (OP_LIST_ADD_TAIL) and holds it
-	// to max_list_value_bytes before calling; the VM's own call path is the
-	// place that list would exist. A spliced list is checked by the VM.
-	if len(args) >= 2 && s.ListLimitLowered(ctx.Context) {
-		if over, result := s.argListOverLimit(ctx, args); over {
-			return result
-		}
-	}
 	return s.dispatch(r.entries[id], ctx, args)
 }
 

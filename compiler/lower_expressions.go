@@ -247,36 +247,12 @@ func (c *lowerer) compileBuiltinCall(n *ir.BuiltinCallExpr) error {
 			return fmt.Errorf("too many arguments (max 254)")
 		}
 
-		if hasSplice {
-			// Build a single flattened arg list on-stack; bytecode.OP_PASS 0xFF consumes it.
-			c.emit(bytecode.OP_MAKE_LIST)
-			c.emitByte(0)
-			for _, arg := range n.Args {
-				if splice, ok := arg.(*ir.SpliceExpr); ok {
-					if err := c.compileNode(splice.Expr); err != nil {
-						return err
-					}
-					c.emit(bytecode.OP_LIST_EXTEND)
-				} else {
-					if err := c.compileNode(arg); err != nil {
-						return err
-					}
-					c.emit(bytecode.OP_LIST_APPEND)
-				}
-			}
-			c.emit(bytecode.OP_PASS)
-			c.emitByte(0xFF)
-			return nil
-		}
-
-		// Compile fixed arguments directly onto the stack.
-		for _, arg := range n.Args {
-			if err := c.compileNode(arg); err != nil {
-				return err
-			}
+		argc, err := c.compileCallArgs(n.Args)
+		if err != nil {
+			return err
 		}
 		c.emit(bytecode.OP_PASS)
-		c.emitByte(byte(len(n.Args)))
+		c.emitByte(argc)
 		return nil
 	}
 
@@ -292,34 +268,11 @@ func (c *lowerer) compileBuiltinCall(n *ir.BuiltinCallExpr) error {
 		return fmt.Errorf("too many arguments (max 254)")
 	}
 
-	if hasSplice {
-		// Splice path: build args list incrementally using bytecode.OP_LIST_APPEND/EXTEND
-		c.emit(bytecode.OP_MAKE_LIST)
-		c.emitByte(0)
-		for _, arg := range n.Args {
-			if splice, ok := arg.(*ir.SpliceExpr); ok {
-				if err := c.compileNode(splice.Expr); err != nil {
-					return err
-				}
-				c.emit(bytecode.OP_LIST_EXTEND)
-			} else {
-				if err := c.compileNode(arg); err != nil {
-					return err
-				}
-				c.emit(bytecode.OP_LIST_APPEND)
-			}
-		}
-		// argc=0xFF signals that args list is on top of stack
-		c.emitCallBuiltin(funcID, 0xFF)
-	} else {
-		// Fast path: no splices, push args directly
-		for _, arg := range n.Args {
-			if err := c.compileNode(arg); err != nil {
-				return err
-			}
-		}
-		c.emitCallBuiltin(funcID, byte(len(n.Args)))
+	argc, err := c.compileCallArgs(n.Args)
+	if err != nil {
+		return err
 	}
+	c.emitCallBuiltin(funcID, argc)
 
 	return nil
 }
@@ -510,30 +463,9 @@ func (c *lowerer) compileVerbCall(n *ir.VerbCallExpr) error {
 		return fmt.Errorf("too many verb arguments (max 254)")
 	}
 
-	if hasSplice {
-		// Splice path: build args list incrementally using bytecode.OP_LIST_APPEND/EXTEND
-		c.emit(bytecode.OP_MAKE_LIST)
-		c.emitByte(0)
-		for _, arg := range n.Args {
-			if splice, ok := arg.(*ir.SpliceExpr); ok {
-				if err := c.compileNode(splice.Expr); err != nil {
-					return err
-				}
-				c.emit(bytecode.OP_LIST_EXTEND)
-			} else {
-				if err := c.compileNode(arg); err != nil {
-					return err
-				}
-				c.emit(bytecode.OP_LIST_APPEND)
-			}
-		}
-	} else {
-		// Fast path: no splices, push args directly
-		for _, arg := range n.Args {
-			if err := c.compileNode(arg); err != nil {
-				return err
-			}
-		}
+	argc, err := c.compileCallArgs(n.Args)
+	if err != nil {
+		return err
 	}
 
 	if isDynamic {
@@ -551,11 +483,7 @@ func (c *lowerer) compileVerbCall(n *ir.VerbCallExpr) error {
 		return fmt.Errorf("verb call has neither static name nor dynamic expression")
 	}
 
-	if hasSplice {
-		c.emitByte(0xFF) // signal: args list is on stack
-	} else {
-		c.emitByte(byte(len(n.Args)))
-	}
+	c.emitByte(argc)
 
 	return nil
 }
@@ -663,6 +591,76 @@ func (c *lowerer) compileCatch(n *ir.CatchExpr) error {
 	c.patchJump(endJump)
 
 	return nil
+}
+
+// compileCallArgs compiles a builtin, verb or pass() call's arguments and
+// returns the call's argc operand. Toast builds them as a list
+// (code_gen.cc generate_arg_list) and holds each prefix after the first
+// argument to max_list_value_bytes as it is built.
+//
+// With a splice Barn builds that list the same way and passes it whole
+// (argc 0xFF): the first argument is a singleton (OP_MAKE_LIST 1, Toast's
+// unchecked OP_MAKE_SINGLETON_LIST) or a checked-to-be-a-list splice (OP_SPLICE,
+// Toast's OP_CHECK_LIST_FOR_SPLICE), and later ones join through
+// OP_LIST_APPEND / OP_LIST_EXTEND, which check the limit. The first
+// argument's tick is the call's (bytecode.DynamicTicks), so those two carry
+// none.
+//
+// Without one the arguments stay on the stack (argc = their count); the call
+// checks them all, and OP_CHECK_ARGS checks the prefix before each later
+// argument that could fail or have an effect. A literal cannot, nor can a
+// read of a variable a finished top-level assignment bound (it cannot raise
+// E_VARNF, and OP_GET_VAR charges no tick), so a check before one may wait for
+// the next: prefixes only grow.
+func (c *lowerer) compileCallArgs(args []ir.Expr) (byte, error) {
+	if hasSpliceArgs(args) {
+		for i, arg := range args {
+			splice, spliced := arg.(*ir.SpliceExpr)
+			expr := arg
+			if spliced {
+				expr = splice.Expr
+			}
+			if err := c.compileNode(expr); err != nil {
+				return 0, err
+			}
+			switch {
+			case i == 0 && spliced:
+				c.emitTicks(0)
+				c.emit(bytecode.OP_SPLICE)
+			case i == 0:
+				c.emitTicks(0)
+				c.emit(bytecode.OP_MAKE_LIST)
+				c.emitByte(1)
+			case spliced:
+				c.emit(bytecode.OP_LIST_EXTEND)
+			default:
+				c.emit(bytecode.OP_LIST_APPEND)
+			}
+		}
+		return 0xFF, nil
+	}
+	for i, arg := range args {
+		if i >= 2 && !c.cannotFailOrAct(arg) {
+			c.emit(bytecode.OP_CHECK_ARGS)
+			c.emitByte(byte(i))
+		}
+		if err := c.compileNode(arg); err != nil {
+			return 0, err
+		}
+	}
+	return byte(len(args)), nil
+}
+
+// cannotFailOrAct reports whether evaluating arg can neither raise nor have
+// an effect: a literal, or a variable that is surely bound.
+func (c *lowerer) cannotFailOrAct(arg ir.Expr) bool {
+	switch e := arg.(type) {
+	case *ir.LiteralExpr:
+		return true
+	case *ir.IdentifierExpr:
+		return c.bound[e.Name]
+	}
+	return false
 }
 
 // hasSpliceArgs checks if any argument in a list is a splice expression.

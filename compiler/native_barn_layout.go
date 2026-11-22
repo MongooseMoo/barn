@@ -113,13 +113,22 @@ func (s *barnImportLayout) markRangeStart(c *lowerer, loop *ir.RangeLoopStmt) {
 	}
 }
 
-// leadingSplice reports whether node is a list whose first element is @expr.
+// leadingSplice reports whether node is a list, or a call whose argument
+// list, starts with @expr.
 func leadingSplice(node ir.Node) bool {
-	list, ok := node.(*ir.ListExpr)
-	if !ok || len(list.Elements) == 0 {
+	var elements []ir.Expr
+	switch n := node.(type) {
+	case *ir.ListExpr:
+		elements = n.Elements
+	case *ir.BuiltinCallExpr:
+		elements = n.Args
+	case *ir.VerbCallExpr:
+		elements = n.Args
+	}
+	if len(elements) == 0 {
 		return false
 	}
-	_, splice := list.Elements[0].(*ir.SpliceExpr)
+	_, splice := elements[0].(*ir.SpliceExpr)
 	return splice
 }
 
@@ -229,6 +238,10 @@ func (s *barnImportLayout) flush(c *lowerer) {
 		s.locals[int(operands[0])] = consumed[0]
 	case op == bytecode.OP_DUP:
 		value = consumed[0]
+	case op == bytecode.OP_CHECK_ARGS:
+		// The arguments it checks stay where they are.
+		s.stack = append(s.stack, consumed...)
+		return
 	case op == bytecode.OP_MAKE_LIST && operands[0] == 0:
 		// A spliced argument list starts empty before its first argument,
 		// where Toast holds no list yet; the value is always {}.

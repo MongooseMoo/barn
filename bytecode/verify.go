@@ -297,6 +297,8 @@ func InstructionStackEffect(op OpCode, operand []byte) (pops, pushes int, err er
 		return 2, 0, nil
 	case OP_MAKE_LIST:
 		return int(operand[0]), 1, nil
+	case OP_CHECK_ARGS: // reads the arguments in place
+		return int(operand[0]), int(operand[0]), nil
 	case OP_MAKE_MAP:
 		return 2 * int(operand[0]), 1, nil
 	case OP_CALL_BUILTIN:
@@ -347,7 +349,7 @@ func decodeInstructions(code []byte) (map[int]bool, []decodedInstruction, error)
 		if op.String() == "UNKNOWN" {
 			return nil, nil, fmt.Errorf("unknown opcode %d at byte %d", op, ip)
 		}
-		if op == OP_CONTINUE || op == OP_CATCH || op == OP_SCATTER_TAKE {
+		if op == OP_CONTINUE || op == OP_CATCH {
 			return nil, nil, fmt.Errorf("dead opcode %s at byte %d", op, ip)
 		}
 		ip++

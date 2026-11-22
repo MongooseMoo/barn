@@ -13,8 +13,12 @@ func (vm *VM) executeMakeList() error {
 	}
 	elements := vm.PopN(int(count))
 	result := types.NewList(elements)
-	if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, result); errCode != types.E_NONE {
-		return vm.quotaError("list too large")
+	// A one-element list is Toast's OP_MAKE_SINGLETON_LIST, which no limit
+	// checks; the first element of a list literal or a spliced argument list.
+	if count > 1 {
+		if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, result); errCode != types.E_NONE {
+			return vm.quotaError("list too large")
+		}
 	}
 	vm.Push(result)
 	return nil

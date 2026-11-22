@@ -385,6 +385,7 @@ const (
 	fkPushInt
 	fkForListCheck
 	fkForListLoadValue
+	fkCheckArgs
 )
 
 var fastKinds = func() (t [256]uint8) {
@@ -416,6 +417,7 @@ var fastKinds = func() (t [256]uint8) {
 	t[bytecode.OP_PUSH_INT] = fkPushInt
 	t[bytecode.OP_FOR_LIST_CHECK_WIDE] = fkForListCheck
 	t[bytecode.OP_FOR_LIST_LOAD_VALUE] = fkForListLoadValue
+	t[bytecode.OP_CHECK_ARGS] = fkCheckArgs
 	return t
 }()
 
@@ -924,6 +926,12 @@ func (vm *VM) executeLoop() types.Result {
 			case fkLoop:
 				ip += 5 - wideOperand(code, ip+1)
 				continue
+			case fkCheckArgs:
+				// Tick-free; a prefix below the smallest limit needs nothing else.
+				if vm.argsBelowSmallestLimit(int(code[ip+1])) {
+					ip += 2
+					continue
+				}
 			}
 			break
 		}
@@ -1439,6 +1447,8 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		return vm.executeMakeMap()
 	case bytecode.OP_CHECK_MAP_LIMIT:
 		return vm.executeCheckMapLimit()
+	case bytecode.OP_CHECK_ARGS:
+		return vm.executeCheckArgs()
 	case bytecode.OP_LENGTH:
 		return vm.executeLength()
 	case bytecode.OP_INDEX_MARKER:
