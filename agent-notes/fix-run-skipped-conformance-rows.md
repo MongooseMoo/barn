@@ -184,7 +184,33 @@ back.
 
 ### Final run
 
-(pending)
+This branch's build, full managed suite, start load 1.67, end 2.06, exit 0:
+14217 rows, 14088 passed, 0 failed, 129 skipped, 1481 s. Skips: 53 Requires
+feature: fork; 21 Requires feature: forking; 30 Incompatible with feature:
+64bit; 19 Requires config 'named_log_file'; 4 Incompatible with option:
+OUTBOUND_NETWORK; 2 Requires config 'unprivileged_posix' (root in WSL only).
+Per gated file: index_and_range 130 passed, anonymous 56,
+anonymous_value_authority 2, exec_call_shapes 1, command_parsing 4,
+toastcore_interactive_lifecycle 5; task_scheduling 33, task_local 20, exec 17,
+signals_children 4 skipped.
+
+Skipped before: 325 of 14182 in the audit's Barn CI run 44957650964 (an older
+suite). I ran no local baseline on master; the diagnostic run's 55 skips plus
+the 272 gated rows give 327 for this suite locally, of which 2 are the
+local-only unprivileged_posix skips. After: 129 locally, 127 excluding those 2,
+so 198 fewer.
+
+Gates on this branch: `gofmt -l` over tracked .go files empty; `go vet ./...`
+ok; `staticcheck ./...` ok; `golangci-lint run ./...` 0 issues; `go build ./...`
+ok; `go test ./...` exit 0.
+
+### Why db/format/reader.go changed
+
+No row failed there and no Toast behaviour is involved. The reader's header
+`switch` became the exported `HeaderVersion` so `feature.toastcore_fixture`
+is derived from what the reader loads (Format Version 17, the header of
+`_db/startup/toastcore/toastcore.db`) instead of a hard-coded `true`. The
+reader calls the same function, so the accepted headers are unchanged.
 
 ## Not in this stage
 
