@@ -370,7 +370,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 			state.Failed()
 			return fmt.Errorf("recover checkpoint publication: %w", err)
 		}
-		manifest, err := profile.BuildManifest(profile.BuildInput{ProfileID: cfg.ProfileID, ImplementationRef: gitImplementationRef(), DatabasePath: cfg.DatabasePath, ConfigPath: cfg.ConfigPath, Options: options, Registry: srv.BuiltinRegistry()})
+		manifest, err := profile.BuildManifest(profile.BuildInput{ProfileID: cfg.ProfileID, ImplementationRef: gitImplementationRef(), DatabasePath: cfg.DatabasePath, ConfigPath: cfg.ConfigPath, Options: options, Registry: srv.BuiltinRegistry(), CommandDispatch: len(specs) > 0})
 		if err != nil {
 			return fmt.Errorf("build profile manifest: %w", err)
 		}
