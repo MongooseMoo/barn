@@ -74,11 +74,11 @@ func TestMathCRFastPathIsCorrectlyRounded(t *testing.T) {
 			return v.Quo(v, logBig(10, p+8))
 		}, []func() float64{logUniform(-323, 308, false), uniform(0.5, 20)}},
 		{"sin", mathSin, func(x float64, p uint) *big.Float { s, _ := sinCosBig(x, p); return s },
-			[]func() float64{uniform(-10, 10), logUniform(-20, 9, true)}},
+			[]func() float64{uniform(-10, 10), logUniform(-20, 9, true), logUniform(9, 308, true)}},
 		{"cos", mathCos, func(x float64, p uint) *big.Float { _, c := sinCosBig(x, p); return c },
-			[]func() float64{uniform(-10, 10), logUniform(-20, 9, true)}},
+			[]func() float64{uniform(-10, 10), logUniform(-20, 9, true), logUniform(9, 308, true)}},
 		{"tan", mathTan, func(x float64, p uint) *big.Float { s, c := sinCosBig(x, p+2); return s.Quo(s, c) },
-			[]func() float64{uniform(-10, 10), logUniform(-20, 9, true)}},
+			[]func() float64{uniform(-10, 10), logUniform(-20, 9, true), logUniform(9, 308, true)}},
 		{"asin", mathAsin, asinBig,
 			[]func() float64{uniform(-1, 1), logUniform(-20, 0, true)}},
 		{"acos", mathAcos, func(x float64, p uint) *big.Float {

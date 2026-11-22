@@ -585,20 +585,36 @@ func sinQuadrant(k int, tp *trigParts) (hi, lo, err float64) {
 	return hi, lo, err
 }
 
+// reduceAny writes x = k pi/2 + (rh + rl) for a finite x != 0, by
+// reduceHalfPi below 2^30 and reduceLarge above; ok is false when neither
+// can (r too close to 0 for reduceLarge's precision).
+func reduceAny(x float64) (k int, rh, rl, err float64, ok bool) {
+	if math.Abs(x) < 0x1p30 {
+		k, rh, rl, err = reduceHalfPi(x)
+		return k, rh, rl, err, true
+	}
+	return reduceLarge(x)
+}
+
+// finiteNonzero reports whether x is finite and not zero (NaN fails).
+func finiteNonzero(x float64) bool { return x != 0 && math.Abs(x) <= math.MaxFloat64 }
+
 // mathSin returns sin x correctly rounded.
 func mathSin(x float64) float64 {
+	if !finiteNonzero(x) {
+		return math.Sin(x)
+	}
 	if trigArg(x) {
 		if r, ok := trigFast(x, 0); ok {
 			return r
 		}
-		k, rh, rl, rerr := reduceHalfPi(x)
+	}
+	if k, rh, rl, rerr, ok := reduceAny(x); ok {
 		tp := newTrigParts(rh, rl)
 		hi, lo, err := sinQuadrant(k, &tp)
 		if r, ok := zivRound(hi, lo, err+rerr); ok {
 			return r
 		}
-	} else if !(math.Abs(x) <= math.MaxFloat64) || x == 0 {
-		return math.Sin(x)
 	}
 	return zivBig(func(prec uint) *big.Float { s, _ := sinCosBig(x, prec); return s })
 }
@@ -608,18 +624,20 @@ func mathCos(x float64) float64 {
 	if x == 0 {
 		return 1
 	}
+	if !finiteNonzero(x) {
+		return math.Cos(x)
+	}
 	if trigArg(x) {
 		if r, ok := trigFast(x, 1); ok {
 			return r
 		}
-		k, rh, rl, rerr := reduceHalfPi(x)
+	}
+	if k, rh, rl, rerr, ok := reduceAny(x); ok {
 		tp := newTrigParts(rh, rl)
 		hi, lo, err := sinQuadrant(k+1, &tp)
 		if r, ok := zivRound(hi, lo, err+rerr); ok {
 			return r
 		}
-	} else if !(math.Abs(x) <= math.MaxFloat64) {
-		return math.Cos(x)
 	}
 	return zivBig(func(prec uint) *big.Float { _, c := sinCosBig(x, prec); return c })
 }
@@ -627,16 +645,20 @@ func mathCos(x float64) float64 {
 // mathTan returns tan x correctly rounded: sin r / cos r for even k, and
 // -cos r / sin r for odd k, divided in double-double with one division.
 func mathTan(x float64) float64 {
+	if !finiteNonzero(x) {
+		return math.Tan(x)
+	}
 	if trigArg(x) {
 		if r, ok := tanFast(x); ok {
 			return r
 		}
-		k, rh, rl, rerr := reduceHalfPi(x)
+	}
+	if k, rh, rl, rerr, ok := reduceAny(x); ok {
 		tp := newTrigParts(rh, rl)
 		sh, sl, serr := tp.sinPart()
 		ch, cl, cerr := tp.cosPart()
 		nh, nl, nerr, dh, dl, derr := sh, sl, serr+rerr, ch, cl, cerr+rerr
-		if k&1 == 1 {
+		if k&1 != 0 {
 			nh, nl, nerr, dh, dl, derr = -ch, -cl, cerr+rerr, sh, sl, serr+rerr
 		}
 		if nh != 0 && dh != 0 {
@@ -649,8 +671,6 @@ func mathTan(x float64) float64 {
 				return r
 			}
 		}
-	} else if !(math.Abs(x) <= math.MaxFloat64) || x == 0 {
-		return math.Tan(x)
 	}
 	return zivBig(func(prec uint) *big.Float {
 		s, c := sinCosBig(x, prec+2)

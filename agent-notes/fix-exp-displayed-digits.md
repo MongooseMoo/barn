@@ -272,6 +272,33 @@ before, 9% after), ns/op Barn / Go: exp 18.8 / 14.9 (master's Exp2 form
 transcripts of this build (exp, sin, cos, tan, asin, acos, log, log10, sinh,
 cosh) are byte-identical to the verified ones.
 
+### Table construction at first use (lead item 3)
+
+Tried: `sync.Once` around `initMathTables`, called at the top of each of the
+eight functions (the fast path is one inlined atomic load). A/B against the
+init version (overlay), 3 rounds x `-count=3` interleaved, CPU load 100%,
+50%, 59% (could not get a quiet machine): exp ~ (p=0.982), log ~ (0.339),
+log10 -0.9% (0.023), sin +1.8% (0.005), cos ~ (0.258), asin ~ (0.214),
+acos +4.8% (0.000), geomean +1.2%. That is measurable per call, so the
+tables stay at package init (0.5-1.1 ms once per process).
+
+### sin/cos/tan at |x| >= 2^30 (lead item 5)
+
+Before (math/big path for every such argument), `-benchtime=2000x`, load
+62%: sin 31.3 us, cos 32.3 us, tan 29.4 us for 2^30..2^40; 33.8 / 34.0 /
+39.5 us for 2^40..2^100; 146.8 / 139.3 / 138.9 us for 2^100..2^1023 (Go's
+`math.Sin` 22-25 ns). A defect on the same path, so fixed:
+`builtins/math_trig_reduce.go` reduces |x| >= 2^30 by Payne and Hanek's
+method (written from the method: the 53-bit mantissa times a 192-bit window
+of 2/pi's bits, quadrant and 190 fraction bits; the bits of 2/pi are
+computed with math/big on the first such argument, not at init), then the
+2^-75 path and Ziv's test; math/big only when the reduced argument is below
+2^-37 or the test fails. After, load 100%: sin 86 / 91 / 295 ns, cos 86 /
+92 / 189 ns, tan 107 / 403 / 383 ns for the three ranges (Go: sin 22 / 25
+/ 72 ns, tan 27 / 40 / 154 ns at the same load). The fast-vs-slow test now
+also draws sin/cos/tan arguments log-uniform in 1e9..1e308, and the sweep
+transcripts (350 sin arguments at 1e9 and above) are identical.
+
 ## Decisions and why
 
 - Correctly rounded rather than anything else: it is the only target that
