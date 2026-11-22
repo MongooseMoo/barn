@@ -639,6 +639,30 @@ func TestCheckpointReloadsSuspendInCatchHandler(t *testing.T) {
 	}
 }
 
+// Issue #1115: codes that are not all error literals live in a compiler
+// temporary while the guarded code runs. The import layout kept that
+// temporary live in the handlers too, where Toast has unwound the codes
+// operand, so Barn refused its own checkpoint of a task suspended in a
+// handler ("native continuation lacks 8 value from *ir.CatchExpr").
+func TestCheckpointReloadsSuspendInHandlerWithComputedCodes(t *testing.T) {
+	for _, tc := range []struct{ source, want string }{
+		{"return `1/0 ! E_DIV, \"a\" => {7, suspend(0)}';", "{7, 0}"},
+		{"return `1/0 ! E_DIV, \"a\" => `2/0 ! E_DIV, {} => suspend(0)'';", "0"},
+		{"try 1/0; except (E_DIV, \"a\") return {8, suspend(0)}; endtry", "{8, 0}"},
+		{"try 1/0; except (E_TYPE, \"a\") return 0; except e (E_DIV, {}) return {e[1], suspend(0)}; endtry", "{E_DIV, 0}"},
+	} {
+		registry := newCheckpointResumeRegistry(t)
+		program, diagnostics := registry.Compiler().CompileMOO([]string{tc.source})
+		if len(diagnostics) != 0 {
+			t.Fatal(diagnostics)
+		}
+		results, _, checkpoints := runCheckpointResumeCase(t, registry, program, checkpointSuspendedVM, sourceFuzzTicks, false)
+		if checkpoints != 1 || len(results) != 1 || results[0].Flow != types.FlowReturn || results[0].Val.String() != tc.want {
+			t.Errorf("%s: %d checkpoints, results %v; want 1 checkpoint and one task returning %s", tc.source, checkpoints, results, tc.want)
+		}
+	}
+}
+
 // A checkpoint writes every variable of the suspended task and of each queued
 // fork in full, as Toast's write_forked_task and write_activ do (tasks.cc:1911,
 // execute.cc:3979), while in memory they share one value. This program holds

@@ -627,6 +627,9 @@ func (c *lowerer) compileCatch(n *ir.CatchExpr) error {
 	// Normal path: pop the except handler
 	c.emit(bytecode.OP_END_EXCEPT)
 	c.emitByte(1) // 1 clause, matching the bytecode.OP_TRY_EXCEPT above
+	if c.importLayout != nil {
+		c.importLayout.releaseExceptCodes(c, codes)
+	}
 
 	// Jump past the handler body
 	endJump := c.emitJump(bytecode.OP_JUMP)

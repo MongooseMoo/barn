@@ -497,6 +497,11 @@ func (c *lowerer) compileTry(n *ir.TryStmt) error {
 		c.handlerDepth -= numHandlers
 		c.emit(bytecode.OP_END_EXCEPT)
 		c.emitByte(byte(numHandlers))
+		if c.importLayout != nil {
+			for _, codes := range clauseCodes {
+				c.importLayout.releaseExceptCodes(c, codes)
+			}
+		}
 		endHandlersJump := c.emitJump(bytecode.OP_JUMP)
 		handlerEndJumps := make([]int, 0, numHandlers-1)
 

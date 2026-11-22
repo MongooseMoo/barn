@@ -92,6 +92,17 @@ func (s *barnImportLayout) markExceptionCodes(c *lowerer, owner ir.Node, clause 
 	}
 }
 
+// releaseExceptCodes ends the life of the compiler temporary holding computed
+// codes (prepareExceptCodes) once the guarded body is done. Handler bodies run
+// after dispatch, where Toast has unwound the codes operand, so a call in a
+// handler holds no value for them.
+func (s *barnImportLayout) releaseExceptCodes(c *lowerer, codes []byte) {
+	s.flush(c)
+	if len(codes) == 3 && codes[0] == 2 && codes[1] == bytecode.ExceptCodesInLocal {
+		delete(s.locals, int(codes[2]))
+	}
+}
+
 // markRangeStart names the operand on top of the stack as loop's evaluated
 // lower bound. Toast holds it as the loop's next value while it evaluates the
 // upper bound (code_gen.cc STMT_RANGE; nativeVector.stmt names it the same).
