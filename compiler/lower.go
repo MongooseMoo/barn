@@ -42,6 +42,10 @@ type lowerer struct {
 	err                   error                // First overflow/limit error; checked at Compile boundaries
 	importLayout          *barnImportLayout    // Set only while converting a native checkpoint.
 	forks                 []*ir.ForkStmt       // Fork statements in the order their instructions were emitted
+	// bound holds the variables a finished top-level `name = expr;` statement
+	// assigned: every later read of one finds it bound (MOO never unbinds a
+	// variable), so the read cannot raise E_VARNF. See compileCallArgs.
+	bound map[string]bool
 }
 
 func newLowerer(registry map[string]int) *lowerer {
@@ -61,6 +65,25 @@ func newLowerer(registry map[string]int) *lowerer {
 	}
 }
 
+// noteBound records the variable a finished top-level statement assigned,
+// when it is a plain `name = expr;`.
+func (c *lowerer) noteBound(stmt ir.Stmt) {
+	expr, ok := stmt.(*ir.ExprStmt)
+	if !ok {
+		return
+	}
+	assign, ok := expr.Expr.(*ir.AssignExpr)
+	if !ok {
+		return
+	}
+	if target, ok := assign.Target.(*ir.VariableTarget); ok {
+		if c.bound == nil {
+			c.bound = make(map[string]bool)
+		}
+		c.bound[target.Name] = true
+	}
+}
+
 // compileProgram compiles a semantic verb program to bytecode.
 // An implicit "return 0" is appended if no explicit return is present (MOO verbs
 // return 0 by default). When the last statement is a loop, its result value
@@ -74,10 +97,11 @@ func (c *lowerer) compileProgram(program *ir.Program) (*bytecode.Program, error)
 
 	if len(stmts) > 0 {
 		// Compile all but the last statement using compileBlock (which pops loop results)
-		if len(stmts) > 1 {
-			if err := c.compileBlock(stmts[:len(stmts)-1]); err != nil {
+		for _, stmt := range stmts[:len(stmts)-1] {
+			if err := c.compileBlock([]ir.Stmt{stmt}); err != nil {
 				return nil, err
 			}
+			c.noteBound(stmt)
 		}
 
 		// Compile the last statement directly (without auto-pop for loops)

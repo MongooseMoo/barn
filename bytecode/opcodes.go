@@ -197,11 +197,18 @@ const (
 // sequences of ordinary opcodes; these let the compiler state exactly which
 // instructions carry Toast's tick charges (see InstructionTicks).
 const (
-	OP_TICKS               OpCode = OP_CHECK_MAP_LIMIT + 1 + iota // Prefix [ticks:byte]: the next instruction charges ticks&0x7F instead of its default (PrefixTicks)
-	OP_SET_LOCAL                                                  // Pop and store to local [index] without a tick (compiler-internal stores)
-	OP_PUSH_INT                                                   // Push int64 immediate [value:8 bytes big-endian]
-	OP_SCATTER_TAKE                                               // DEAD: OP_SCATTER binds every target itself (never emitted by compiler)
-	OP_FOR_LIST_CHECK_WIDE                                        // for-in condition [idxVar,lenVar,exitOffset:uint32]: FOR_RANGE_CHECK_WIDE with Toast's EOP_FOR_LIST tick
+	OP_TICKS     OpCode = OP_CHECK_MAP_LIMIT + 1 + iota // Prefix [ticks:byte]: the next instruction charges ticks&0x7F instead of its default (PrefixTicks)
+	OP_SET_LOCAL                                        // Pop and store to local [index] without a tick (compiler-internal stores)
+	OP_PUSH_INT                                         // Push int64 immediate [value:8 bytes big-endian]
+	// OP_CHECK_ARGS [count:byte] reuses the number of OP_SCATTER_TAKE, which no
+	// compiler emitted and the decoder rejected, because every other byte is
+	// taken. It holds the count call arguments on top of the stack to
+	// max_list_value_bytes before the next argument is evaluated: Toast builds
+	// call arguments as a list and checks it as each argument joins
+	// (OP_LIST_ADD_TAIL), so an argument after the one that passes the limit
+	// never runs. The values stay on the stack, and it charges no tick.
+	OP_CHECK_ARGS
+	OP_FOR_LIST_CHECK_WIDE // for-in condition [idxVar,lenVar,exitOffset:uint32]: FOR_RANGE_CHECK_WIDE with Toast's EOP_FOR_LIST tick
 )
 
 // OP_CALL_BUILTIN_WIDE calls a builtin whose ID does not fit OP_CALL_BUILTIN's
@@ -242,6 +249,7 @@ const TicksUnchecked byte = 0x80
 // OpCodeNames maps opcodes to their string names for debugging
 var OpCodeNames = map[OpCode]string{
 	OP_UNWIND_JUMP:           "UNWIND_JUMP",
+	OP_CHECK_ARGS:            "CHECK_ARGS",
 	OP_PUSH:                  "PUSH",
 	OP_POP:                   "POP",
 	OP_DUP:                   "DUP",
@@ -333,7 +341,6 @@ var OpCodeNames = map[OpCode]string{
 	OP_TICKS:                 "TICKS",
 	OP_SET_LOCAL:             "SET_LOCAL",
 	OP_PUSH_INT:              "PUSH_INT",
-	OP_SCATTER_TAKE:          "DEAD_SCATTER_TAKE",
 	OP_FOR_LIST_CHECK_WIDE:   "FOR_LIST_CHECK_WIDE",
 	OP_CALL_BUILTIN_WIDE:     "CALL_BUILTIN_WIDE",
 	OP_ITER_PREP_COLUMNS:     "ITER_PREP_COLUMNS",
@@ -365,7 +372,7 @@ func instructionOperandCount(op OpCode, remaining []byte) int {
 	case OP_PUSH, OP_GET_VAR, OP_SET_VAR, OP_GET_PROP, OP_SET_PROP,
 		OP_END_EXCEPT, OP_MAKE_LIST, OP_MAKE_MAP, OP_INDEX_SET, OP_RANGE_SET,
 		OP_INDEX_MARKER, OP_ITER_PREP, OP_PASS, OP_CALL_VERB_DYNAMIC,
-		OP_TICKS, OP_SET_LOCAL:
+		OP_TICKS, OP_SET_LOCAL, OP_CHECK_ARGS:
 		return 1
 	case OP_PUSH_INT:
 		return 8

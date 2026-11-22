@@ -57,9 +57,6 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 			return newMooError(types.E_TYPE, "expected list for spliced builtin args")
 		}
 		args = splicedArgs(listVal)
-		if err := vm.checkSplicedArgsLimit(listVal); err != nil {
-			return err
-		}
 	} else {
 		n := int(argc)
 		if vm.SP < n {
@@ -68,6 +65,11 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 		if n > 0 {
 			args = vm.Stack[vm.SP-n : vm.SP]
 			vm.SP -= n
+		}
+		if n >= 2 {
+			if err := vm.checkArgList(args); err != nil {
+				return err
+			}
 		}
 	}
 
