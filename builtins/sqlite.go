@@ -17,6 +17,7 @@ import (
 	"modernc.org/libc"
 	_ "modernc.org/sqlite" // registers the "sqlite" database/sql driver
 	sqlite3 "modernc.org/sqlite/lib"
+	_ "modernc.org/sqlite/vec" // registers vec0 and the vector SQL functions
 )
 
 type sqliteHandle struct {

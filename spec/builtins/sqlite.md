@@ -10,6 +10,19 @@ Functions for embedded SQLite database operations (ToastStunt optional extension
 
 **Threading:** `sqlite_query()` and `sqlite_execute()` run in background threads to avoid blocking the server during long-running queries.
 
+### Vector search in Barn
+
+Barn includes [sqlite-vec](https://github.com/asg017/sqlite-vec) on connections opened by `sqlite_open()`. Use a `vec0` virtual table to store embeddings and query their nearest neighbors.
+
+```moo
+db = sqlite_open(":memory:");
+sqlite_query(db, "CREATE VIRTUAL TABLE embeddings USING vec0(embedding float[2])");
+sqlite_execute(db, "INSERT INTO embeddings(rowid, embedding) VALUES (1, ?), (2, ?)", {"[3,4]", "[0,0]"});
+rows = sqlite_execute(db, "SELECT rowid, distance FROM embeddings WHERE embedding MATCH ? AND k = 1 ORDER BY distance", {"[0,0]"});
+// => {{2, 0.0}}
+sqlite_close(db);
+```
+
 ---
 
 ## 1. Database Connection
