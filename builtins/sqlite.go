@@ -17,6 +17,7 @@ import (
 	"modernc.org/libc"
 	_ "modernc.org/sqlite" // registers the "sqlite" database/sql driver
 	sqlite3 "modernc.org/sqlite/lib"
+	_ "modernc.org/sqlite/vec" // registers vec0 and the vector SQL functions
 )
 
 type sqliteHandle struct {
@@ -362,13 +363,17 @@ func builtinSqliteOpen(ctx *Execution, args []types.Value) types.Result {
 	if _, err := conn.ExecContext(context.Background(), fmt.Sprintf("PRAGMA cache_size = -%d", ctx.RuntimeOptions.SQLiteCacheSizeKiB())); err != nil {
 		return fail(err.Error())
 	}
+	var setupErr error
 	if err := sqliteWithConnection(handle, func(tls *libc.TLS, db uintptr) {
 		handle.mu.Lock()
 		handle.rawDB = db
-		sqliteSetUpConnection(tls, db, handle.limits)
+		setupErr = sqliteSetUpConnection(tls, db, handle.limits)
 		handle.mu.Unlock()
 	}); err != nil {
 		return fail(err.Error())
+	}
+	if setupErr != nil {
+		return fail(setupErr.Error())
 	}
 	return types.Ok(types.NewInt(handle.id))
 }
