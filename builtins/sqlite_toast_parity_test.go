@@ -116,6 +116,34 @@ func sqliteExecText(t *testing.T, ctx *Execution, h int64, query string, params 
 	return sqliteMustResult(t, builtinSqliteExecute(ctx, []types.Value{types.NewInt(h), types.NewStr(query), types.NewList(params)})).String()
 }
 
+func TestSqliteRealColumnsUseFifteenDigitText(t *testing.T) {
+	ctx := sqliteWizardCtx()
+	defer sqliteCloseAllHandles(ctx)
+	handle := sqliteMustResult(t, builtinSqliteOpen(ctx, []types.Value{types.NewStr(":memory:")}))
+	addend := 0.1
+	computed := builtinSqliteQuery(ctx, []types.Value{handle, types.NewStr("SELECT 0.1 + 0.2")})
+	bound := builtinSqliteExecute(ctx, []types.Value{
+		handle, types.NewStr("SELECT ?"), types.NewList([]types.Value{types.NewFloat(addend + 0.2)}),
+	})
+	for _, tc := range []struct {
+		name   string
+		result types.Result
+	}{
+		{"sqlite_query", computed},
+		{"sqlite_execute", bound},
+	} {
+		rows := sqliteMustList(t, sqliteMustResult(t, tc.result))
+		value := sqliteMustList(t, rows.Get(1)).Get(1)
+		if value.Type() != types.TYPE_FLOAT {
+			t.Errorf("%s returned %v, want a float", tc.name, value)
+			continue
+		}
+		if got := value.Float(); got != 0.3 {
+			t.Errorf("%s returned %.17g, want 0.3", tc.name, got)
+		}
+	}
+}
+
 // Expected values are stock Toast's, from the managed conformance run of
 // sqlite_toast_parity.yaml.
 func TestSqliteStatementsRunAsToastDoes(t *testing.T) {

@@ -526,13 +526,22 @@ var (
 	}()
 )
 
-// sqliteSetUpConnection does what bf_sqlite_open does to a new connection
-// besides opening it: register REGEXP. It also gives the connection Toast's
-// library's limits. It returns the sqlite3* for interrupt and limit calls.
-func sqliteSetUpConnection(tls *libc.TLS, db uintptr, limits map[int64]int64) {
+// sqliteSetUpConnection registers REGEXP and matches the SQLite limits and
+// REAL-to-text precision of the Toast oracle.
+func sqliteSetUpConnection(tls *libc.TLS, db uintptr, limits map[int64]int64) error {
+	// SQLite 3.52 changed the default from 15 digits to round-trip precision.
+	// Both MOO query builtins convert REAL results through SQLite's text API.
+	const argsSize = 2 * 8 // ccgo uses 8-byte slots for variadic arguments.
+	args := tls.Alloc(argsSize)
+	defer tls.Free(argsSize)
+	if rc := sqlite3.Xsqlite3_db_config(tls, db, sqlite3.SQLITE_DBCONFIG_FP_DIGITS, libc.VaList(args, 15, uintptr(0))); rc != sqlite3.SQLITE_OK {
+		return fmt.Errorf("setting SQLite floating-point text precision: %s", libc.GoString(sqlite3.Xsqlite3_errstr(tls, rc)))
+	}
+
 	sqlite3.Xsqlite3_create_function(tls, db, sqliteRegexpName, 2,
 		sqlite3.SQLITE_UTF8|sqlite3.SQLITE_DETERMINISTIC, 0, sqliteRegexpFn, 0, 0)
 	for category, value := range limits {
 		sqliteApplyLimit(db, category, value)
 	}
+	return nil
 }
