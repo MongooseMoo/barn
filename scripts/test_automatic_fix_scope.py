@@ -6,6 +6,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from automatic_fix_scope import out_of_scope  # noqa: E402
 
 SEED = ("A", "vm/testdata/fuzz/FuzzRestore/0123abcd", 0)
+FIX = ("M", "builtins/strings.go", 2)
+ADMISSION = "test_capability_admission"
+TEST = "test_yaml_conformance[strsub_case.yaml::strsub_preserves_case]"
+GREEN = {"exit": 0, "passed": [ADMISSION, TEST], "failed": [], "skipped": []}
+RED = {"exit": 1, "passed": [ADMISSION], "failed": [TEST], "skipped": []}
+
+
+def evidence(toast=GREEN, base=RED, head=GREEN):
+    """The record claude-fix.yml writes after running the conformance branch's added tests."""
+    return {"files": ["src/moo_conformance/_tests/builtins/strsub_case.yaml"],
+            "runs": {"toast": toast, "barn_base": base, "barn_head": head}}
 
 
 class OutOfScopeTests(unittest.TestCase):
@@ -51,6 +62,44 @@ class OutOfScopeTests(unittest.TestCase):
         # changes() runs git with --no-renames, so a rename arrives as D plus A.
         self.assertEqual(out_of_scope([SEED, ("D", "vm/a_test.go", 9), ("A", "vm/b_test.go", 0)]),
                          ["deletes Go test vm/a_test.go"])
+
+
+class ConformanceEvidenceTests(unittest.TestCase):
+    NO_PROOF = "adds no fuzz input under testdata/fuzz, so nothing proves it fixes a reproduced failure"
+
+    def test_fuzz_input_alone_is_in_scope(self):
+        self.assertEqual(out_of_scope([SEED, FIX]), [])
+
+    def test_conformance_red_green_is_in_scope(self):
+        self.assertEqual(out_of_scope([FIX], evidence()), [])
+
+    def test_base_passing_is_out_of_scope(self):
+        self.assertEqual(out_of_scope([FIX], evidence(base=GREEN)), [self.NO_PROOF])
+
+    def test_toast_failing_is_out_of_scope(self):
+        self.assertEqual(out_of_scope([FIX], evidence(toast=RED)), [self.NO_PROOF])
+
+    def test_head_failing_is_out_of_scope(self):
+        self.assertEqual(out_of_scope([FIX], evidence(head=RED)), [self.NO_PROOF])
+
+    def test_no_evidence_and_no_input_is_out_of_scope(self):
+        self.assertEqual(out_of_scope([FIX]), [self.NO_PROOF])
+
+    def test_base_that_never_admitted_is_not_red(self):
+        # A Barn that cannot start fails admission too; that is not the test failing.
+        broken = {"exit": 1, "passed": [], "failed": [ADMISSION, TEST], "skipped": []}
+        self.assertEqual(out_of_scope([FIX], evidence(base=broken)), [self.NO_PROOF])
+
+    def test_runs_must_select_the_same_non_empty_tests(self):
+        other = {"exit": 0, "passed": [ADMISSION, TEST + "x"], "failed": [], "skipped": []}
+        self.assertEqual(out_of_scope([FIX], evidence(head=other)), [self.NO_PROOF])
+        only_admission = {"exit": 0, "passed": [ADMISSION], "failed": [], "skipped": []}
+        self.assertEqual(out_of_scope([FIX], evidence(only_admission, only_admission, only_admission)),
+                         [self.NO_PROOF])
+
+    def test_evidence_does_not_excuse_touching_a_check(self):
+        self.assertEqual(out_of_scope([FIX, ("M", "profiles/barn/outbound-on.conf", 1)], evidence()),
+                         ["changes runtime or oracle profile profiles/barn/outbound-on.conf"])
 
 
 if __name__ == "__main__":
