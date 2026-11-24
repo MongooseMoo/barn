@@ -10,9 +10,13 @@ run-name: "Repair #${{ inputs.issue_number || github.event.issue.number || githu
 # Its pull requests carry the `automatic-fix` label. Before a repair can merge,
 # a second Claude run writes a MOO conformance test for the fixed behaviour and
 # runs it on Toast and on the repair's Barn; the test goes to a pull request in
-# moo-conformance-tests, whose CI runs it on Toast. A repair then enters the
-# merge queue with no person reading it when both of these hold:
-#   - scripts/automatic_fix_scope.py, taken from master, finds it in scope;
+# moo-conformance-tests, whose CI runs it on Toast. When that run writes a
+# test, this workflow runs the test itself with the managed harness on Toast,
+# on Barn built at the merge base and on Barn built at the repair's head, and
+# records the three results as the scope rule's conformance evidence. A repair
+# then enters the merge queue with no person reading it when these hold:
+#   - scripts/automatic_fix_scope.py, taken from master, finds it in scope
+#     (a fuzz input replayed red/green, or that conformance evidence);
 #   - Toast did not disagree with the fixed behaviour;
 #   - none of its checks failed. The repairing run waits for the checks and
 #     fixes what its change broke before it ends.
@@ -24,7 +28,10 @@ run-name: "Repair #${{ inputs.issue_number || github.event.issue.number || githu
 #
 # The merge is armed by Claude's own token, inside the second run: a queue
 # entry made with GITHUB_TOKEN starts no merge_group workflows and stalls.
-# The step after it disarms the merge unless both conditions above hold.
+# claude-code-action revokes that token when its step ends, so a repair that
+# only the conformance evidence brings into scope is armed by a third, short
+# Claude run after the evidence exists, never before it.
+# The last step disarms the merge unless every condition above holds.
 on:
   workflow_dispatch:
     inputs:
@@ -278,6 +285,7 @@ jobs:
           python3 "$RUNNER_TEMP/trusted/scripts/automatic_fix_scope.py" --base "$base" > "$RUNNER_TEMP/scope.txt" || in_scope=false
           cat "$RUNNER_TEMP/scope.txt"
           echo "in_scope=$in_scope" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
 
       - name: Route conformance
         id: conformance_route
@@ -316,6 +324,148 @@ jobs:
           codex_enabled: ${{ vars.BARN_CODEX_WORKER_ENABLED }}
           token: ${{ github.token }}
 
+      # The Toast check's `test` outcome is Claude's own word. This step runs
+      # the tests the conformance branch adds with the managed harness, three
+      # times: on stock Toast, on Barn at the merge base, on Barn at the head.
+      # Engines and suite are obtained as CI obtains them: Toast from
+      # scripts/build-toast-oracle.sh with the harness command of
+      # scripts/cross-engine-session.sh, Barn with ci.yml's conformance server
+      # command. Each engine is built from a fresh worktree at the exact commit,
+      # and profiles come from the merge base, which is on master.
+      - name: Run the conformance test on Toast, the merge base and the head
+        id: proof
+        if: steps.toast.outputs.outcome == 'test'
+        timeout-minutes: 90
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+          BASE: ${{ steps.scope.outputs.base }}
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/conformance-proof"
+          evidence="$RUNNER_TEMP/conformance-evidence.json"
+          suite_repo="$PWD/moo-conformance-tests"
+          rm -rf "$work" "$evidence"
+          git worktree prune
+          git -C "$suite_repo" worktree prune
+          mkdir -p "$work"
+          cleanup() {
+            git worktree remove --force "$work/base" || true
+            git worktree remove --force "$work/head" || true
+            git -C "$suite_repo" worktree remove --force "$work/suite" || true
+          }
+          trap cleanup EXIT
+
+          # The branch the Toast check committed and pushed; the same range
+          # .github/actions/conformance-test checks before pushing it.
+          suite_ref=$(git -C "$suite_repo" rev-parse --verify "refs/heads/barn-fix/pr-$PR^{commit}")
+          added=$(git -C "$suite_repo" diff --no-renames --name-only --diff-filter=A "origin/main...$suite_ref" -- src/moo_conformance/_tests)
+          files=()
+          for f in $added; do
+            case "$f" in *.yaml|*.yml) files+=("$f") ;; esac
+          done
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "barn-fix/pr-$PR adds no test file under src/moo_conformance/_tests; no conformance evidence."
+            printf '{"suite": "%s", "files": [], "runs": {}}\n' "$suite_ref" > "$evidence"
+            exit 0
+          fi
+          printf 'Selected: %s\n' "${files[@]}"
+
+          git -C "$suite_repo" worktree add --detach "$work/suite" "$suite_ref"
+          # The suite's ToastCore startup database is a git submodule.
+          git -C "$work/suite" submodule update --init
+          git worktree add --detach "$work/base" "$BASE"
+          git worktree add --detach "$work/head" "$HEAD_SHA"
+          (cd "$work/base" && go build -o "$work/barn-base" ./cmd/barn)
+          (cd "$work/head" && go build -o "$work/barn-head" ./cmd/barn)
+          (cd "$work/base" && bash scripts/build-toast-oracle.sh)
+          toast="$work/base/toaststunt/build/moo"
+          oracle="$work/base/profiles/toast/stock-wsl-testdb.json"
+          config="$work/base/profiles/barn/outbound-on.conf"
+
+          run() {
+            local name="$1" command="$2" status=0
+            shift 2
+            echo "=== $name ==="
+            timeout 1200 uv run --project "$work/suite" --frozen moo-conformance "${files[@]}" \
+              -m "admission or conformance" \
+              --server-command "$command" \
+              --server-db="$work/suite/src/moo_conformance/_db/Test.db" \
+              --server-db-dir="$work/suite/src/moo_conformance/_db/startup" \
+              --moo-host=127.0.0.1 \
+              --oracle-profile-manifest="$oracle" \
+              --fail-on-unexpected-skip --strict-markers -q -p no:cacheprovider \
+              --junitxml="$work/$name.xml" "$@" || status=$?
+            echo "$status" > "$work/$name.exit"
+            echo "=== $name: exit $status ==="
+          }
+          barn() {
+            echo "$1 serve --db {db} --listen tcp://127.0.0.1:{port} --config=$config --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest} --log-dir=$work/$2-logs"
+          }
+          run toast "$toast {db} {db}.new -p {port}" "--target-profile-manifest=$oracle"
+          run barn_base "$(barn "$work/barn-base" barn_base)"
+          run barn_head "$(barn "$work/barn-head" barn_head)"
+
+          python3 - "$work" "$suite_ref" "$BASE" "$HEAD_SHA" "${files[@]}" > "$evidence" <<'PY'
+          import json
+          import sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          work, suite, base, head, *files = sys.argv[1:]
+
+
+          def result(name):
+              run = {"exit": int((Path(work) / f"{name}.exit").read_text()), "passed": [], "failed": [], "skipped": []}
+              junit = Path(work) / f"{name}.xml"
+              if junit.is_file():
+                  for case in ET.parse(junit).iter("testcase"):
+                      if case.find("failure") is not None or case.find("error") is not None:
+                          run["failed"].append(case.get("name"))
+                      elif case.find("skipped") is not None:
+                          run["skipped"].append(case.get("name"))
+                      else:
+                          run["passed"].append(case.get("name"))
+              return run
+
+
+          print(json.dumps({"suite": suite, "files": files, "base": base, "head": head,
+                            "runs": {name: result(name) for name in ("toast", "barn_base", "barn_head")}}, indent=2))
+          PY
+          cat "$evidence"
+
+      # The same trusted rule as "Check the repair's scope", now given the
+      # conformance evidence.
+      - name: Check the repair's scope with the conformance evidence
+        id: proof_scope
+        if: always() && steps.toast.outputs.outcome == 'test'
+        env:
+          BASE: ${{ steps.scope.outputs.base }}
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
+        run: |
+          set -euo pipefail
+          in_scope=true
+          python3 "$RUNNER_TEMP/trusted/scripts/automatic_fix_scope.py" --base "$BASE" --head "$HEAD_SHA" \
+            --conformance-evidence "$RUNNER_TEMP/conformance-evidence.json" > "$RUNNER_TEMP/scope.txt" || in_scope=false
+          cat "$RUNNER_TEMP/scope.txt"
+          echo "in_scope=$in_scope" >> "$GITHUB_OUTPUT"
+
+      # The Toast check's Claude armed the merge only when the fuzz rule
+      # already held (may_queue). A repair the conformance evidence brought
+      # into scope is armed here, after the evidence, with Claude's token.
+      - name: Let the proven repair merge
+        if: steps.proof_scope.outputs.in_scope == 'true' && steps.scope.outputs.in_scope != 'true'
+        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          path_to_claude_code_executable: *claude-bin
+          allowed_bots: github-actions,mongoosemoo-barn-repair-worker
+          settings: .github/claude-fix-settings.json
+          prompt: |
+            Run exactly this one command, once, and nothing else; post nothing; then stop:
+            gh api graphql -f query='mutation($id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: MERGE}) { clientMutationId } }' -f id='${{ steps.pr.outputs.node }}'
+          claude_args: *claude-args
+
       # Claude armed the merge with its own token if it judged that allowed.
       # This step decides again from the recorded facts and makes the pull
       # request's state match: armed only when every condition holds.
@@ -327,9 +477,10 @@ jobs:
           PR: ${{ steps.pr.outputs.number }}
           NODE: ${{ steps.pr.outputs.node }}
           HEAD_SHA: ${{ steps.pr.outputs.head }}
-          IN_SCOPE: ${{ steps.scope.outputs.in_scope }}
+          IN_SCOPE: ${{ steps.proof_scope.outputs.in_scope || steps.scope.outputs.in_scope }}
           TOAST_STEP: ${{ steps.toast.outcome }}
           OUTCOME: ${{ steps.toast.outputs.outcome }}
+          PROOF_STEP: ${{ steps.proof.outcome }}
         run: |
           set -euo pipefail
           head_now=$(gh api "repos/$GH_REPO/pulls/$PR" --jq .head.sha)
@@ -352,6 +503,8 @@ jobs:
             echo "The Toast check did not finish ($TOAST_STEP); see this run's log." >> "$reasons"
           elif [ "$OUTCOME" = toast-disagrees ]; then
             echo "Toast disagrees with the fixed behaviour; the comment above has the Toast and Barn output." >> "$reasons"
+          elif [ "$OUTCOME" = test ] && [ "$PROOF_STEP" != success ]; then
+            echo "The conformance test's Toast, merge-base and head runs did not finish ($PROOF_STEP); see this run's log." >> "$reasons"
           fi
           [ "$head_now" = "$HEAD_SHA" ] || echo "The pull request's head changed from $HEAD_SHA to $head_now after it was checked." >> "$reasons"
 
