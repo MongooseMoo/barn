@@ -45,6 +45,14 @@ func builtinQueuedTasks(ctx *Execution, args []types.Value) types.Result {
 		if isCallingTask(ctx, queuedTask) {
 			continue
 		}
+		// Toast's kill_task() dequeues the task before it returns
+		// (tasks.cc kill_task), so a task this task has killed is no
+		// longer queued even though the kill commits later.
+		if ctx.StoreTxn != nil {
+			if row, staged := ctx.StoreTxn.StagedTaskRow(queuedTask.ID); staged && !row.Live() {
+				continue
+			}
+		}
 		startTime, queueSeq, id, info := queuedTask.QueuedTaskSnapshot(includeVariables)
 		snapshots = append(snapshots, queuedTaskSnapshot{startTime, queueSeq, id, info})
 	}
