@@ -39,14 +39,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from bench_differ import REPO, TOAST, lane_scripts, run_wsl, write_inputs  # noqa: E402
-from fuzz_differential import outcome  # noqa: E402
+from bench_differ import REPO, TOAST  # noqa: E402
+from fuzz_differential import engine_builtins, outcome  # noqa: E402
 
 ZERO_LIST = REPO / "scripts" / "fuzz_zero_coverage_builtins.txt"
 ZERO_LIST_HEADER = (
@@ -54,9 +53,6 @@ ZERO_LIST_HEADER = (
     "# and no conformance test calls. Kept by scripts/fuzz_builtin_census.py: the\n"
     "# nightly fuzz cycle fails when this list and its census differ.\n"
 )
-# Every builtin's name, as a list of strings on one result line.
-FUNCTION_NAMES = ";;r = {}; for f in (function_info()) r = {@r, f[1]}; endfor return r;"
-
 # Run by the conformance suite's own interpreter: argv is the builtin names
 # (JSON) and the test roots; prints {builtin: sorted test ids}.
 CONFORMANCE_SCAN = r"""
@@ -75,19 +71,8 @@ print(json.dumps({name: sorted(ids) for name, ids in tests.items()}))
 
 def toast_builtins(toast: str, db: Path, out: Path) -> list[str]:
     """The sorted names of every builtin the Toast binary registers."""
-    path = out / "toast_function_info_in.txt"
-    write_inputs(path, [FUNCTION_NAMES], "toast")
     # Only the Toast lane runs, so the Barn binary argument is unused.
-    proc = run_wsl(lane_scripts(db, REPO, toast, path, path, 60)["toast"], 120)
-    (out / "toast_function_info.txt").write_text(f"exit {proc.returncode}\n{proc.stdout}\n--- STDERR ---\n"
-                                                 f"{proc.stderr}", encoding="utf-8")
-    lines = [line for line in proc.stdout.splitlines() if line.startswith("=> {")]
-    if proc.returncode != 0 or len(lines) != 1:
-        raise RuntimeError(f"function_info() on {toast} exited {proc.returncode} with {len(lines)} result lines")
-    names = re.findall(r'"([a-z_0-9]+)"', lines[0])
-    if not names:
-        raise RuntimeError(f"function_info() on {toast} named no builtins")
-    return sorted(set(names))
+    return engine_builtins("toast", db, REPO, toast, out)
 
 
 def compared_sources(results: dict) -> list[str]:
