@@ -497,7 +497,9 @@ func sqliteRegexp(tls *libc.TLS, ctx uintptr, argc int32, argv uintptr) {
 		return
 	}
 	// get_pcre(pattern, 0): case-sensitive, the compile pcre_match uses.
-	re, err := cachedPCREPattern(libc.GoString(pattern), true)
+	patternText := libc.GoString(pattern)
+	re, err := cachedPCREPattern(patternText, true)
+	recordPCRECacheLookup(patternText, true, err == nil)
 	if err != nil {
 		resultError(err.Error())
 		return
