@@ -233,6 +233,13 @@ def outcome(key: str, record: str | None) -> str | None:
     return f"{m.group(2)} {m.group(3)}" if m and m.group(1) == key else None
 
 
+def result_class(result: str) -> str:
+    """An outcome() string without its value: 'value', 'compile', or 'raised'
+    with the error code. A divergence's class is its two engines' classes."""
+    kind, _, rest = result.partition(" ")
+    return f"raised {rest.split(' ', 1)[0]}" if kind == "raised" else kind
+
+
 def run_streaming(script: str, timeout: int, kill: str, startup: int,
                   probe_timeout: int) -> subprocess.CompletedProcess:
     """run_wsl(script, timeout), except that once no result record has
@@ -605,6 +612,9 @@ def main() -> int:
                 report += [f"### {r['key']} `{Path(r['origin']).name}`", "", f"- lane: `{r['lane']}`"]
                 if "choices" in r:
                     report.append(f"- choices (hex): `{r['choices']}`")
+                if kind == "divergence":
+                    # scripts/fuzz_report.py opens one issue per class.
+                    report.append(f"- signature: toast {result_class(r['toast'])} / barn {result_class(r['barn'])}")
                 report += ["", "```moo", r["source"], "```", "",
                            f"- toast: `{r['toast']}`", f"- barn: `{r['barn']}`", ""]
     text = "\n".join(report)

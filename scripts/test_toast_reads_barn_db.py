@@ -182,7 +182,7 @@ class ReportTest(unittest.TestCase):
                                                            "toast": '=> {"O0", "Planted Object"}',
                                                            "barn": '=> {"O0", "System Object"}'}]}]}
         text = "\n".join(["# Toast reads Barn-written databases", ""] + divergence_section([case]))
-        result = fuzz_report.report(text, "./scripts", "ToastReadsBarnDatabase", "c0ffee")
+        result = fuzz_report.report(text, "./scripts", "ToastReadsBarnDatabase", "c0ffee")[0]
         self.assertEqual(result["kind"], "divergence")
         self.assertEqual(result["input_path"], "seed:action-0")
         self.assertIn("ancestor = create(#2);", result["input_text"])
@@ -196,7 +196,7 @@ class ReportTest(unittest.TestCase):
                         {"kind": "toast repaired the file", "log": ["VALIDATE: x"]},
                         {"kind": "task counts", "counts": base["tasks"]}):
             text = "\n".join(divergence_section([{**base, "findings": [finding]}]))
-            self.assertEqual(fuzz_report.report(text, "./scripts", "T", "c")["kind"], "divergence", finding)
+            self.assertEqual(fuzz_report.report(text, "./scripts", "T", "c")[0]["kind"], "divergence", finding)
 
 
 class SeedTest(unittest.TestCase):

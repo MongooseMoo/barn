@@ -56,7 +56,7 @@ class FuzzReportTests(unittest.TestCase):
                 self.assertTrue(text.startswith("Fuzz"), str(fixture))
 
     def real_report(self, run, target=TARGET):
-        return report((FIXTURES / f"{run}.log").read_text(), "./vm", target, "test-commit")
+        return report((FIXTURES / f"{run}.log").read_text(), "./vm", target, "test-commit")[0]
 
     def test_real_panic_and_corpus(self):
         # report() opens the input the log names relative to the working
@@ -102,7 +102,7 @@ class FuzzReportTests(unittest.TestCase):
                  "github.com/MongooseMoo/barn/internal/fuzzcrash_test.TestPanicOffTestGoroutineReachesCrashFile.gowrap1()\n"
                  "\tC:/Users/Q/code/barn-fuzz-crash-output/internal/fuzzcrash/fuzzcrash_test.go:18 +0x1b\n")
         log = (FIXTURES / "42201471629.log").read_text() + crash
-        result = report(log, "./vm", TARGET, "test-commit")
+        result = report(log, "./vm", TARGET, "test-commit")[0]
         self.assertEqual(result["kind"], "panic")
         self.assertEqual(result["first_error"], "panic: fuzzcrash helper panic")
         self.assertEqual(result["barn_frames"][0]["function"],
@@ -116,7 +116,7 @@ class FuzzReportTests(unittest.TestCase):
 
     def test_failed_check_and_metadata(self):
         result = report("go version go1.27.1 linux/amd64\n--- FAIL: FuzzCheck\n"
-                        "    check_test.go:42: got 1, want 2\n", "./vm", "FuzzCheck", "commit")
+                        "    check_test.go:42: got 1, want 2\n", "./vm", "FuzzCheck", "commit")[0]
         self.assertEqual(result["kind"], "failed check")
         self.assertEqual(result["first_error"], "check_test.go:42: got 1, want 2")
         self.assertEqual(result["commit"], "commit")
@@ -125,7 +125,7 @@ class FuzzReportTests(unittest.TestCase):
     def test_failed_check_signature_is_its_location_and_message(self):
         # Real native tee log of a FuzzReadDatabase failed check (no stack).
         log = (FIXTURES / "native" / "42692025227-baseline.log").read_text()
-        result = report(log, "./db/format", "FuzzReadDatabase", "commit")
+        result = report(log, "./db/format", "FuzzReadDatabase", "commit")[0]
         self.assertEqual(result["kind"], "failed check")
         self.assertEqual(result["barn_frames"], [])
         self.assertEqual(result["signature"], hashlib.sha256(
@@ -133,12 +133,12 @@ class FuzzReportTests(unittest.TestCase):
             b"suspended task N frame N locals differs").hexdigest())
         # Another check line in the same target is another finding.
         other = report(log.replace("reader_fuzz_test.go:82:", "reader_fuzz_test.go:97:"),
-                       "./db/format", "FuzzReadDatabase", "commit")
+                       "./db/format", "FuzzReadDatabase", "commit")[0]
         self.assertNotEqual(result["signature"], other["signature"])
         # The same check with input-dependent message values is the same finding.
         same = report(log.replace("suspended task 0 frame 0 locals differs",
                                   "suspended task 3 frame 7 locals differs"),
-                      "./db/format", "FuzzReadDatabase", "commit")
+                      "./db/format", "FuzzReadDatabase", "commit")[0]
         self.assertEqual(result["signature"], same["signature"])
 
     def test_real_failed_checks_split_by_message_and_join_repeats(self):
@@ -153,7 +153,7 @@ class FuzzReportTests(unittest.TestCase):
         for record in records:
             finding = next(f for f in findings if f in record["first_error"])
             log = f"--- FAIL: {record['target']}\n    {record['first_error']}\n"
-            result = report(log, "./pkg", record["target"], "commit")
+            result = report(log, "./pkg", record["target"], "commit")[0]
             self.assertEqual((result["kind"], result["first_error"]), ("failed check", record["first_error"]))
             signatures.setdefault(finding, set()).add(result["signature"])
         self.assertEqual(sorted(signatures), sorted(findings))
@@ -165,7 +165,7 @@ class FuzzReportTests(unittest.TestCase):
         # Real output of scripts/fuzz_differential.py over the runner's fuzz
         # cache, run inside WSL Debian (2026-11-06).
         log = (FIXTURES / "toast-differential-2026-11-06.txt").read_text()
-        result = report(log, "./scripts", "ToastDifferential", "commit")
+        result = report(log, "./scripts", "ToastDifferential", "commit")[0]
         self.assertEqual(result["kind"], "divergence")
         self.assertEqual(result["first_error"],
                          "## divergence (16)\n- toast: `compile 0`\n- barn: `raised E_TYPE`\n"
@@ -179,10 +179,10 @@ class FuzzReportTests(unittest.TestCase):
         # Program text in the report never reclassifies it, and the same
         # first divergence keeps the same signature.
         self.assertEqual(report(log + "\npanic: in a program\n", "./scripts", "ToastDifferential",
-                                "other")["signature"], result["signature"])
+                                "other")[0]["signature"], result["signature"])
         # A run that compared nothing (exit 2) has no divergence section.
         self.assertEqual(report(log.split("## divergence")[0], "./scripts", "ToastDifferential",
-                                "commit")["kind"], "infrastructure")
+                                "commit")[0]["kind"], "infrastructure")
 
     def test_real_differential_divergence_with_lane_lines(self):
         # Lines 1-11, 144-167 and 383-406 of report.md from run 43737913398's
@@ -191,7 +191,7 @@ class FuzzReportTests(unittest.TestCase):
         # before the program; the reporter took this for an infrastructure
         # failure whose first error was "- barn: `Error: E_MAXREC`" (#811).
         log = (FIXTURES / "toast-differential-43737913398-excerpt.txt").read_text()
-        result = report(log, "./scripts", "ToastDifferential", "commit")
+        result = report(log, "./scripts", "ToastDifferential", "commit")[0]
         self.assertEqual(result["kind"], "divergence")
         self.assertEqual(result["first_error"],
                          "## divergence (1139)\n- toast: `compile 0`\n- barn: `raised E_VARNF`\n"
@@ -202,7 +202,7 @@ class FuzzReportTests(unittest.TestCase):
         self.assertEqual(result["input_text"], "{a,} = {1}; return rest;")
         # A structured entry, with its choice bytes, is read the same way.
         structured = log.split("### F00036")[0] + "### F02528" + log.split("### F02528")[1]
-        result = report(structured, "./scripts", "ToastDifferential", "commit")
+        result = report(structured, "./scripts", "ToastDifferential", "commit")[0]
         self.assertEqual(result["kind"], "divergence")
         self.assertEqual(result["input_path"], "0103b533acb6e9cff0fdcf3452958c0415f02254d776e9d878644502b246a746")
         self.assertTrue(result["input_text"].startswith("n = 64;\n"))
@@ -215,7 +215,7 @@ class FuzzReportTests(unittest.TestCase):
         # sys_posix.go:116-128 identifies SIGSEGV as a crash signal.
         log = ("fuzzing process hung or terminated unexpectedly: signal: segmentation fault\n"
                f"Failing input written to testdata/fuzz/{TARGET}/synthetic-crash\n")
-        result = report(log, "./vm", TARGET, "commit")
+        result = report(log, "./vm", TARGET, "commit")[0]
         self.assertEqual(result["kind"], "crash signal")
         self.assertIn("signal: segmentation fault", result["first_error"])
         self.assertEqual(result["input_path"], f"vm/testdata/fuzz/{TARGET}/synthetic-crash")
@@ -223,7 +223,7 @@ class FuzzReportTests(unittest.TestCase):
                          f"timeout --kill-after=5s 60s go test ./vm -run '{TARGET}/synthetic-crash'")
 
     def test_unattributed_differential_panic_is_a_finding_with_native_evidence(self):
-        result = report(UNATTRIBUTED_DIFFERENTIAL_PANIC, "./scripts", "ToastDifferential", "commit")
+        result = report(UNATTRIBUTED_DIFFERENTIAL_PANIC, "./scripts", "ToastDifferential", "commit")[0]
         self.assertEqual(result["kind"], "panic")
         self.assertEqual(result["first_error"], "Error: internal error: boom")
         self.assertIn('recovered Barn panics: ["Error: internal error: boom"]', result["log_tail"])
@@ -232,23 +232,23 @@ class FuzzReportTests(unittest.TestCase):
         self.assertIsNone(result["input_text"])
         self.assertIsNone(result["repro"])
         other = report(UNATTRIBUTED_DIFFERENTIAL_PANIC.replace("boom", "other native error"),
-                       "./scripts", "ToastDifferential", "commit")
+                       "./scripts", "ToastDifferential", "commit")[0]
         self.assertNotEqual(result["signature"], other["signature"])
 
     def test_empty_or_malformed_panic_summary_does_not_invent_a_finding(self):
         for value in ('[]', 'not JSON', '{}', '["other error"]'):
             with self.subTest(value=value):
                 log = "- recovered Barn panics: " + value
-                self.assertEqual(report(log, "./scripts", "ToastDifferential", "commit")["kind"],
+                self.assertEqual(report(log, "./scripts", "ToastDifferential", "commit")[0]["kind"],
                                  "infrastructure")
         self.assertEqual(report(UNATTRIBUTED_DIFFERENTIAL_PANIC, "./scripts", "ToastDifferential",
-                                "commit", "skipped")["kind"], "infrastructure")
+                                "commit", "skipped")[0]["kind"], "infrastructure")
 
     def test_non_crash_signal_without_saved_input_is_infrastructure(self):
         # Synthetic: installed Go 1.27.1 src/internal/fuzz/worker.go:170-176
         # formats "fuzzing process terminated by unexpected signal; no crash will be recorded: %v".
         log = "fuzzing process terminated by unexpected signal; no crash will be recorded: signal: killed\n"
-        result = report(log, "./vm", TARGET, "commit")
+        result = report(log, "./vm", TARGET, "commit")[0]
         self.assertEqual(result["kind"], "infrastructure")
         self.assertEqual(result["first_error"], log.strip())
         self.assertIsNone(result["input_path"])
@@ -259,27 +259,27 @@ class FuzzReportTests(unittest.TestCase):
             for outcome in ["failure", "skipped"]:
                 with self.subTest(marker=marker, outcome=outcome):
                     log = marker + f"\nFailing input written to testdata/fuzz/{TARGET}/saved\n"
-                    self.assertNotEqual(report(log, "./vm", TARGET, "commit", outcome)["kind"],
+                    self.assertNotEqual(report(log, "./vm", TARGET, "commit", outcome)[0]["kind"],
                                         "infrastructure")
 
     def test_setup_and_signals(self):
         for log in ["", "FAIL ./vm [setup failed]", "vm.go:42: undefined: missing\nFAIL ./vm [build failed]", "signal: killed",
                     "fuzzing process terminated by unexpected signal; no crash will be recorded: signal: terminated"]:
-            self.assertEqual(report(log, "./vm", TARGET, "commit")["kind"], "infrastructure")
-        self.assertEqual(report("panic: tool setup", "./vm", TARGET, "commit", "skipped")["kind"],
+            self.assertEqual(report(log, "./vm", TARGET, "commit")[0]["kind"], "infrastructure")
+        self.assertEqual(report("panic: tool setup", "./vm", TARGET, "commit", "skipped")[0]["kind"],
                          "infrastructure")
 
     def test_caps_and_missing_input(self):
         log = f"Failing input written to testdata/fuzz/{TARGET}/missing\n" + "x" * 20000
-        result = report(log, "./vm", TARGET, "commit")
+        result = report(log, "./vm", TARGET, "commit")[0]
         self.assertIn("Input unavailable:", result["input_text"])
         self.assertLessEqual(len(result["log_tail"]), TAIL_LIMIT)
         with patch("pathlib.Path.open", mock_open(read_data=b"x" * (INLINE_LIMIT + 1))):
-            self.assertTrue(report(log, "./vm", TARGET, "commit")["input_text"].endswith("[truncated]"))
+            self.assertTrue(report(log, "./vm", TARGET, "commit")[0]["input_text"].endswith("[truncated]"))
 
     def test_signature_ignores_addresses_but_distinguishes_frames_and_kinds(self):
         def summary(function, address="0x123", kind="panic: error"):
-            return report(f"{kind}\n{function}({address})\n /src/vm.go:1 +0x123", "./vm", TARGET, "c")
+            return report(f"{kind}\n{function}({address})\n /src/vm.go:1 +0x123", "./vm", TARGET, "c")[0]
         frame = "github.com/MongooseMoo/barn/vm.(*VM).Resume"
         a = summary(frame)
         self.assertEqual(a["signature"], summary(frame, "0x456")["signature"])
@@ -309,7 +309,7 @@ class FuzzReportTests(unittest.TestCase):
         logs = [(FIXTURES / f"{run}.log").read_text() for run in (41882671144, 42201471629)]
         summary = summarize(logs, "./vm", TARGET, "commit")
         self.assertEqual([r["kind"] for r in summary], ["panic", "hang"])
-        self.assertEqual(summary[0]["signature"], report(logs[0], "./vm", TARGET, "commit")["signature"])
+        self.assertEqual(summary[0]["signature"], report(logs[0], "./vm", TARGET, "commit")[0]["signature"])
 
 
 def decoded_record(body):

@@ -452,6 +452,8 @@ def divergence_section(failed: list[dict]) -> list[str]:
         lines += [f"### {case['name']} `{case['origin']}`", "",
                   f"- choices (hex): `{case.get('choices', '')}`",
                   f"- findings: {', '.join(f['kind'] for f in case['findings'])}; {summary}",
+                  # scripts/fuzz_report.py opens one issue per class.
+                  f"- signature: {', '.join(sorted({f['kind'] for f in case['findings']}))}",
                   f"- written file: {case['file']['size']} bytes, sha256 `{case['file']['sha256']}`",
                   "", "```moo", case["source"].strip("\n"), "```", "",
                   f"- toast: {toast}", f"- barn: {barn}", ""]
