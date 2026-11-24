@@ -34,7 +34,29 @@ def check_message(line):
     return f"{file_line}: {re.sub(r'[0-9]+', 'N', message)}"
 
 
+DIVERGENCE_ENTRY = re.compile(r"^### \S+ `([^`]+)`\n\n((?:- [^\n]*\n)*)\n?```moo\n(.*?)\n```\n\n"
+                              r"(- [^\n:]+: [^\n]*)\n(- [^\n:]+: [^\n]*)", re.M | re.S)
+
+
+def divergence_classes(text):
+    """The `## divergence (N)` header of a comparison report and, per failure
+    class in first-seen order, (class, its first entry, its entry count). An
+    entry names its class in a "- signature: " line; an entry without one is
+    a class of its own, named by its corpus file."""
+    header = re.search(r"^## divergence \(\d+\)$", text, re.M)
+    if not header:
+        return None, []
+    end = text.find("\n## ", header.end())
+    classes = {}
+    for entry in DIVERGENCE_ENTRY.finditer(text[header.end():None if end < 0 else end]):
+        named = re.search(r"^- signature: (.+)$", entry[2], re.M)
+        classes.setdefault(named[1] if named else entry[1], [entry, 0])[1] += 1
+    return header[0], [(name, entry, count) for name, (entry, count) in classes.items()]
+
+
 def report(log, package, target, commit, campaign_outcome="failure"):
+    """The log's findings: one per divergence class of a comparison report,
+    otherwise one."""
     # gh --log-failed fixtures contain multiple jobs; a live tee log has no prefix.
     lines = []
     for line in log.splitlines():
@@ -51,12 +73,13 @@ def report(log, package, target, commit, campaign_outcome="failure"):
     check = re.search(r"^\s*(\S+\.go:\d+): .+$", text, re.M)
     saved = re.search(r"Failing input written to (testdata/fuzz/[^\s]+)", text)
     setup = re.search(r"^.*\[(?:build|setup) failed\].*$", text, re.M)
-    # The first diverging program of scripts/fuzz_differential.py's or
-    # scripts/fuzz_cross_engine.py's report. Its entry names the corpus lane,
-    # and for a structured input the choice bytes, as "- " lines before the
-    # program, and the two results as "- label: " lines after it.
-    divergence = re.search(r"^(## divergence \(\d+\))\n\n### \S+ `([^`]+)`\n\n((?:- [^\n]*\n)*)\n?```moo\n(.*?)\n```\n\n"
-                           r"(- [^\n:]+: [^\n]*)\n(- [^\n:]+: [^\n]*)", text, re.M | re.S)
+    # The diverging programs of scripts/fuzz_differential.py's,
+    # scripts/fuzz_cross_engine.py's or scripts/toast_reads_barn_db.py's
+    # report. Each entry names the corpus lane, and for a structured input the
+    # choice bytes, as "- " lines before the program, and the two results as
+    # "- label: " lines after it. Each class gets its own finding.
+    divergence_header, classes = divergence_classes(text)
+    divergence = bool(classes)
     # A count mismatch prevents source attribution, but the differential
     # producer still preserves explicit recovered Barn panics as JSON.
     recovered_panics = []
@@ -92,9 +115,7 @@ def report(log, package, target, commit, campaign_outcome="failure"):
     if error:
         first_error = error[0].strip()
     elif kind == "divergence":
-        # The oracle is built in the job, so the issue names that binary.
-        toast = re.search(r"^- toast binary: .*$", text, re.M)
-        first_error = "\n".join([divergence[1], divergence[5], divergence[6]] + ([toast[0]] if toast else []))
+        first_error = None  # each class's own, at the end
     elif recovered_panics and kind == "panic":
         first_error = "\n".join(recovered_panics)
     else:
@@ -114,13 +135,7 @@ def report(log, package, target, commit, campaign_outcome="failure"):
                 break
     top = frames[0]["function"] if frames else "unavailable"
     input_path, input_text, repro = None, None, None
-    if kind == "divergence":
-        # The first diverging corpus file stands in for the top frame, unless
-        # the entry names its failure class in a "- signature: " line.
-        named = re.search(r"^- signature: (.+)$", divergence[3], re.M)
-        top = named[1] if named else divergence[2]
-        input_path, input_text = divergence[2], divergence[4][:INLINE_LIMIT]
-    elif recovered_panics and kind == "panic" and not frames:
+    if recovered_panics and kind == "panic" and not frames:
         # Deduplicate by observed native error, without assigning a source/frame.
         top = recovered_panics[0]
     elif kind == "failed check" and check and not frames:
@@ -144,22 +159,33 @@ def report(log, package, target, commit, campaign_outcome="failure"):
             repro = (f"timeout --kill-after=5s 60s go test {shlex.quote(package)} "
                      f"-run '{target}/{relative.name}'")
     version = re.search(r"^go version .+$", text, re.M)
-    return {
+    result = {
         "kind": kind, "first_error": first_error, "barn_frames": frames,
         "signature": signature, "input_path": input_path, "input_text": input_text,
         "repro": repro, "commit": commit,
         "go_version": version[0] if version else "unavailable",
         "log_tail": "\n".join(lines[-80:])[-TAIL_LIMIT:],
     }
+    if kind != "divergence":
+        return [result]
+    # The oracle is built in the job, so the issue names that binary. The
+    # class name (or, without one, the first diverging corpus file) stands in
+    # for the top frame.
+    toast = re.search(r"^- toast binary: .*$", text, re.M)
+    return [{**result,
+             "first_error": "\n".join([divergence_header, entry[4], entry[5]] + ([toast[0]] if toast else [])),
+             "signature": hashlib.sha256(f"{target}|{kind}|{name}".encode()).hexdigest(),
+             "input_path": entry[1], "input_text": entry[3][:INLINE_LIMIT]}
+            for name, entry, _count in classes]
 
 
 def summarize(logs, package, target, commit, campaign_outcome="failure"):
     """One report per distinct signature, in first-seen order, with its count."""
     distinct = {}
     for log in logs or [""]:
-        result = report(log, package, target, commit, campaign_outcome)
-        first = distinct.setdefault(result["signature"], {**result, "count": 0})
-        first["count"] += 1
+        for result in report(log, package, target, commit, campaign_outcome):
+            first = distinct.setdefault(result["signature"], {**result, "count": 0})
+            first["count"] += 1
     return list(distinct.values())
 
 
@@ -203,7 +229,7 @@ def memory_reports(path, target, commit):
                         "go_version": attempts[0]["result"]["samples"][0]["go_version"],
                         "log_tail": json.dumps(row, indent=2)[-TAIL_LIMIT:]})
     if data["verdict"] == "incomplete":
-        result = report("memory replay incomplete: " + json.dumps(data)[-TAIL_LIMIT:], "./vm", target, commit)
+        [result] = report("memory replay incomplete: " + json.dumps(data)[-TAIL_LIMIT:], "./vm", target, commit)
         result["first_error"] = "memory replay incomplete: " + str(data.get("error") or [
             {"input": row["input_path"], "verdict": row["verdict"]} for row in data["records"]
             if row["verdict"] in ("incomplete", "inconclusive")])

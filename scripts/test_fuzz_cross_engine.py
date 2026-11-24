@@ -176,7 +176,7 @@ class ConvertedTests(unittest.TestCase):
                       "- conversions: 3; tasks omitted: 2\n- omitted 1: call_function: ", text)
         self.assertIn("- omitted 1: recreate: ", text)
         result = report("go version go1.27.1 linux/amd64\n" + text, "./scripts", "ToastCrossEngineCheckpoint",
-                        "commit")
+                        "commit")[0]
         self.assertEqual(result["kind"], "divergence")
         self.assertIn(result["input_path"], DID_NOT_BOOT)
         self.assertIn(f"- {DIRECTIONS['barn-first']}: moo_conformance.server.RestartCommandError",
@@ -193,7 +193,7 @@ class ReportTests(unittest.TestCase):
                    "barn": "bin/barn", "barn_sha256": "b"}
         text = render_report(summary, rows)
         result = report("go version go1.27.1 linux/amd64\n" + text, "./scripts", "ToastCrossEngineCheckpoint",
-                        "commit")
+                        "commit")[0]
         self.assertEqual(result["kind"], "divergence")
         self.assertEqual(result["input_path"], "generated_3c477a14bb6f1b4e")
         self.assertEqual(result["input_text"], EVAL_PROGRAM)
@@ -206,12 +206,12 @@ class ReportTests(unittest.TestCase):
         # The signature is the failure class, so another input with the same
         # failure in a later cycle is the same issue.
         other = report("go version go1.27.1 linux/amd64\n" + text.replace("generated_3c477a14bb6f1b4e", "generated_x"),
-                       "./scripts", "ToastCrossEngineCheckpoint", "commit")
+                       "./scripts", "ToastCrossEngineCheckpoint", "commit")[0]
         self.assertEqual(other["signature"], result["signature"])
         changed = report("go version go1.27.1 linux/amd64\n" + text.replace(
             "signature: toast-first: the other engine did not boot",
             "signature: toast-first: the restored tasks did not finish"), "./scripts", "ToastCrossEngineCheckpoint",
-            "commit")
+            "commit")[0]
         self.assertNotEqual(changed["signature"], result["signature"])
 
 

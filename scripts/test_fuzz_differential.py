@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import bench_differ
+import fuzz_report
 from bench_differ import REPO
 from fuzz_differential import (CRASHED, KILLED, TIMED_OUT, ComparisonDeadline, decode_corpus_file, engine_runner, exclusion,
                                load_programs, main, outcome, probe, render_choices, results, run_bounded)
@@ -461,6 +462,24 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(data["summary"]["outcome"], "inconclusive")
         self.assertEqual(data["rows"][0]["toast_raw"], aborted)
         self.assertIn("completed comparisons: 0", report)
+
+    def test_each_divergence_class_is_its_own_finding(self):
+        # Run 45396507340 filed 722 divergences as one finding (#1124); each
+        # (Toast result, Barn result) class now gets its own.
+        toast = ['=> {"F00001", "raised", E_RANGE}', '=> {"F00002", "raised", E_RANGE}', '=> {"F00003", "value", 1}']
+        barn = ['=> {"F00001", "raised", E_TYPE}', '=> {"F00002", "raised", E_TYPE}', '=> {"F00003", "value", 2}']
+        code, _, text = self.run_campaign(toast, barn)
+        self.assertEqual(code, 1)
+        self.assertEqual(text.count("- signature: toast raised E_RANGE / barn raised E_TYPE"), 2)
+        self.assertEqual(text.count("- signature: toast value / barn value"), 1)
+        findings = fuzz_report.report(text, "./scripts", "ToastDifferential", "commit")
+        self.assertEqual([f["input_text"] for f in findings], ["return 0;", "return 2;"])
+        self.assertEqual(len({f["signature"] for f in findings}), 2)
+        self.assertTrue(all(f["kind"] == "divergence" for f in findings))
+        self.assertIn("- toast: `raised E_RANGE`\n- barn: `raised E_TYPE`", findings[0]["first_error"])
+        # The same class keeps its signature whatever program shows it first.
+        swapped = fuzz_report.report(text.replace("return 0;", "return 9;"), "./scripts", "ToastDifferential", "c")
+        self.assertEqual(swapped[0]["signature"], findings[0]["signature"])
 
     def test_real_completed_output_counts_and_both_aborted_is_partial(self):
         # A completed keyed value taken from the existing real Barn transcript.
