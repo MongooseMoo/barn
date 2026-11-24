@@ -32,7 +32,11 @@ corpus file, e.g. FuzzWorldCheckpointEffects inputs) and each built-in seed is
 rendered by ``moo-fuzz-source --generator toast-world`` (fuzzseed.ToastWorld),
 run on a copy of ``--db`` by ``offline-checkpoint --run``, and compared. The
 report (``<out>/report.md``) names each failing world with its choices and
-source, in the form scripts/fuzz_report.py reads.
+source, in the form scripts/fuzz_report.py reads. The built-in seeds run
+first; the corpus worlds follow in the order sha256(--seed + origin) gives,
+and with --minutes no world starts after that time, so a cycle covers part of
+a large corpus and the next cycle's seed starts elsewhere
+(scripts/fuzz_cross_engine.py does the same).
 
 ``database PATH``: one existing database (the Mongoose dump), checkpointed
 without running anything. It holds real players' data, so everything printed,
@@ -53,6 +57,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -506,6 +511,8 @@ def main() -> int:
     worlds_cmd.add_argument("corpus", type=Path, nargs="*", help="Go fuzz corpus directories of choice records")
     # Test_conf.db is the stock oracle manifest's fixture (fuzz_differential.py --db).
     worlds_cmd.add_argument("--db", type=Path, default=REPO / "Test_conf.db", help="database each world starts from")
+    worlds_cmd.add_argument("--minutes", type=float, help="start no new world after this many minutes")
+    worlds_cmd.add_argument("--seed", default="", help="order the corpus worlds by sha256(seed + origin); the nightly passes its run id")
     database_cmd = sub.add_parser("database", help="one existing database; prints counts only")
     database_cmd.add_argument("path", type=Path)
     for cmd in (worlds_cmd, database_cmd):
@@ -549,10 +556,24 @@ def run(args) -> int:
     return worlds_main(args, barn_bin, header)
 
 
+def order_worlds(worlds: list[dict], seed: str) -> list[dict]:
+    """The built-in seeds in their own order, then the corpus worlds in the
+    order sha256(seed + origin) gives."""
+    builtin = [w for w in worlds if w["origin"].startswith("seed:")]
+    corpus = [w for w in worlds if not w["origin"].startswith("seed:")]
+    corpus.sort(key=lambda w: hashlib.sha256((seed + w["origin"]).encode()).hexdigest())
+    return builtin + corpus
+
+
 def worlds_main(args, barn_bin: Path, header: list[str]) -> int:
-    worlds = load_worlds(args.corpus)
+    deadline = None if args.minutes is None else time.monotonic() + args.minutes * 60
+    worlds = order_worlds(load_worlds(args.corpus), args.seed)
     cases, failed, errors = [], [], []
+    ran = 0
     for index, world in enumerate(worlds, 1):
+        if deadline is not None and ran and time.monotonic() >= deadline:
+            break
+        ran += 1
         key = "W%05d" % index
         if "source" not in world:
             errors.append(f"{key} {world['origin']}: {world.get('error')}")
@@ -572,14 +593,16 @@ def worlds_main(args, barn_bin: Path, header: list[str]) -> int:
     status = 1 if failed else 2 if errors or not compared else 0
     outcome = {0: "success", 1: "divergence", 2: "inconclusive"}[status]
     report = ["# Toast reads Barn-written databases", "",
-              f"- outcome: {outcome}", f"- worlds: {len(worlds)}; compared: {compared}; failed: {len(failed)}",
+              f"- outcome: {outcome}", f"- worlds: {len(worlds)}; ran: {ran} (seed {args.seed!r}, minutes {args.minutes}); "
+              f"compared: {compared}; failed: {len(failed)}",
               f"- harness errors: {json.dumps(errors)}",
               f"- unicode worlds (a string above 127): {unicode_worlds}",
               f"- base database: `{args.db}` sha256 `{sha256(args.db)}`", *header, ""]
     text = "\n".join(report + divergence_section(failed))
     (args.out / "report.md").write_text(text, encoding="utf-8")
     (args.out / "results.json").write_text(json.dumps({"summary": {"outcome": outcome, "worlds": len(worlds),
-                                                                   "compared": compared, "failed": len(failed),
+                                                                   "ran": ran, "seed": args.seed,
+                                                                   "minutes": args.minutes, "compared": compared, "failed": len(failed),
                                                                    "errors": errors},
                                                        "cases": cases}, indent=2, ensure_ascii=False),
                                            encoding="utf-8")
