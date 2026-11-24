@@ -270,11 +270,25 @@ pcre_cache_stats() → LIST
 
 Returns statistics about compiled PCRE pattern cache. **Wizard-only.**
 
+The cache is process-wide and starts empty when the server starts. Only
+`pcre_match()` and SQLite `REGEXP` use it; `pcre_replace()` does not. An entry
+is keyed by the pattern and its case option, so the case-sensitive and
+case-insensitive compiles of one pattern are separate entries (both reported
+under the same pattern string). The first use of a pattern adds it with 0 hits,
+and each later use adds one hit. A pattern that fails to compile is not cached.
+The cache holds 20 patterns (`PCRE_PATTERN_CACHE_SIZE`); a miss on a full cache
+first evicts an entry with the fewest hits, even when the new pattern then
+fails to compile. `pcre_match()` with an empty subject still compiles and
+caches its pattern.
+
 ### Return Value
 
 List of lists, each containing:
 - [1] Pattern string (STR)
 - [2] Number of cache hits (INT)
+
+Entry order is the iteration order of Toast's `unordered_map` and is
+unspecified.
 
 ### Example
 

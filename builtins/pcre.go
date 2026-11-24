@@ -3,6 +3,7 @@ package builtins
 import (
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/MongooseMoo/barn/types"
@@ -16,15 +17,6 @@ func builtinPcreMatch(ctx *Execution, args []types.Value) types.Result {
 	ok2 := pattern.Type() == types.TYPE_STR
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
-	}
-	// An empty subject always yields no matches (Toast returns {}), even for
-	// patterns that match the empty string like ".*" or "^$". Toast's match loop
-	// is `while (offset < subject_length)` (toaststunt/src/pcre_moo.cc:208); with
-	// subject_length == 0 the loop body never runs and ret stays new_list(0).
-	// Corroborated by conformance test pcre_match_empty_subject
-	// (moo-conformance-tests .../builtins/pcre.yaml:201-205 -> value: []).
-	if subject.Str() == "" {
-		return types.Ok(types.NewList([]types.Value{}))
 	}
 	if pattern.Str() == "" {
 		return types.Err(types.E_INVARG)
@@ -40,8 +32,19 @@ func builtinPcreMatch(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	re, err := cachedPCREPattern(pattern.Str(), caseMatters)
+	recordPCRECacheLookup(pattern.Str(), caseMatters, err == nil)
 	if err != nil {
 		return types.Err(types.E_INVARG)
+	}
+	// An empty subject always yields no matches (Toast returns {}), even for
+	// patterns that match the empty string like ".*" or "^$". Toast's match loop
+	// is `while (offset < subject_length)` (toaststunt/src/pcre_moo.cc:208); with
+	// subject_length == 0 the loop body never runs and ret stays new_list(0).
+	// Toast checks the empty pattern and compiles (and caches) the pattern
+	// first. Corroborated by conformance test pcre_match_empty_subject
+	// (moo-conformance-tests .../builtins/pcre.yaml:201-205 -> value: []).
+	if subject.Str() == "" {
+		return types.Ok(types.NewList([]types.Value{}))
 	}
 
 	text := subject.Str()
@@ -408,11 +411,74 @@ func readDelimited(s string, start int, delim byte) (string, int, bool) {
 	return "", 0, false
 }
 
+// Toast keeps a process-wide pattern cache (pcre_pattern_cache, pcre_moo.cc)
+// filled by get_pcre (pcre_moo.cc:59-125), which pcre_match() and SQLite
+// REGEXP call; pcre_replace() compiles through pcrs and never touches it.
+// Barn compiles through cachedPCREPattern; pcreCache is Toast's ledger, which
+// pcre_cache_stats() reports. An entry is keyed by pattern and case option.
+// A hit adds one to the entry's unsigned int hit count. A miss on a full cache
+// (PCRE_PATTERN_CACHE_SIZE, options.h:277) first evicts the first entry, in
+// iteration order, with the fewest hits; the new entry is then added with 0
+// hits only if the pattern compiled.
+//
+// Toast iterates a libstdc++ unordered_map, which links a node inserted into an
+// empty bucket at the front of the list, so while no two patterns share a
+// bucket it iterates newest first. Barn keeps newest first; Toast's order after
+// bucket collisions and rehashes is not reproduced.
+const pcrePatternCacheSize = 20
+
+type pcreCacheEntry struct {
+	pattern  string
+	caseless bool
+	hits     uint32
+}
+
+var pcreCache struct {
+	mu      sync.Mutex
+	entries []pcreCacheEntry // newest first
+}
+
+// recordPCRECacheLookup records one get_pcre call for pattern; compiled
+// reports whether the pattern compiled.
+func recordPCRECacheLookup(pattern string, caseSensitive, compiled bool) {
+	caseless := !caseSensitive
+	pcreCache.mu.Lock()
+	defer pcreCache.mu.Unlock()
+	entries := pcreCache.entries
+	for i := range entries {
+		if entries[i].pattern == pattern && entries[i].caseless == caseless {
+			entries[i].hits++
+			return
+		}
+	}
+	if len(entries) >= pcrePatternCacheSize {
+		victim := 0
+		for i := range entries {
+			if entries[i].hits < entries[victim].hits {
+				victim = i
+			}
+		}
+		entries = append(entries[:victim], entries[victim+1:]...)
+	}
+	if compiled {
+		entries = append(entries, pcreCacheEntry{})
+		copy(entries[1:], entries)
+		entries[0] = pcreCacheEntry{pattern: pattern, caseless: caseless}
+	}
+	pcreCache.entries = entries
+}
+
 func builtinPcreCacheStats(ctx *Execution, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	return types.Ok(types.NewList([]types.Value{types.NewInt(0), types.NewInt(0)}))
+	pcreCache.mu.Lock()
+	out := make([]types.Value, len(pcreCache.entries))
+	for i, e := range pcreCache.entries {
+		out[i] = types.NewList([]types.Value{types.NewStr(e.pattern), types.NewInt(int64(e.hits))})
+	}
+	pcreCache.mu.Unlock()
+	return types.Ok(types.NewList(out))
 }
 
 func pcreDescriptors() []Descriptor {
