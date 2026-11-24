@@ -10,7 +10,8 @@ import fuzz_report
 from fuzz_differential import MAX_LINE, results
 from toast_reads_barn_db import (BARN_FORM, DATA_READ_MARKER, failure_line, REPAIR_RE, RECORD_RE, SEEDS, TOAST_TASKS_RE, barn_form_tasks,
                                  divergence_section, first_difference, go_formats, load_worlds,
-                                 object_count, parse_literal, public_reason, same_record, walk_inputs)
+                                 object_count, order_worlds, parse_literal, public_reason, same_record, walk_inputs)
+import toast_reads_barn_db
 
 # Excerpt of the toast lane of a real local run (seed action-0, 2026-11-20).
 TOAST_STDOUT = """
@@ -211,6 +212,43 @@ class SeedTest(unittest.TestCase):
         self.assertIn('child.text = "ü€😀é";', text)
         self.assertIn('ancestor.name = "ü€😀é";', text)
         self.assertTrue(re.search(r'set_verb_code\(child, "read_value", .*ü€😀é', text))
+
+
+class DeadlineTest(unittest.TestCase):
+    """A corpus larger than the step's time limit must still end with results
+    (run 45396507340 timed out at its 4,000th world and wrote none)."""
+
+    WORLDS = [{"origin": "seed:a", "source": "a"}, {"origin": "seed:b", "source": "b"},
+              *({"origin": f"/corpus/{i:02x}", "source": str(i)} for i in range(40))]
+
+    def test_seeds_first_then_corpus_by_seed_hash(self):
+        first, second = order_worlds(self.WORLDS, "1"), order_worlds(self.WORLDS, "2")
+        self.assertEqual([w["origin"] for w in first[:2]], ["seed:a", "seed:b"])
+        self.assertEqual(sorted(w["origin"] for w in first), sorted(w["origin"] for w in self.WORLDS))
+        self.assertNotEqual(first[2:], second[2:])
+        self.assertEqual(first, order_worlds(self.WORLDS, "1"))
+
+    def test_no_world_starts_after_the_deadline_and_results_are_written(self):
+        calls = []
+
+        def fake_case(name, *_):
+            calls.append(name)
+            return {"findings": []}
+
+        saved = toast_reads_barn_db.load_worlds, toast_reads_barn_db.run_case
+        toast_reads_barn_db.load_worlds = lambda _dirs: list(self.WORLDS)
+        toast_reads_barn_db.run_case = fake_case
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                args = type("Args", (), {"corpus": [], "seed": "s", "minutes": 0.0, "out": Path(tmp),
+                                         "db": Path(__file__), "toast": "toast"})()
+                status = toast_reads_barn_db.worlds_main(args, Path("barn"), [])
+                summary = json.loads((Path(tmp) / "results.json").read_text(encoding="utf-8"))["summary"]
+        finally:
+            toast_reads_barn_db.load_worlds, toast_reads_barn_db.run_case = saved
+        self.assertEqual(calls, ["W00001"])
+        self.assertEqual((status, summary["outcome"], summary["ran"], summary["worlds"]),
+                         (0, "success", 1, len(self.WORLDS)))
 
 
 if __name__ == "__main__":
