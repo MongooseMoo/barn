@@ -96,12 +96,15 @@ DEFERRED_COMPARISONS = {
     "0a6ccdc333f500419bbcf3364ae9183153e0365bdd3159309a68f7748df268cd",
 }
 
-def preamble(ticks: int, seconds: int) -> str:
-    """The first input: bound every later input to ticks and seconds."""
-    return ('for p in ({"fg_ticks", "fg_seconds"}) '
+def preamble(ticks: int, seconds: int, options: dict[str, int] | None = None) -> str:
+    """The first input: bound every later input to ticks and seconds, and
+    set any other $server_options integer in options."""
+    settings = {"fg_ticks": ticks, "fg_seconds": seconds, **(options or {})}
+    names = ", ".join(f'"{name}"' for name in settings)
+    return (f'for p in ({{{names}}}) '
             "try add_property($server_options, p, 0, {$server_options.owner, \"r\"}); except (ANY) endtry endfor "
-            f"$server_options.fg_ticks = {ticks}; $server_options.fg_seconds = {seconds}; "
-            "return load_server_options();")
+            + "".join(f"$server_options.{name} = {value}; " for name, value in settings.items())
+            + "return load_server_options();")
 
 
 PREAMBLE = preamble(FG_TICKS, FG_SECONDS)

@@ -61,9 +61,14 @@ from bench_differ import (REPO, TOAST, build_barn_linux, lane_scripts, run_wsl, 
 from fuzz_differential import MAX_LINE, preamble, render_choices, results  # noqa: E402
 
 # The walk reads every property and verb of every object in one input each,
-# so it gets the largest budget both engines accept.
+# so it gets the largest budget both engines accept. One object's property
+# record can outgrow the world's own size limits (Mongoose #42804's is 82 MB),
+# and both engines abort a task whose concatenation passes them (Toast
+# execute.cc PUSH_ERROR_UNLESS_QUOTA), so the walk sets them to 0, which both
+# read as no limit (Toast options.h; Barn builtins/limits.go canonicalizeLimit).
 WALK_TICKS = 2147483647
 WALK_SECONDS = 36000
+WALK_OPTIONS = {"max_string_concat": 0, "max_list_value_bytes": 0, "max_map_value_bytes": 0}
 TIMEOUT = 7200
 
 BARN_FORM = "Toast could not load this checkpoint: task kept in Barn's frame form"
@@ -85,7 +90,7 @@ def walk_inputs(max_object: int) -> list[str]:
     def guarded(key: str, body: str) -> str:
         return (f'try o = #{key[1:]}; if (!valid(o)) return {{"{key}", "invalid"}}; endif {body} '
                 f'except e (ANY) return {{"{key}", "raised", e[1], e[2]}}; endtry')
-    lines = [preamble(WALK_TICKS, WALK_SECONDS), 'return {"M0", max_object()};']
+    lines = [preamble(WALK_TICKS, WALK_SECONDS, WALK_OPTIONS), 'return {"M0", max_object()};']
     for n in range(max_object + 1):
         lines.append(guarded(f"O{n}", f'return {{"O{n}", o.name, o.owner, {{is_player(o), o.programmer, '
                                        'o.wizard, o.r, o.w, o.f}, parents(o), o.location, o.contents};'))
@@ -365,27 +370,36 @@ def run_case(name: str, source_db: Path, work: Path, barn_bin: Path, toast: str,
     write_inputs(work / "toast_in.txt", [";;" + line for line in lines], "toast")
     scripts = {lane: lane_scripts(work / f"{lane}-in.db", barn_bin, toast, work / "barn_in.txt",
                                   work / "toast_in.txt")[lane] for lane in ("barn", "toast")}
-    # Toast saves its copy at quit; its task counts are what it loaded.
-    scripts["toast"] += (" && { grep -E '^[0-9]+ (queued|suspended|interrupted) tasks$' \"$d/out.db\" || true; }"
-                         " | sed 's/^/TOAST TASKS /'")
+    # Toast saves its copy at quit. Its task counts are what it loaded only
+    # when it ran nothing: in the Mongoose world the walk's own inputs fork
+    # tasks on Toast (each add_property of a new $server_options limit forks
+    # two, and an uncaught error runs #0:handle_uncaught_error), so a
+    # separate load that quits at once is counted.
+    write_inputs(work / "toast_count_in.txt", [], "toast")
+    scripts["toast_count"] = (lane_scripts(work / "toast-in.db", barn_bin, toast, work / "toast_count_in.txt",
+                                           work / "toast_count_in.txt")["toast"]
+                              + " && { grep -E '^[0-9]+ (queued|suspended|interrupted) tasks$' \"$d/out.db\""
+                              " || true; } | sed 's/^/TOAST TASKS /'")
     records = {}
     for lane, script in scripts.items():
         proc = run_wsl(script, TIMEOUT)
         (work / f"{lane}_raw.txt").write_text(f"exit {proc.returncode}\n{proc.stdout}\n--- STDERR ---\n{proc.stderr}",
                                               encoding="utf-8")
         if proc.returncode != 0:
-            if lane == "toast":
+            if lane != "barn":
                 case["findings"].append({"kind": "toast refused the file", "exit": proc.returncode,
                                          # Toast's errlog lines begin "*** ".
                                          "log": [l for l in proc.stderr.splitlines() if "*** " in l][-5:]})
             else:
                 case["error"] = f"barn eval exited {proc.returncode}"
             return case
-        records[lane] = results(proc.stdout)
-        if lane == "toast":
+        if lane == "toast_count":
             counts = {kind: int(n) for n, kind in reversed(TOAST_TASKS_RE.findall(proc.stdout))}
             case["tasks"]["toast read"] = [counts.get("queued"), (counts.get("suspended") or 0)
                                            + (counts.get("interrupted") or 0)]
+            continue
+        records[lane] = results(proc.stdout)
+        if lane == "toast":
             # Toast's load prints VALIDATE phase banners and "Done through #N"
             # progress every time; any other VALIDATE line is a repair of
             # what Barn wrote (db_file.cc).

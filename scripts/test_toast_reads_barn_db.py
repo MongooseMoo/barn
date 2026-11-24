@@ -38,6 +38,15 @@ class WalkTest(unittest.TestCase):
         self.assertEqual(len(lines), 2 + 3 * 100000)
         self.assertLessEqual(max(len(";;" + line) for line in lines), MAX_LINE)
 
+    def test_walk_lifts_the_world_value_size_limits(self):
+        # Mongoose #42804's property record is 82 MB: under the world's own
+        # max_list_value_bytes Toast aborted and Barn raised E_MAXREC.
+        first = walk_inputs(0)[0]
+        for name in ("max_string_concat", "max_list_value_bytes", "max_map_value_bytes"):
+            self.assertIn(f'"{name}"', first)
+            self.assertIn(f"$server_options.{name} = 0;", first)
+        self.assertTrue(first.endswith("return load_server_options();"))
+
     def test_inputs_name_each_object_and_kind(self):
         lines = walk_inputs(1)
         self.assertEqual(lines[1], 'return {"M0", max_object()};')
