@@ -32,7 +32,11 @@ corpus file, e.g. FuzzWorldCheckpointEffects inputs) and each built-in seed is
 rendered by ``moo-fuzz-source --generator toast-world`` (fuzzseed.ToastWorld),
 run on a copy of ``--db`` by ``offline-checkpoint --run``, and compared. The
 report (``<out>/report.md``) names each failing world with its choices and
-source, in the form scripts/fuzz_report.py reads.
+source, in the form scripts/fuzz_report.py reads. The built-in seeds run
+first; the corpus worlds follow in the order sha256(--seed + origin) gives,
+and with --minutes no world starts after that time, so a cycle covers part of
+a large corpus and the next cycle's seed starts elsewhere
+(scripts/fuzz_cross_engine.py does the same).
 
 ``database PATH``: one existing database (the Mongoose dump), checkpointed
 without running anything. It holds real players' data, so everything printed,
@@ -53,6 +57,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -61,9 +66,14 @@ from bench_differ import (REPO, TOAST, build_barn_linux, lane_scripts, run_wsl, 
 from fuzz_differential import MAX_LINE, preamble, render_choices, results  # noqa: E402
 
 # The walk reads every property and verb of every object in one input each,
-# so it gets the largest budget both engines accept.
+# so it gets the largest budget both engines accept. One object's property
+# record can outgrow the world's own size limits (Mongoose #42804's is 82 MB),
+# and both engines abort a task whose concatenation passes them (Toast
+# execute.cc PUSH_ERROR_UNLESS_QUOTA), so the walk sets them to 0, which both
+# read as no limit (Toast options.h; Barn builtins/limits.go canonicalizeLimit).
 WALK_TICKS = 2147483647
 WALK_SECONDS = 36000
+WALK_OPTIONS = {"max_string_concat": 0, "max_list_value_bytes": 0, "max_map_value_bytes": 0}
 TIMEOUT = 7200
 
 BARN_FORM = "Toast could not load this checkpoint: task kept in Barn's frame form"
@@ -85,7 +95,7 @@ def walk_inputs(max_object: int) -> list[str]:
     def guarded(key: str, body: str) -> str:
         return (f'try o = #{key[1:]}; if (!valid(o)) return {{"{key}", "invalid"}}; endif {body} '
                 f'except e (ANY) return {{"{key}", "raised", e[1], e[2]}}; endtry')
-    lines = [preamble(WALK_TICKS, WALK_SECONDS), 'return {"M0", max_object()};']
+    lines = [preamble(WALK_TICKS, WALK_SECONDS, WALK_OPTIONS), 'return {"M0", max_object()};']
     for n in range(max_object + 1):
         lines.append(guarded(f"O{n}", f'return {{"O{n}", o.name, o.owner, {{is_player(o), o.programmer, '
                                        'o.wizard, o.r, o.w, o.f}, parents(o), o.location, o.contents};'))
@@ -365,27 +375,36 @@ def run_case(name: str, source_db: Path, work: Path, barn_bin: Path, toast: str,
     write_inputs(work / "toast_in.txt", [";;" + line for line in lines], "toast")
     scripts = {lane: lane_scripts(work / f"{lane}-in.db", barn_bin, toast, work / "barn_in.txt",
                                   work / "toast_in.txt")[lane] for lane in ("barn", "toast")}
-    # Toast saves its copy at quit; its task counts are what it loaded.
-    scripts["toast"] += (" && { grep -E '^[0-9]+ (queued|suspended|interrupted) tasks$' \"$d/out.db\" || true; }"
-                         " | sed 's/^/TOAST TASKS /'")
+    # Toast saves its copy at quit. Its task counts are what it loaded only
+    # when it ran nothing: in the Mongoose world the walk's own inputs fork
+    # tasks on Toast (each add_property of a new $server_options limit forks
+    # two, and an uncaught error runs #0:handle_uncaught_error), so a
+    # separate load that quits at once is counted.
+    write_inputs(work / "toast_count_in.txt", [], "toast")
+    scripts["toast_count"] = (lane_scripts(work / "toast-in.db", barn_bin, toast, work / "toast_count_in.txt",
+                                           work / "toast_count_in.txt")["toast"]
+                              + " && { grep -E '^[0-9]+ (queued|suspended|interrupted) tasks$' \"$d/out.db\""
+                              " || true; } | sed 's/^/TOAST TASKS /'")
     records = {}
     for lane, script in scripts.items():
         proc = run_wsl(script, TIMEOUT)
         (work / f"{lane}_raw.txt").write_text(f"exit {proc.returncode}\n{proc.stdout}\n--- STDERR ---\n{proc.stderr}",
                                               encoding="utf-8")
         if proc.returncode != 0:
-            if lane == "toast":
+            if lane != "barn":
                 case["findings"].append({"kind": "toast refused the file", "exit": proc.returncode,
                                          # Toast's errlog lines begin "*** ".
                                          "log": [l for l in proc.stderr.splitlines() if "*** " in l][-5:]})
             else:
                 case["error"] = f"barn eval exited {proc.returncode}"
             return case
-        records[lane] = results(proc.stdout)
-        if lane == "toast":
+        if lane == "toast_count":
             counts = {kind: int(n) for n, kind in reversed(TOAST_TASKS_RE.findall(proc.stdout))}
             case["tasks"]["toast read"] = [counts.get("queued"), (counts.get("suspended") or 0)
                                            + (counts.get("interrupted") or 0)]
+            continue
+        records[lane] = results(proc.stdout)
+        if lane == "toast":
             # Toast's load prints VALIDATE phase banners and "Done through #N"
             # progress every time; any other VALIDATE line is a repair of
             # what Barn wrote (db_file.cc).
@@ -452,6 +471,8 @@ def divergence_section(failed: list[dict]) -> list[str]:
         lines += [f"### {case['name']} `{case['origin']}`", "",
                   f"- choices (hex): `{case.get('choices', '')}`",
                   f"- findings: {', '.join(f['kind'] for f in case['findings'])}; {summary}",
+                  # scripts/fuzz_report.py opens one issue per class.
+                  f"- signature: {', '.join(sorted({f['kind'] for f in case['findings']}))}",
                   f"- written file: {case['file']['size']} bytes, sha256 `{case['file']['sha256']}`",
                   "", "```moo", case["source"].strip("\n"), "```", "",
                   f"- toast: {toast}", f"- barn: {barn}", ""]
@@ -506,6 +527,8 @@ def main() -> int:
     worlds_cmd.add_argument("corpus", type=Path, nargs="*", help="Go fuzz corpus directories of choice records")
     # Test_conf.db is the stock oracle manifest's fixture (fuzz_differential.py --db).
     worlds_cmd.add_argument("--db", type=Path, default=REPO / "Test_conf.db", help="database each world starts from")
+    worlds_cmd.add_argument("--minutes", type=float, help="start no new world after this many minutes")
+    worlds_cmd.add_argument("--seed", default="", help="order the corpus worlds by sha256(seed + origin); the nightly passes its run id")
     database_cmd = sub.add_parser("database", help="one existing database; prints counts only")
     database_cmd.add_argument("path", type=Path)
     for cmd in (worlds_cmd, database_cmd):
@@ -549,10 +572,24 @@ def run(args) -> int:
     return worlds_main(args, barn_bin, header)
 
 
+def order_worlds(worlds: list[dict], seed: str) -> list[dict]:
+    """The built-in seeds in their own order, then the corpus worlds in the
+    order sha256(seed + origin) gives."""
+    builtin = [w for w in worlds if w["origin"].startswith("seed:")]
+    corpus = [w for w in worlds if not w["origin"].startswith("seed:")]
+    corpus.sort(key=lambda w: hashlib.sha256((seed + w["origin"]).encode()).hexdigest())
+    return builtin + corpus
+
+
 def worlds_main(args, barn_bin: Path, header: list[str]) -> int:
-    worlds = load_worlds(args.corpus)
+    deadline = None if args.minutes is None else time.monotonic() + args.minutes * 60
+    worlds = order_worlds(load_worlds(args.corpus), args.seed)
     cases, failed, errors = [], [], []
+    ran = 0
     for index, world in enumerate(worlds, 1):
+        if deadline is not None and ran and time.monotonic() >= deadline:
+            break
+        ran += 1
         key = "W%05d" % index
         if "source" not in world:
             errors.append(f"{key} {world['origin']}: {world.get('error')}")
@@ -572,14 +609,16 @@ def worlds_main(args, barn_bin: Path, header: list[str]) -> int:
     status = 1 if failed else 2 if errors or not compared else 0
     outcome = {0: "success", 1: "divergence", 2: "inconclusive"}[status]
     report = ["# Toast reads Barn-written databases", "",
-              f"- outcome: {outcome}", f"- worlds: {len(worlds)}; compared: {compared}; failed: {len(failed)}",
+              f"- outcome: {outcome}", f"- worlds: {len(worlds)}; ran: {ran} (seed {args.seed!r}, minutes {args.minutes}); "
+              f"compared: {compared}; failed: {len(failed)}",
               f"- harness errors: {json.dumps(errors)}",
               f"- unicode worlds (a string above 127): {unicode_worlds}",
               f"- base database: `{args.db}` sha256 `{sha256(args.db)}`", *header, ""]
     text = "\n".join(report + divergence_section(failed))
     (args.out / "report.md").write_text(text, encoding="utf-8")
     (args.out / "results.json").write_text(json.dumps({"summary": {"outcome": outcome, "worlds": len(worlds),
-                                                                   "compared": compared, "failed": len(failed),
+                                                                   "ran": ran, "seed": args.seed,
+                                                                   "minutes": args.minutes, "compared": compared, "failed": len(failed),
                                                                    "errors": errors},
                                                        "cases": cases}, indent=2, ensure_ascii=False),
                                            encoding="utf-8")

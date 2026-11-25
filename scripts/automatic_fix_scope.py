@@ -1,16 +1,16 @@
 """Decide whether an automatic repair's change may merge without a person reading it.
 
-A repair is in scope when it adds a fuzz input under <package>/testdata/fuzz/<Target>/,
-so the required red/green replay (fuzz_red_green.py) proves the input fails before the
-change and passes with it, and when it leaves every existing check alone: it changes,
-deletes or renames no existing test data, workflow, script, profile or agent rules
-file, and removes no line from an existing Go test. Adding new tests, new test data,
-and new lines in an existing Go test is allowed.
+A repair is in scope when it proves it fixes a reproduced failure, either by adding a fuzz input under <package>/testdata/fuzz/<Target>/ that fuzz_red_green.py replays red before the change and green after it, or by a conformance test that the managed harness passes on Toast, fails on Barn at the merge base, and passes on Barn at the repair's head; and when it leaves every existing check alone: it changes, deletes or renames no existing test data, workflow, script, profile or agent rules file, and removes no line from an existing Go test.
 
-Exit 0 when in scope, 1 when not; the reasons are printed one per line.
+Adding new tests, new test data, and new lines in an existing Go test is allowed.
+The conformance proof is the JSON evidence file the automatic repair workflow
+writes after running the conformance branch's added tests three times
+(--conformance-evidence). Exit 0 when in scope, 1 when not; the reasons are
+printed one per line.
 """
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -46,10 +46,39 @@ def changes(base, head="HEAD", cwd="."):
     return [(status, path, removed.get(path, 0)) for status, path in diff("--name-status")]
 
 
-def out_of_scope(changed):
+def _selected(run):
+    """The run's selected test ids, without capability admission."""
+    ids = run.get("passed", []) + run.get("failed", []) + run.get("skipped", [])
+    return frozenset(i for i in ids if "capability_admission" not in i)
+
+
+def _admitted(run):
+    return any("capability_admission" in i for i in run.get("passed", [])) and         not any("capability_admission" in i for i in run.get("failed", []) + run.get("skipped", []))
+
+
+def _green(run):
+    return run.get("exit") == 0 and _admitted(run) and not run.get("failed") and not run.get("skipped")
+
+
+def conformance_proves(evidence):
+    """True when one non-empty test selection passed on Toast, failed on Barn at the merge base and passed at the head."""
+    if not evidence or not evidence.get("files"):
+        return False
+    runs = evidence.get("runs", {})
+    toast, base, head = (runs.get(name) for name in ("toast", "barn_base", "barn_head"))
+    if not (toast and base and head):
+        return False
+    selection = _selected(toast)
+    if not selection or _selected(base) != selection or _selected(head) != selection:
+        return False
+    base_red = base.get("exit") != 0 and _admitted(base) and bool(set(base.get("failed", [])) & selection)
+    return _green(toast) and base_red and _green(head)
+
+
+def out_of_scope(changed, evidence=None):
     """Reasons the change needs a decision; empty when it is in scope."""
     reasons = []
-    if not any(status == "A" and INPUT.match(path) for status, path, _ in changed):
+    if not any(status == "A" and INPUT.match(path) for status, path, _ in changed) and             not conformance_proves(evidence):
         reasons.append("adds no fuzz input under testdata/fuzz, so nothing proves it fixes a reproduced failure")
     for status, path, removed in changed:
         for pattern, what, may_add in GUARDED:
@@ -67,12 +96,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True, help="commit the change is compared against")
     parser.add_argument("--head", default="HEAD", help="the change's commit")
+    parser.add_argument("--conformance-evidence", type=Path,
+                        help="JSON record of the conformance test's Toast, merge-base and head runs")
     args = parser.parse_args()
-    reasons = out_of_scope(changes(args.base, args.head))
+    evidence = None
+    if args.conformance_evidence and args.conformance_evidence.is_file():
+        evidence = json.loads(args.conformance_evidence.read_text())
+    reasons = out_of_scope(changes(args.base, args.head), evidence)
     for reason in reasons:
         print(reason)
     if not reasons:
-        print("In scope: adds a fuzz input and leaves existing checks unchanged.")
+        print("In scope: proves it fixes a reproduced failure and leaves existing checks unchanged.")
     return 1 if reasons else 0
 
 

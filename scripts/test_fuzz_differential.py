@@ -13,9 +13,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import bench_differ
+import fuzz_report
 from bench_differ import REPO
 from fuzz_differential import (CRASHED, KILLED, TIMED_OUT, ComparisonDeadline, decode_corpus_file, engine_runner, exclusion,
-                               load_programs, main, outcome, probe, render_choices, results, run_bounded)
+                               load_programs, main, oracle_missing_re, outcome, probe, render_choices, results,
+                               run_bounded)
 
 # Real records copied byte for byte from Go's fuzz cache of the structured
 # targets, as Go's internal/fuzz marshalCorpusFile wrote them.
@@ -366,6 +368,7 @@ class StructuredCorpusTests(unittest.TestCase):
                   patch("fuzz_differential.run_wsl", return_value=SimpleNamespace(
                       stdout="fixture-checksum\nToastStunt version fixture\n", stderr="", returncode=0)),
                   patch("fuzz_differential.engine_runner", return_value=engine),
+                  patch("fuzz_differential.engine_builtins", return_value=["abs"]),
                   contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO())):
                 code = main()
             data = json.loads((out / "results.json").read_text(encoding="utf-8"))
@@ -390,6 +393,18 @@ class ExclusionTests(unittest.TestCase):
     def test_plain_program_and_lookalike_names(self):
         self.assertIsNone(exclusion("x = {0..0}; return x[1];"))
         self.assertIsNone(exclusion("return times;"))
+
+    def test_builtins_the_oracle_lacks(self):
+        # Real divergence of run 45396507340: stock Toast answered `compile 0`.
+        missing = oracle_missing_re(["parse_ast", "spellcheck", "validate_ast"])
+        self.assertEqual(exclusion("while (validate_ast(@m, abs(0.0).(n), @n))\nendwhile", missing),
+                         "validate_ast(): not a builtin of the Toast oracle")
+        self.assertEqual(exclusion('x = spellcheck ("a");', missing), "spellcheck(): not a builtin of the Toast oracle")
+        # A verb or property of that name, or a longer name, is not the builtin.
+        self.assertIsNone(exclusion("return #0:validate_ast(1);", missing))
+        self.assertIsNone(exclusion("return reparse_ast(1);", missing))
+        self.assertIsNone(exclusion("return $validate_ast(1);", missing))
+        self.assertIsNone(oracle_missing_re([]))
 
     def test_deferred_comparison_is_counted_and_other_sources_remain(self):
         fingerprint = hashlib.sha256(b"return 1;").hexdigest()
@@ -448,6 +463,7 @@ class CampaignTests(unittest.TestCase):
                   patch("fuzz_differential.run_wsl", return_value=SimpleNamespace(
                       stdout="fixture-checksum\nToastStunt version fixture\n", stderr="", returncode=0)),
                   patch("fuzz_differential.engine_runner", return_value=engine),
+                  patch("fuzz_differential.engine_builtins", return_value=["abs"]),
                   contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO())):
                 code = main()
             return code, json.loads((output / "results.json").read_text()), (output / "report.md").read_text()
@@ -461,6 +477,24 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(data["summary"]["outcome"], "inconclusive")
         self.assertEqual(data["rows"][0]["toast_raw"], aborted)
         self.assertIn("completed comparisons: 0", report)
+
+    def test_each_divergence_class_is_its_own_finding(self):
+        # Run 45396507340 filed 722 divergences as one finding (#1124); each
+        # (Toast result, Barn result) class now gets its own.
+        toast = ['=> {"F00001", "raised", E_RANGE}', '=> {"F00002", "raised", E_RANGE}', '=> {"F00003", "value", 1}']
+        barn = ['=> {"F00001", "raised", E_TYPE}', '=> {"F00002", "raised", E_TYPE}', '=> {"F00003", "value", 2}']
+        code, _, text = self.run_campaign(toast, barn)
+        self.assertEqual(code, 1)
+        self.assertEqual(text.count("- signature: toast raised E_RANGE / barn raised E_TYPE"), 2)
+        self.assertEqual(text.count("- signature: toast value / barn value"), 1)
+        findings = fuzz_report.report(text, "./scripts", "ToastDifferential", "commit")
+        self.assertEqual([f["input_text"] for f in findings], ["return 0;", "return 2;"])
+        self.assertEqual(len({f["signature"] for f in findings}), 2)
+        self.assertTrue(all(f["kind"] == "divergence" for f in findings))
+        self.assertIn("- toast: `raised E_RANGE`\n- barn: `raised E_TYPE`", findings[0]["first_error"])
+        # The same class keeps its signature whatever program shows it first.
+        swapped = fuzz_report.report(text.replace("return 0;", "return 9;"), "./scripts", "ToastDifferential", "c")
+        self.assertEqual(swapped[0]["signature"], findings[0]["signature"])
 
     def test_real_completed_output_counts_and_both_aborted_is_partial(self):
         # A completed keyed value taken from the existing real Barn transcript.

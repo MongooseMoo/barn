@@ -282,14 +282,22 @@ def process(args, stage, item):
     result, patch, head = proposal(args.root, stage, number, report, args.user, args.codex)
     outcome = result["outcome"]
     print(f"{stage} #{number}: {outcome}", flush=True)
-    if outcome in {"policy-block", "unknown"}:
-        label(number, "needs-decision" if stage == "conformance" else "repair-needs-attention", True)
+    attention = "needs-decision" if stage == "conformance" else "repair-needs-attention"
+    if outcome == "unknown":
+        label(number, attention, True)
         return True
-    if outcome in {"usage-limit", "authentication", "provider-unavailable"}:
-        print(f"Codex availability: {outcome}, reset {result['retry_at'] or 'unknown'}", flush=True)
-        if result["retry_at"].isdigit():
-            args.retry_at = int(result["retry_at"])
+    # A Codex policy block goes to Claude, as an outage does, unless Claude
+    # already failed on this item (#1124 sat two days on a Codex cyber-policy
+    # refusal with no repair).
+    if outcome in {"policy-block", "usage-limit", "authentication", "provider-unavailable"}:
+        if outcome != "policy-block":
+            print(f"Codex availability: {outcome}, reset {result['retry_at'] or 'unknown'}", flush=True)
+            if result["retry_at"].isdigit():
+                args.retry_at = int(result["retry_at"])
         labels = {item["name"] for item in api(f"repos/{BARN}/issues/{number}/labels")}
+        if "claude-unavailable" in labels and outcome == "policy-block":
+            label(number, attention, True)
+            return True
         if "claude-unavailable" not in labels:
             label(number, "codex-unavailable", True)
             label(number, f"codex-{stage}", False)

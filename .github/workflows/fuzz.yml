@@ -474,6 +474,9 @@ jobs:
           path: .fuzz/retained
       - *comparison-toast
       - *comparison-barn
+      # The retained world corpus outgrew this step's limit (run 45396507340
+      # stopped at its 3,977th world with no results), so the script starts no
+      # world after 25 minutes and each cycle's run id orders the corpus anew.
       - name: Compare Barn-written worlds in Toast
         id: worlds
         timeout-minutes: 35
@@ -486,7 +489,8 @@ jobs:
           {
             go version
             python3 scripts/toast_reads_barn_db.py worlds --toast "$TOAST_BIN" --barn-linux bin/barn \
-              --out toast-reads-barn-db .fuzz/retained/vm/FuzzWorldCheckpointEffects/inputs
+              --out toast-reads-barn-db --minutes 25 --seed "$GITHUB_RUN_ID" \
+              .fuzz/retained/vm/FuzzWorldCheckpointEffects/inputs
           } 2>&1 | tee "$logs/run-001.log" || status=$?
           cp "$logs/run-001.log" toast-reads-barn-db/campaign.log
           exit "$status"

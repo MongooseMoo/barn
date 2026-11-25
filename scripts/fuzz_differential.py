@@ -96,12 +96,15 @@ DEFERRED_COMPARISONS = {
     "0a6ccdc333f500419bbcf3364ae9183153e0365bdd3159309a68f7748df268cd",
 }
 
-def preamble(ticks: int, seconds: int) -> str:
-    """The first input: bound every later input to ticks and seconds."""
-    return ('for p in ({"fg_ticks", "fg_seconds"}) '
+def preamble(ticks: int, seconds: int, options: dict[str, int] | None = None) -> str:
+    """The first input: bound every later input to ticks and seconds, and
+    set any other $server_options integer in options."""
+    settings = {"fg_ticks": ticks, "fg_seconds": seconds, **(options or {})}
+    names = ", ".join(f'"{name}"' for name in settings)
+    return (f'for p in ({{{names}}}) '
             "try add_property($server_options, p, 0, {$server_options.owner, \"r\"}); except (ANY) endtry endfor "
-            f"$server_options.fg_ticks = {ticks}; $server_options.fg_seconds = {seconds}; "
-            "return load_server_options();")
+            + "".join(f"$server_options.{name} = {value}; " for name, value in settings.items())
+            + "return load_server_options();")
 
 
 PREAMBLE = preamble(FG_TICKS, FG_SECONDS)
@@ -134,6 +137,31 @@ EXCLUDED_CALLS = {
 CALL_RE = re.compile(r"\b(" + "|".join(sorted(EXCLUDED_CALLS)) + r")\s*\(")
 # fork returns a task id; $server_options changes the preamble's bounds.
 WORD_RE = re.compile(r"\b(fork|server_options)\b")
+# Every builtin an engine registers, as one input line (without Toast's ";;").
+FUNCTION_NAMES = "r = {}; for f in (function_info()) r = {@r, f[1]}; endfor return r;"
+
+
+def engine_builtins(lane: str, db: Path, barn_bin: Path, toast: str, out: Path) -> list[str]:
+    """The sorted names of every builtin the lane's engine registers. The
+    transcript is kept as <out>/<lane>_function_info.txt."""
+    path = out / f"{lane}_function_info_in.txt"
+    write_inputs(path, [(";;" if lane == "toast" else "") + FUNCTION_NAMES], lane)
+    proc = run_wsl(lane_scripts(db, barn_bin, toast, path, path, 60)[lane], 120)
+    (out / f"{lane}_function_info.txt").write_text(f"exit {proc.returncode}\n{proc.stdout}\n--- STDERR ---\n"
+                                                   f"{proc.stderr}", encoding="utf-8")
+    lines = [line for line in proc.stdout.splitlines() if line.startswith("=> {")]
+    if proc.returncode != 0 or len(lines) != 1:
+        raise RuntimeError(f"function_info() on {lane} exited {proc.returncode} with {len(lines)} result lines")
+    names = re.findall(r'"([a-z_0-9]+)"', lines[0])
+    if not names:
+        raise RuntimeError(f"function_info() on {lane} named no builtins")
+    return sorted(set(names))
+
+
+def oracle_missing_re(names) -> re.Pattern | None:
+    """A builtin call (not a verb call, `:name(`) of any of names."""
+    names = sorted(names)
+    return re.compile(r"(?<![:\w$])(" + "|".join(names) + r")\s*\(") if names else None
 
 RESULT_RE = re.compile(r'=> \{"(F\d{5})", "(value|compile|raised)", (.*)\}', re.DOTALL)
 # Lines that begin one record of engine output. Any other line continues the
@@ -192,8 +220,12 @@ def render_choices(paths: list[str], generator: str = "structured-ascii") -> dic
     return rendered
 
 
-def exclusion(source: str) -> str | None:
-    """Why a program is not compared, or None."""
+def exclusion(source: str, oracle_missing: re.Pattern | None = None) -> str | None:
+    """Why a program is not compared, or None. oracle_missing matches calls
+    of builtins Barn has and the Toast oracle does not: Toast refuses to
+    compile such a program, so there is nothing to compare (run 45396507340:
+    396 of 722 divergences called parse_ast, validate_ast, unparse_ast,
+    verb_ast or spellcheck, which stock Toast lacks)."""
     if hashlib.sha256(source.encode("utf-8")).hexdigest() in DEFERRED_COMPARISONS:
         return "deferred comparison"
     # Barn strings are Unicode by design and Toast strings are bytes, so
@@ -204,6 +236,9 @@ def exclusion(source: str) -> str | None:
     m = CALL_RE.search(source)
     if m:
         return f"{m.group(1)}(): {EXCLUDED_CALLS[m.group(1)]}"
+    m = oracle_missing.search(source) if oracle_missing else None
+    if m:
+        return f"{m.group(1)}(): not a builtin of the Toast oracle"
     m = WORD_RE.search(source)
     if m:
         return m.group(1)
@@ -231,6 +266,13 @@ def outcome(key: str, record: str | None) -> str | None:
     """'value V', 'compile 0' or 'raised E' for a completed probe, else None."""
     m = RESULT_RE.fullmatch(record or "")
     return f"{m.group(2)} {m.group(3)}" if m and m.group(1) == key else None
+
+
+def result_class(result: str) -> str:
+    """An outcome() string without its value: 'value', 'compile', or 'raised'
+    with the error code. A divergence's class is its two engines' classes."""
+    kind, _, rest = result.partition(" ")
+    return f"raised {rest.split(' ', 1)[0]}" if kind == "raised" else kind
 
 
 def run_streaming(script: str, timeout: int, kill: str, startup: int,
@@ -396,7 +438,8 @@ def run_bounded(lane: str, run, lines: list[str], out: Path, probe_timeout: int 
     return records, errors, timed_out
 
 
-def load_programs(dirs: list[Path]) -> tuple[dict[str, dict[str, str]], dict[str, int], dict[str, dict]]:
+def load_programs(dirs: list[Path], oracle_missing: re.Pattern | None = None
+                  ) -> tuple[dict[str, dict[str, str]], dict[str, int], dict[str, dict]]:
     """Unique compared sources -> their first corpus record (origin path,
     lane, and the choice bytes of a structured record), exclusion counts,
     and per-lane counts. Each corpus directory is one lane."""
@@ -441,7 +484,7 @@ def load_programs(dirs: list[Path]) -> tuple[dict[str, dict[str, str]], dict[str
             continue
         else:
             seen.add(source)
-            reason = exclusion(source) or (None if len(probe("F00000", source)) <= MAX_LINE
+            reason = exclusion(source, oracle_missing) or (None if len(probe("F00000", source)) <= MAX_LINE
                                            else "longer than one emergency-mode line")
         if reason:
             excluded[reason] = excluded.get(reason, 0) + 1
@@ -469,14 +512,16 @@ def main() -> int:
     args = ap.parse_args()
     deadline = time.monotonic() + 60 * args.minutes if args.minutes is not None else None
 
-    programs, excluded, corpus_lanes = load_programs(args.corpus)
-    if not programs:
-        print("no comparable programs in the corpus", file=sys.stderr)
-        return 2
     args.out.mkdir(parents=True, exist_ok=True)
     barn_bin = args.barn_linux or (args.out / "barn_linux")
     if not args.barn_linux:
         build_barn_linux(barn_bin)
+    oracle_missing = sorted(set(engine_builtins("barn", args.db, barn_bin, args.toast, args.out))
+                            - set(engine_builtins("toast", args.db, barn_bin, args.toast, args.out)))
+    programs, excluded, corpus_lanes = load_programs(args.corpus, oracle_missing_re(oracle_missing))
+    if not programs:
+        print("no comparable programs in the corpus", file=sys.stderr)
+        return 2
 
     keyed = [("F%05d" % i, source, record) for i, (source, record) in enumerate(programs.items(), 1)]
     inputs = [(line, ";;" + line) for line in [PREAMBLE] + [probe(k, s) for k, s, _ in keyed]]
@@ -561,6 +606,7 @@ def main() -> int:
         "partial": completed != len(programs),
         "counts": counts, "record_errors": record_errors, "recovered_panics": recovered_panics,
         "timeouts": timeouts, "killed": killed, "crashed": crashed, "lanes": corpus_lanes,
+        "oracle_missing_builtins": oracle_missing,
     }
     report = [
         "# Barn vs Toast fuzz differential", "",
@@ -573,6 +619,7 @@ def main() -> int:
         f"- killed by a signal the harness did not send (memory limit): {json.dumps(killed)}",
         f"- crashed (the engine panicked and aborted): {json.dumps(crashed)}",
         f"- excluded: {json.dumps(excluded, sort_keys=True)}",
+        f"- Barn builtins the Toast oracle lacks: {json.dumps(oracle_missing)}",
         f"- bounds: fg_ticks {FG_TICKS}, fg_seconds {FG_SECONDS}; harness {args.probe_timeout}s per input, "
         f"{CHUNK} inputs per process; db `{args.db}`",
         f"- toast binary: `{args.toast}` sha256 `{toast_sha}` version `{toast_version}`", "",
@@ -605,6 +652,9 @@ def main() -> int:
                 report += [f"### {r['key']} `{Path(r['origin']).name}`", "", f"- lane: `{r['lane']}`"]
                 if "choices" in r:
                     report.append(f"- choices (hex): `{r['choices']}`")
+                if kind == "divergence":
+                    # scripts/fuzz_report.py opens one issue per class.
+                    report.append(f"- signature: toast {result_class(r['toast'])} / barn {result_class(r['barn'])}")
                 report += ["", "```moo", r["source"], "```", "",
                            f"- toast: `{r['toast']}`", f"- barn: `{r['barn']}`", ""]
     text = "\n".join(report)

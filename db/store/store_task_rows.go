@@ -132,6 +132,14 @@ func (tx *StoreTxn) ReadTaskRow(id int64) (TaskRow, bool) {
 	return row, ok
 }
 
+// StagedTaskRow returns the row this transaction has staged for task id, if
+// any. Unlike ReadTaskRow it records no read, so a caller can consult its own
+// pending kills without adding a commit conflict on every task it looks at.
+func (tx *StoreTxn) StagedTaskRow(id int64) (TaskRow, bool) {
+	row, staged := tx.taskWrites[id]
+	return row, staged
+}
+
 // StageTaskRow writes task id's row at this transaction's commit. The direct
 // transaction publishes it at once.
 func (tx *StoreTxn) StageTaskRow(id int64, row TaskRow) {

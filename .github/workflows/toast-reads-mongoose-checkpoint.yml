@@ -20,12 +20,10 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
+  # A required check on master: it runs on every pull request and in the
+  # merge queue, since a required check that never reports blocks the PR.
   pull_request:
-    paths:
-      - .github/workflows/toast-reads-mongoose-checkpoint.yml
-      - scripts/toast_reads_barn_db.py
-      - internal/dbtool/offline_checkpoint.go
-      - profiles/toast/mongoose-0ff6fd7-wsl-testdb.json
+  merge_group:
 
 permissions:
   contents: read

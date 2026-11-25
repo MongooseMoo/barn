@@ -10,7 +10,8 @@ import fuzz_report
 from fuzz_differential import MAX_LINE, results
 from toast_reads_barn_db import (BARN_FORM, DATA_READ_MARKER, failure_line, REPAIR_RE, RECORD_RE, SEEDS, TOAST_TASKS_RE, barn_form_tasks,
                                  divergence_section, first_difference, go_formats, load_worlds,
-                                 object_count, parse_literal, public_reason, same_record, walk_inputs)
+                                 object_count, order_worlds, parse_literal, public_reason, same_record, walk_inputs)
+import toast_reads_barn_db
 
 # Excerpt of the toast lane of a real local run (seed action-0, 2026-11-20).
 TOAST_STDOUT = """
@@ -37,6 +38,15 @@ class WalkTest(unittest.TestCase):
         lines = walk_inputs(99999)
         self.assertEqual(len(lines), 2 + 3 * 100000)
         self.assertLessEqual(max(len(";;" + line) for line in lines), MAX_LINE)
+
+    def test_walk_lifts_the_world_value_size_limits(self):
+        # Mongoose #42804's property record is 82 MB: under the world's own
+        # max_list_value_bytes Toast aborted and Barn raised E_MAXREC.
+        first = walk_inputs(0)[0]
+        for name in ("max_string_concat", "max_list_value_bytes", "max_map_value_bytes"):
+            self.assertIn(f'"{name}"', first)
+            self.assertIn(f"$server_options.{name} = 0;", first)
+        self.assertTrue(first.endswith("return load_server_options();"))
 
     def test_inputs_name_each_object_and_kind(self):
         lines = walk_inputs(1)
@@ -182,7 +192,7 @@ class ReportTest(unittest.TestCase):
                                                            "toast": '=> {"O0", "Planted Object"}',
                                                            "barn": '=> {"O0", "System Object"}'}]}]}
         text = "\n".join(["# Toast reads Barn-written databases", ""] + divergence_section([case]))
-        result = fuzz_report.report(text, "./scripts", "ToastReadsBarnDatabase", "c0ffee")
+        result = fuzz_report.report(text, "./scripts", "ToastReadsBarnDatabase", "c0ffee")[0]
         self.assertEqual(result["kind"], "divergence")
         self.assertEqual(result["input_path"], "seed:action-0")
         self.assertIn("ancestor = create(#2);", result["input_text"])
@@ -196,7 +206,7 @@ class ReportTest(unittest.TestCase):
                         {"kind": "toast repaired the file", "log": ["VALIDATE: x"]},
                         {"kind": "task counts", "counts": base["tasks"]}):
             text = "\n".join(divergence_section([{**base, "findings": [finding]}]))
-            self.assertEqual(fuzz_report.report(text, "./scripts", "T", "c")["kind"], "divergence", finding)
+            self.assertEqual(fuzz_report.report(text, "./scripts", "T", "c")[0]["kind"], "divergence", finding)
 
 
 class SeedTest(unittest.TestCase):
@@ -211,6 +221,43 @@ class SeedTest(unittest.TestCase):
         self.assertIn('child.text = "ü€😀é";', text)
         self.assertIn('ancestor.name = "ü€😀é";', text)
         self.assertTrue(re.search(r'set_verb_code\(child, "read_value", .*ü€😀é', text))
+
+
+class DeadlineTest(unittest.TestCase):
+    """A corpus larger than the step's time limit must still end with results
+    (run 45396507340 timed out at its 4,000th world and wrote none)."""
+
+    WORLDS = [{"origin": "seed:a", "source": "a"}, {"origin": "seed:b", "source": "b"},
+              *({"origin": f"/corpus/{i:02x}", "source": str(i)} for i in range(40))]
+
+    def test_seeds_first_then_corpus_by_seed_hash(self):
+        first, second = order_worlds(self.WORLDS, "1"), order_worlds(self.WORLDS, "2")
+        self.assertEqual([w["origin"] for w in first[:2]], ["seed:a", "seed:b"])
+        self.assertEqual(sorted(w["origin"] for w in first), sorted(w["origin"] for w in self.WORLDS))
+        self.assertNotEqual(first[2:], second[2:])
+        self.assertEqual(first, order_worlds(self.WORLDS, "1"))
+
+    def test_no_world_starts_after_the_deadline_and_results_are_written(self):
+        calls = []
+
+        def fake_case(name, *_):
+            calls.append(name)
+            return {"findings": []}
+
+        saved = toast_reads_barn_db.load_worlds, toast_reads_barn_db.run_case
+        toast_reads_barn_db.load_worlds = lambda _dirs: list(self.WORLDS)
+        toast_reads_barn_db.run_case = fake_case
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                args = type("Args", (), {"corpus": [], "seed": "s", "minutes": 0.0, "out": Path(tmp),
+                                         "db": Path(__file__), "toast": "toast"})()
+                status = toast_reads_barn_db.worlds_main(args, Path("barn"), [])
+                summary = json.loads((Path(tmp) / "results.json").read_text(encoding="utf-8"))["summary"]
+        finally:
+            toast_reads_barn_db.load_worlds, toast_reads_barn_db.run_case = saved
+        self.assertEqual(calls, ["W00001"])
+        self.assertEqual((status, summary["outcome"], summary["ran"], summary["worlds"]),
+                         (0, "success", 1, len(self.WORLDS)))
 
 
 if __name__ == "__main__":
