@@ -213,8 +213,16 @@ func builtinParseJson(ctx *Execution, args []types.Value) types.Result {
 		if modeVal.Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
 		}
+		// Toast accepts exactly the two mode names, in any case, and raises
+		// E_INVARG for any other string (as generate_json does).
 		mode := modeVal.Str()
-		embeddedTypes = strings.Contains(mode, "embedded")
+		switch {
+		case strings.EqualFold(mode, "common-subset"):
+		case strings.EqualFold(mode, "embedded-types"):
+			embeddedTypes = true
+		default:
+			return types.Err(types.E_INVARG)
+		}
 	}
 
 	// Read just one JSON value and ignore what follows it, as Toast does:

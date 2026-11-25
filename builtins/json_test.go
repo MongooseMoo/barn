@@ -70,6 +70,31 @@ func TestGenerateJsonWritesRepeatedMemberNames(t *testing.T) {
 	}
 }
 
+// Toast's parse_json accepts only "common-subset" and "embedded-types", in any
+// case, and raises E_INVARG for any other mode string, even before a valid
+// document (issue #1173: parse_json("1", "\t") returned 1).
+func TestParseJsonMode(t *testing.T) {
+	ctx := newTestExecution()
+	doc := types.NewStr(`"#1|obj"`)
+	for mode, want := range map[string]string{
+		"common-subset":  `"#1|obj"`,
+		"CoMmOn-SuBsEt":  `"#1|obj"`,
+		"embedded-types": "#1",
+		"EMBEDDED-TYPES": "#1",
+	} {
+		res := admitTestBuiltin("parse_json", ctx, []types.Value{doc, types.NewStr(mode)})
+		if res.IsError() || res.Val.String() != want {
+			t.Fatalf("parse_json(%q) = %v (%v), want %s", mode, res.Val, res.Error, want)
+		}
+	}
+	for _, mode := range []string{"\t", "", "x", "embedded", "pretty", "not-embedded-types", "common-subset "} {
+		res := admitTestBuiltin("parse_json", ctx, []types.Value{types.NewStr("1"), types.NewStr(mode)})
+		if !res.IsError() || res.Error != types.E_INVARG {
+			t.Fatalf("parse_json(\"1\", %q) = %v (%v), want E_INVARG", mode, res.Val, res.Error)
+		}
+	}
+}
+
 func TestParseJsonNullMapsToENone(t *testing.T) {
 	ctx := newTestExecution()
 
