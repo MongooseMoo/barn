@@ -367,8 +367,10 @@ func builtinClearProperty(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+	// Toast bf_clear_prop raises E_INVARG for every invalid object, never
+	// E_INVIND: #-1 and never-created numbers as well as recycled ones.
+	if objectExistsForRead(ctx, objID) != types.E_NONE {
+		return types.Err(types.E_INVARG)
 	}
 
 	propName := nameVal.Str()
