@@ -108,3 +108,22 @@ func TestPcreMatchIterationLimitOnlyCountsMatchingPasses(t *testing.T) {
 func TestPcreMatchIterationLimitWithoutStore(t *testing.T) {
 	assertPcreTooManyIterations(t, pcreMatchRepeatedA(newTestExecution(), 1000), 1000)
 }
+
+// Toast resumes each pass at the previous match's end (pcre_moo.cc:306) while
+// that offset is short of the subject's end (pcre_moo.cc:203), without
+// stepping past an empty match. An empty match before the end therefore
+// repeats until the limit raises, and no pass starts at the end of the subject.
+// Toast-verified by nightly fuzz issue #1143 (pcre_match("\"\ta%ea", "\\b")).
+func TestPcreMatchEmptyMatchDoesNotAdvance(t *testing.T) {
+	match := func(subject, pattern string, extra ...types.Value) types.Result {
+		args := append([]types.Value{types.NewStr(subject), types.NewStr(pattern)}, extra...)
+		return admitTestBuiltin("pcre_match", newTestExecution(), args)
+	}
+	assertPcreTooManyIterations(t, match("\"\ta%ea", `\b`), 1000)
+	assertPcreTooManyIterations(t, match("ab", "x*"), 1000)
+	// find_all=0 stops after the first pass.
+	assertPcreMatchCount(t, match("ab", "x*", types.NewInt(0), types.NewInt(0)), 1)
+	// A match ending at the subject's end is the last pass.
+	assertPcreMatchCount(t, match("aa", "a*"), 1)
+	assertPcreMatchCount(t, match("ab", "$"), 1)
+}

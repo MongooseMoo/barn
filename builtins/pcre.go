@@ -55,7 +55,14 @@ func builtinPcreMatch(ctx *Execution, args []types.Value) types.Result {
 	}
 	out := make([]types.Value, 0)
 	maxLoops := pcreMatchMaxIterations(ctx)
-	m, merr := re.re.FindStringMatch(mapped)
+	// Toast resumes each pass at the end of the previous match
+	// (`offset = ovector[1]`, pcre_moo.cc:306) while `offset < subject_length`
+	// (pcre_moo.cc:203). Unlike regexp2's FindNextMatch it never steps past an
+	// empty match, so an empty match before the end of the subject matches
+	// again at the same place until the pass limit raises E_MAXREC, and no pass
+	// starts at the end of the subject.
+	runes := []rune(mapped)
+	m, merr := re.re.FindRunesMatchStartingAt(runes, 0)
 	for loops := uint32(1); m != nil && merr == nil; loops++ {
 		if loops >= maxLoops {
 			return pcreTooManyIterations(loops)
@@ -82,10 +89,11 @@ func builtinPcreMatch(ctx *Execution, args []types.Value) types.Result {
 			})
 		}
 		out = append(out, types.NewMap(entryPairs))
-		if !findAll {
+		end := m.Index + m.Length
+		if !findAll || end >= len(runes) {
 			break
 		}
-		m, merr = re.re.FindNextMatch(m)
+		m, merr = re.re.FindRunesMatchStartingAt(runes, end)
 	}
 	if merr != nil {
 		// A match-limit/timeout failure is Toast's E_INVARG raise.
