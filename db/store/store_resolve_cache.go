@@ -14,8 +14,8 @@ import (
 // PART A — reusable walk scratch.
 //
 // findVerb and findProperty re-walked the ancestry chain from scratch on every
-// verb call and every property access, each walk allocating a fresh BFS queue
-// slice and a fresh `visited` map. On the 16-player mongoose profile that was
+// verb call and every property access, each walk allocating a fresh
+// pending-object slice and `visited` map. On the 16-player mongoose profile that was
 // 11.5M queue allocations and 5.1M visited-map allocations (findProperty alone,
 // 6.3% of alloc_objects) plus findVerb at 4.4%. The walk state is now reusable
 // scratch hanging off the StoreTxn, so a steady-state walk allocates nothing.
@@ -164,7 +164,7 @@ type propWalkStep struct {
 
 // verbScratch is the reusable state of one verb-ancestry walk.
 type verbScratch struct {
-	queue   []types.ObjID
+	stack   []types.ObjID
 	visited objIDSet
 	steps   []verbWalkStep
 	inUse   bool
@@ -178,9 +178,9 @@ type propScratch struct {
 	inUse   bool
 }
 
-// plainScratch is queue+visited only, for walkers that memoize nothing.
+// plainScratch is the stack and visited set for the parent-verb walk.
 type plainScratch struct {
-	queue   []types.ObjID
+	stack   []types.ObjID
 	visited objIDSet
 	inUse   bool
 }

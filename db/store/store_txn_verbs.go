@@ -207,9 +207,18 @@ func (tx *StoreTxn) resolveVerbByWalk(key verbResolveKey, cacheable bool) (*Verb
 	return verb, definer, err
 }
 
-// walkVerb is the ancestry BFS behind findVerb. It returns the resolved verb
-// (nil when not found), its definer, and the ordered record of every object it
-// visited, which the memo stores so a hit reproduces the identical read set.
+// pushVerbParents puts the first parent on top of the stack, so its ancestry
+// is searched before the next parent.
+func pushVerbParents(stack, parents []types.ObjID) []types.ObjID {
+	for i := len(parents) - 1; i >= 0; i-- {
+		stack = append(stack, parents[i])
+	}
+	return stack
+}
+
+// walkVerb is the depth-first ancestry search behind findVerb. It returns the
+// resolved verb (nil when not found), its definer, and the ordered record of
+// visits the memo needs to reproduce the same read set.
 func (tx *StoreTxn) walkVerb(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, []verbWalkStep) {
 	sc := &tx.verbWalk
 	switch {
@@ -222,16 +231,17 @@ func (tx *StoreTxn) walkVerb(objID types.ObjID, verbName string, requireExecute 
 	sc.inUse = true
 	sc.visited.reset()
 	sc.steps = sc.steps[:0]
-	queue := append(sc.queue[:0], objID)
+	stack := append(sc.stack[:0], objID)
 
 	searchLower := strings.ToLower(verbName)
 
 	var found *Verb
 	definer := types.ObjNothing
 
-walk:
-	for head := 0; head < len(queue); head++ {
-		current := queue[head]
+	for len(stack) > 0 {
+		last := len(stack) - 1
+		current := stack[last]
+		stack = stack[:last]
 		if !sc.visited.add(current) {
 			continue
 		}
@@ -248,12 +258,12 @@ walk:
 		tx.markVerbScan(current, obj)
 		if verb := obj.findVerbByAlias(searchLower, requireExecute); verb != nil {
 			found, definer = verb, current
-			break walk
+			break
 		}
-		queue = append(queue, obj.parents...)
+		stack = pushVerbParents(stack, obj.parents)
 	}
 
-	sc.queue = queue[:0]
+	sc.stack = stack[:0]
 	sc.inUse = false
 	if found != nil {
 		tx.markVerbRead(definer, found)
@@ -370,7 +380,7 @@ func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbVi
 	}
 
 	// Reusable walk scratch (see store_resolve_cache.go): pass() dispatch is hot
-	// enough that the per-call queue slice and visited map were pure waste.
+	// enough to reuse the stack and visited set across calls.
 	sc := &tx.parentWalk
 	switch {
 	case tx.direct:
@@ -384,14 +394,15 @@ func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbVi
 	// The walk starts from verbLoc's parents, so it depends on them as a walk
 	// through verbLoc does (ChangeParents moves the version a scan mark holds).
 	tx.markVerbScan(verbLoc, verbLocObj)
-	queue := append(sc.queue[:0], verbLocObj.parents...)
+	stack := pushVerbParents(sc.stack[:0], verbLocObj.parents)
 	searchLower := strings.ToLower(verbName)
 
 	var found *Verb
 	definer := types.ObjNothing
-walk:
-	for head := 0; head < len(queue); head++ {
-		current := queue[head]
+	for len(stack) > 0 {
+		last := len(stack) - 1
+		current := stack[last]
+		stack = stack[:last]
 		if !sc.visited.add(current) {
 			continue
 		}
@@ -406,11 +417,11 @@ walk:
 		// and matches names exactly as walkVerb does for obj:verb() calls.
 		if verb := obj.findVerbByAlias(searchLower, true); verb != nil {
 			found, definer = verb, current
-			break walk
+			break
 		}
-		queue = append(queue, obj.parents...)
+		stack = pushVerbParents(stack, obj.parents)
 	}
-	sc.queue = queue[:0]
+	sc.stack = stack[:0]
 	sc.inUse = false
 
 	if found != nil {
