@@ -1182,11 +1182,6 @@ func builtinConnectionName(ctx *Execution, args []types.Value) types.Result {
 
 // boot_player(player) -> int.
 func builtinBootPlayer(ctx *Execution, args []types.Value) types.Result {
-	cm := hostOf(ctx).ConnManager
-	if cm == nil {
-		return types.Err(types.E_INVARG)
-	}
-
 	player, ok := parseConnectionTarget(args[0])
 	if !ok {
 		return types.Err(types.E_TYPE)
@@ -1195,7 +1190,10 @@ func builtinBootPlayer(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	if resolveConnection(ctx, player) == nil {
+	// Without a host there is no connection to boot; Toast returns 0 for any
+	// object after the permission check (emergency mode included).
+	cm := hostOf(ctx).ConnManager
+	if cm == nil || resolveConnection(ctx, player) == nil {
 		return types.Ok(types.NewInt(0))
 	}
 	if ctx != nil && !readTxn(ctx).IsDirect() {
