@@ -16,6 +16,8 @@ Use the existing Jepsen closing observations and journal, the Elle recorder's co
 
 Jepsen closing phases wait for the client operations, but a missing client reply by itself says nothing about whether the server has finished that task. Keep such operations indeterminate.
 
+The first PR unit job asserted the previous recovery message for a partial transaction. Keep that recovery message byte-for-byte and apply the new wording to the terminal observation only.
+
 ## Next step
 
 Open the PR and inspect the pinned workflows' verdicts and witnesses. This delivery stops at an open PR.

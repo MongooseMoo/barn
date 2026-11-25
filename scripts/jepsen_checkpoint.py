@@ -2674,7 +2674,8 @@ def snapshot_common_violations(rows, txns, observations, *, terminal=False):
             missing = [write for write in txn["writes"] if write not in present]
             problems.append(("lost-live-update", f"operation {txn['id']}: final live observation lacks {missing}"))
         if included and len(included) != len(txn["writes"]) and txn["error"].get("kind") != "native-error":
-            problems.append(("partial-transaction", f"operation {txn['id']} ({txn['type']}): {state} state has "
+            visible = "final live observation has" if terminal else "recovered"
+            problems.append(("partial-transaction", f"operation {txn['id']} ({txn['type']}): {visible} "
                                                     f"{included} of its writes {txn['writes']}, not all or none"))
         if txn["type"] == "ok" and len(included) == len(txn["writes"]):
             for f, key, items in txn["result"] or []:
