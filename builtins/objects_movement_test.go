@@ -263,3 +263,39 @@ func TestMoveInvalidArgumentsMatchMOO(t *testing.T) {
 		})
 	}
 }
+
+// MOO keeps move()'s position in a C int, so a position argument outside
+// 32 bits wraps to its low 32 bits before any check (issue #1149).
+func TestMovePositionUsesLow32Bits(t *testing.T) {
+	t.Run("2^63 wraps to 0 and reaches the recursion check", func(t *testing.T) {
+		ctx, store := newMoveTestContext(t)
+		what := createMoveTestObject(t, store)
+		requireMoveError(t, builtinMove(ctx, []types.Value{types.NewObj(what), types.NewObj(what), types.NewInt(-1 << 63)}), types.E_RECMOVE)
+	})
+	t.Run("2^32-1 wraps to -1", func(t *testing.T) {
+		ctx, store := newMoveTestContext(t)
+		what := createMoveTestObject(t, store)
+		where := createMoveTestObject(t, store)
+		requireMoveError(t, builtinMove(ctx, []types.Value{types.NewObj(what), types.NewObj(where), types.NewInt(1<<32 - 1)}), types.E_INVARG)
+	})
+	t.Run("2^32+1 inserts at position 1", func(t *testing.T) {
+		ctx, store := newMoveTestContext(t)
+		where := createMoveTestObject(t, store)
+		first := createMoveTestObject(t, store)
+		second := createMoveTestObject(t, store)
+		if errCode := store.DirectTxn().MoveObject(first, where, 0); errCode != types.E_NONE {
+			t.Fatalf("initial MoveObject returned %s", errCode)
+		}
+		if result := builtinMove(ctx, []types.Value{types.NewObj(second), types.NewObj(where), types.NewInt(1<<32 + 1)}); result.IsError() {
+			t.Fatalf("move returned %s", result.Error)
+		}
+		got, errCode := store.DirectTxn().Contents(where)
+		if errCode != types.E_NONE {
+			t.Fatalf("Contents returned %s", errCode)
+		}
+		want := []types.ObjID{second, first}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("contents = %v, want %v", got, want)
+		}
+	})
+}
