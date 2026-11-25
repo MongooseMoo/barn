@@ -51,6 +51,24 @@ invariant operation and every committed append/register key. Probe counters are
 coverage evidence only. They do not participate in Elle's correctness graph.
 The synchronized hot reader and append waves make those paths reproducible.
 
+After the random append workload drains, its last MOO read checks each of the
+eleven append-only rows against the actual committed append tokens. Missing,
+invented, and repeated tokens fail even when the dependency graph has no cycle.
+The recorder keeps appends from published slices, including native exceptions
+that published, and excludes discarded attempts.
+
+The checker driver also runs three short histories in separate worlds. The
+pruning schedule keeps readers at two snapshot ages through 24 two-row MOO
+publications. It checks actual reader pruning and a refused hot renewal for
+both readers. Its `hot-map-carry` control requires both renewals to occur and
+Elle to reject the resulting history. The membership schedule uses native
+room contents. It requires a legal serial order for two contending admissions
+and coherent snapshots through an insertion and a removal. An eight-worker
+burst guarantees overlap on a hot row and six distinct map entries, then
+switches from keyed to whole-map access in a later slice. The JSON evidence
+contains actual read values and path counts. Room membership has its own
+serial model that consumes the returned sets, including empty sets.
+
 Before the random rounds, the append workload runs eight synchronized waves and
 three held pairs. In a wave, four tasks read the same row, wait at a barrier until
 all four have read, then append: property value, name, verb code, contents,
@@ -120,6 +138,12 @@ checker log and witness are retained with the generated histories.
 Replay one workload with `--seeds 412 --rounds 40`; a seed reproduces generated
 operations, while worker scheduling can change. Preserve the original EDN to
 replay the exact observed history. `results.json` records the checker commands.
+To replay just the checker on a saved observation, pass `--replay HISTORY.edn`
+with the same `--jar`, `--java` and a new `--output`, plus `--model rw-register`
+for a register history or `--expect-rejection` for an intentional violation.
+The `hot-memo-pair.edn` projection keeps both rows of the held renewal and
+their origin writes. Its rejection must name the memo row and token that the
+held mutator published, alongside the hot property.
 The existing `Elle isolation` workflow also accepts `seeds` and `rounds` on a
 manual dispatch. For example, run a bounded larger campaign with:
 

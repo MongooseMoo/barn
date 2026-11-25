@@ -15,6 +15,33 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+func TestElleRecorderTerminalAppendChecks(t *testing.T) {
+	reader := &task.State{}
+	for _, test := range []struct {
+		name string
+		seen []any
+		want string
+	}{
+		{"complete", []any{int64(1), int64(2)}, ""},
+		{"omitted suffix", []any{int64(1)}, "omitted committed tokens"},
+		{"duplicate", []any{int64(1), int64(1)}, "repeated or invented token"},
+		{"invented", []any{int64(1), int64(3)}, "repeated or invented token"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			r := newElleRecorder()
+			r.txns = []*elleTxn{
+				{committed: true, ops: [][]any{{"append", "row", int64(1)}, {"append", "row", int64(2)}}},
+				{ops: [][]any{{"append", "row", int64(99)}}},
+				{task: reader, committed: true, ops: [][]any{{"r", "row", test.seen}}},
+			}
+			err := r.checkTerminalAppends(reader, []string{"row"})
+			if test.want == "" && err != nil || test.want != "" && (err == nil || !strings.Contains(err.Error(), test.want)) {
+				t.Fatalf("terminal append check: %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestElleRecorderCommitsSuspendedAndExceptionSlices(t *testing.T) {
 	store := newBoundaryTestStore(t)
 	recorder := newElleRecorder()
