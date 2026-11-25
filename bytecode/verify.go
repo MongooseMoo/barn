@@ -273,7 +273,7 @@ func InstructionStackEffect(op OpCode, operand []byte) (pops, pushes int, err er
 	case OP_ADD, OP_STRING_APPEND, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_POW,
 		OP_EQ, OP_NE, OP_LT, OP_LE, OP_GT, OP_GE, OP_IN,
 		OP_BITOR, OP_BITAND, OP_BITXOR, OP_SHL, OP_SHR,
-		OP_INDEX, OP_LIST_RANGE, OP_LIST_APPEND, OP_LIST_EXTEND, OP_GET_PROP_DYNAMIC:
+		OP_INDEX, OP_PUSH_REF, OP_LIST_RANGE, OP_LIST_APPEND, OP_LIST_EXTEND, OP_GET_PROP_DYNAMIC:
 		return 2, 1, nil
 	case OP_GET_PROP_KEYED, OP_ITER_PREP, OP_ITER_PREP_COLUMNS:
 		return 1, 2, nil
@@ -349,7 +349,7 @@ func decodeInstructions(code []byte) (map[int]bool, []decodedInstruction, error)
 		if op.String() == "UNKNOWN" {
 			return nil, nil, fmt.Errorf("unknown opcode %d at byte %d", op, ip)
 		}
-		if op == OP_CONTINUE || op == OP_CATCH {
+		if op == OP_CONTINUE {
 			return nil, nil, fmt.Errorf("dead opcode %s at byte %d", op, ip)
 		}
 		ip++

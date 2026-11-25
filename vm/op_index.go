@@ -59,6 +59,19 @@ func (vm *VM) executeIndex() error {
 	}
 }
 
+// executePushRef is Toast's OP_PUSH_REF (execute.cc): a nested assignment
+// descends only through lists, maps and WAIFs. Any other collection, a string
+// included, raises E_TYPE before the index is checked, so x[i][j] = v on a
+// string x is E_TYPE whatever i is.
+func (vm *VM) executePushRef() error {
+	switch vm.Peek(1).Type() {
+	case types.TYPE_LIST, types.TYPE_MAP, types.TYPE_WAIF:
+		return vm.executeIndex()
+	default:
+		return newMooErrorf(types.E_TYPE, "cannot assign into an element of %s", vm.Peek(1).Type().String())
+	}
+}
+
 func (vm *VM) executeIndexSet() error {
 	// Bytecode: OP_INDEX_SET <varIdx:byte>
 	// Stack: [... value_copy index] (value_copy and index on top)

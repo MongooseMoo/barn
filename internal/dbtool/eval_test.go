@@ -267,3 +267,41 @@ func TestEvalThreadsOmitsRunningTask(t *testing.T) {
 		}
 	}
 }
+
+// A nested indexed or range assignment descends only through lists, maps and
+// WAIFs (Toast execute.cc OP_PUSH_REF): a string, or any other non-collection,
+// on the way down raises E_TYPE before its index is range-checked, and a
+// string is never written through. Each expectation was observed on the
+// Toast oracle (ToastStunt 2.8.0_7). Issue #1175: the ToastDifferential
+// program below raised E_RANGE for "Root Class"[174] where Toast raises E_TYPE.
+func TestEvalNestedAssignmentThroughNonCollectionRaisesType(t *testing.T) {
+	cases := []struct{ input, want string }{
+		{"n = 3;\nf = 710.4;\ns = \"%%\";\nl = {3, 3, \"\\\\\\\"\"};\n" +
+			"m = [\"\t%e%a\" -> 21, 21 -> \"\"];\no = #2;\n" +
+			"while acc (n = (m = 3) << (#1.name[174][3..0] = n))\nendwhile\n", "Error: E_TYPE\n"},
+		{`x = "Root Class"; x[174][3..0] = 3; return x;`, "Error: E_TYPE\n"},
+		{`x = "Root Class"; x[1][1..0] = "a"; return x;`, "Error: E_TYPE\n"},
+		{`x = "Root Class"; x[1][1] = "a"; return x;`, "Error: E_TYPE\n"},
+		{`x = "Root Class"; x[174][1] = "a"; return x;`, "Error: E_TYPE\n"},
+		{`x = {"abc"}; x[1][1][1] = "z"; return x;`, "Error: E_TYPE\n"},
+		{`x = {"abc"}; x[1][5][1] = "z"; return x;`, "Error: E_TYPE\n"},
+		{`x = {"abc"}; x[1][1][1..0] = "z"; return x;`, "Error: E_TYPE\n"},
+		{`x = ["a" -> "abc"]; x["a"][1][1] = "z"; return x;`, "Error: E_TYPE\n"},
+		{`x = 5; x[1][1] = 3; return x;`, "Error: E_TYPE\n"},
+		// The last level may still be a string, and lists and maps descend.
+		{`x = {"abc"}; x[1][1] = "z"; return x;`, "=> {\"zbc\"}\n"},
+		{`x = {"abc"}; x[1][1..0] = "z"; return x;`, "=> {\"zabc\"}\n"},
+		{`x = ["a" -> {1, 2}]; x["a"][2] = 5; return x;`, "=> [\"a\" -> {1, 5}]\n"},
+		{`x = {{1, 2}}; x[1][3] = 5; return x;`, "Error: E_RANGE\n"},
+		{`x = {{1, 2}}; x[2][1] = 5; return x;`, "Error: E_RANGE\n"},
+	}
+	for _, c := range cases {
+		out, errOut, err := runEval(t, evalStore(t), c.input)
+		if err != nil {
+			t.Fatalf("EvalExpression(%q): %v\nstderr: %s", c.input, err, errOut)
+		}
+		if out != c.want {
+			t.Errorf("EvalExpression(%q) printed %q, want %q", c.input, out, c.want)
+		}
+	}
+}
