@@ -32,7 +32,9 @@ func setAtIndex(session *builtins.Session, ctx *task.Context, coll types.Value, 
 		return result, types.E_NONE
 
 	case types.TYPE_STR:
-		if index.Type() != types.TYPE_INT {
+		// Toast (execute.cc OP_INDEXSET) rejects a non-string value with
+		// E_TYPE before the range check; only the length check follows it.
+		if index.Type() != types.TYPE_INT || value.Type() != types.TYPE_STR {
 			return types.None, types.E_TYPE
 		}
 		i := int(index.Int())
@@ -40,7 +42,7 @@ func setAtIndex(session *builtins.Session, ctx *task.Context, coll types.Value, 
 		if i < 1 || i > coll.StrCharLen() {
 			return types.None, types.E_RANGE
 		}
-		if value.Type() != types.TYPE_STR || value.StrCharLen() != 1 {
+		if value.StrCharLen() != 1 {
 			return types.None, types.E_INVARG
 		}
 		start, end := i-1, i
