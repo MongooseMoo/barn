@@ -8,4 +8,8 @@
 
 **Surprises** The existing parent-order cases use immediate parents only and cannot expose a grandparent losing precedence to a sibling.
 
-**Next step** Publish the fix branch for review.
+**Merge-queue investigation** Barn PR #1171's `Jepsen checkpoint` merge-group run 45706772819 failed only on the `hot-memo-guard` negative control. The ordinary campaign and the stage schedule passed. The server recorded five fault firings, but Elle accepted both resulting histories. The pinned Elle workflow passed on the same merge group and separately requires a witness from its held hot-memo renewal pair. Raw Jepsen evidence is available in the failed run's stage artifact.
+
+**Control decision** The Nov. 23 scheduled run 45203664480 failed on `master` with the same missing witness and seven fault firings. A firing records renewal before the outcome of the task is known. The Jepsen schedule gives a randomly selected observer a chance to read across a relevant change. The stage job now calls the existing pinned Elle control, which holds the reader across its mutator's publication and requires Elle to identify the stale dispatch in the retained two-row history. The live control is still available in the Jepsen harness, and the other live controls still run in CI.
+
+**Next step** Verify the amended PR through the Jepsen and pinned Elle workflows.
