@@ -92,3 +92,15 @@ func TestBootingTaskSeesItsPendingBoot(t *testing.T) {
 		t.Errorf("connected_players after boot_player in the same task = %+v, want {}", res)
 	}
 }
+
+// With no host there are no connections: Toast's connected_players() answers
+// {} in emergency mode for any argument (issue #1150), not E_INVARG.
+func TestConnectedPlayersWithoutHostIsEmpty(t *testing.T) {
+	ctx := newTestExecution()
+	for _, args := range [][]types.Value{nil, {types.NewInt(-1)}, {types.NewInt(1)}} {
+		res := admitTestBuiltin("connected_players", ctx, args)
+		if res.IsError() || res.Val.Type() != types.TYPE_LIST || res.Val.Len() != 0 {
+			t.Errorf("connected_players(%v) without a host = %+v, want {}", args, res)
+		}
+	}
+}
