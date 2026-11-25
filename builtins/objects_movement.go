@@ -44,7 +44,10 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 		if args[2].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		position = args[2].Int()
+		// MOO keeps move()'s position in a C int (bf_move_data.position), so
+		// only the low 32 bits of the argument count: 2^63 reads as 0 and
+		// 2^32 - 1 as -1.
+		position = int64(int32(args[2].Int()))
 		if position < 0 {
 			return types.Err(types.E_INVARG)
 		}
