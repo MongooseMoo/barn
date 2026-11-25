@@ -100,6 +100,36 @@ func TestChangeParentsRequiresObjectControlAndParentFertility(t *testing.T) {
 	}
 }
 
+// Toast checks that every parent is an object before any validity or
+// recursion check (objects.cc bf_chparent_chparents), so a non-object after
+// a self-parent is E_TYPE, not E_RECMOVE (issue #1151).
+func TestChparentsTypeChecksWholeListFirst(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		target types.ObjID
+		list   []types.Value
+	}{
+		{name: "non-object after self", target: 11, list: []types.Value{types.NewObj(11), types.NewFloat(3e300)}},
+		{name: "integer after self", target: 11, list: []types.Value{types.NewObj(11), types.NewInt(2)}},
+		{name: "invalid target", target: 999, list: []types.Value{types.NewInt(1)}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, _, oldParent, _ := newObjectAuthorityFixture(t, 0, 0)
+			ctx.Programmer = 4
+			ctx.IsWizard = true
+
+			result := builtinChparents(ctx, []types.Value{types.NewObj(test.target), types.NewList(test.list)})
+			if result.Error != types.E_TYPE {
+				t.Fatalf("result = %+v, want error E_TYPE", result)
+			}
+			parents, errCode := readTxn(ctx).Parents(11)
+			if errCode != types.E_NONE || len(parents) != 1 || parents[0] != oldParent {
+				t.Fatalf("parents after E_TYPE = %v, %s; want [#%d]", parents, errCode, oldParent)
+			}
+		})
+	}
+}
+
 func TestRenumberRequiresEffectiveProgrammerWizardAuthority(t *testing.T) {
 	for _, test := range []struct {
 		name       string

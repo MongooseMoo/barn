@@ -269,21 +269,25 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
+	// Parents are OBJ values only. Toast checks the whole list
+	// (is_obj_or_list_of_objs) before any validity or recursion check, so a
+	// non-object anywhere in the list is E_TYPE even after a self-parent.
+	elements := parentsList.Elements()
+	for _, elem := range elements {
+		if elem.Type() != types.TYPE_OBJ {
+			return types.Err(types.E_TYPE)
+		}
+	}
+
 	if !validForRead(ctx, objVal.ID()) {
 		return types.Err(types.E_INVIND)
 	}
 
 	// Convert list to ObjIDs - check cycles and duplicates BEFORE validation
-	elements := parentsList.Elements()
 	newParents := make([]types.ObjID, len(elements))
 	seenParents := make(map[types.ObjID]bool)
 
 	for i, elem := range elements {
-		// Parents are OBJ values only (Toast is_obj_or_list_of_objs).
-		if elem.Type() != types.TYPE_OBJ {
-			return types.Err(types.E_TYPE)
-		}
-
 		parentID := elem.ID()
 
 		// Check for self-parenting FIRST (before validating parent exists)
