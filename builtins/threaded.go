@@ -1,6 +1,8 @@
 package builtins
 
 import (
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/MongooseMoo/barn/metrics"
@@ -17,6 +19,48 @@ func runtimeIdentity(ctx *Execution) metrics.Identity {
 		id.CommandID = ctx.CommandDiagnostic.ID
 	}
 	return id
+}
+
+// backgroundHandles mirrors ToastStunt's background_process_table
+// (background.cc): each threaded builtin whose work is running off the task
+// holds a handle from when the work starts until it finishes, killed task or
+// not. Handles count up from 1 and restart at 1 once the table is empty.
+// threads() lists them.
+var backgroundHandles = struct {
+	sync.Mutex
+	next   int64
+	active map[int64]struct{}
+}{next: 1, active: map[int64]struct{}{}}
+
+// acquireBackgroundHandle registers one piece of background work and returns
+// the function that releases its handle when the work has finished.
+func acquireBackgroundHandle() (release func()) {
+	backgroundHandles.Lock()
+	handle := backgroundHandles.next
+	backgroundHandles.next++
+	backgroundHandles.active[handle] = struct{}{}
+	backgroundHandles.Unlock()
+	return func() {
+		backgroundHandles.Lock()
+		delete(backgroundHandles.active, handle)
+		if len(backgroundHandles.active) == 0 {
+			backgroundHandles.next = 1
+		}
+		backgroundHandles.Unlock()
+	}
+}
+
+// activeBackgroundHandles returns the handles of background work still
+// running, in ascending order.
+func activeBackgroundHandles() []int64 {
+	backgroundHandles.Lock()
+	handles := make([]int64, 0, len(backgroundHandles.active))
+	for handle := range backgroundHandles.active {
+		handles = append(handles, handle)
+	}
+	backgroundHandles.Unlock()
+	sort.Slice(handles, func(i, j int) bool { return handles[i] < handles[j] })
+	return handles
 }
 
 // Threaded builtins mirror ToastStunt's background_thread() (background.cc).
@@ -90,7 +134,9 @@ func runInBackground(ctx *Execution, operation func() types.Result, held ...type
 	gen := t.SuspendGeneration()
 	id := runtimeIdentity(ctx) // Capture before the task can resume on another goroutine.
 	start := func() {
+		release := acquireBackgroundHandle()
 		go func() {
+			defer release()
 			metrics.AsyncStarted.Add(1)
 			metrics.RuntimeEvent("start", id, gen, false)
 			started := time.Now()

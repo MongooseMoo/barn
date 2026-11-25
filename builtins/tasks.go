@@ -678,16 +678,13 @@ func builtinThreads(ctx *Execution, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	mgr := taskManagerOf(ctx)
-	if mgr == nil {
-		return types.Err(types.E_INVARG)
-	}
-	all := mgr.GetAllTasks()
-	result := make([]types.Value, 0, len(all))
-	for _, t := range all {
-		if t.GetState() == task.TaskRunning || t.GetState() == task.TaskSuspended || t.GetState() == task.TaskQueued {
-			result = append(result, types.NewInt(t.ID))
-		}
+	// Toast's threads() (background.cc bf_threads) lists background-thread
+	// handles, not tasks: a task that is merely running, queued or suspended
+	// has none.
+	handles := activeBackgroundHandles()
+	result := make([]types.Value, len(handles))
+	for i, handle := range handles {
+		result[i] = types.NewInt(handle)
 	}
 	return types.Ok(types.NewList(result))
 }
