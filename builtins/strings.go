@@ -119,7 +119,8 @@ func builtinIndex(ctx *Execution, args []types.Value) types.Result {
 		if args[3].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		offset = int(args[3].Int())
+		// Toast reads the offset into a C int, keeping the low 32 bits.
+		offset = int(int32(args[3].Int()))
 		// Negative offset is invalid
 		if offset < 0 {
 			return types.Err(types.E_INVARG)
@@ -186,7 +187,8 @@ func builtinRindex(ctx *Execution, args []types.Value) types.Result {
 		if args[3].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		offset := int(args[3].Int())
+		// Toast reads the offset into a C int, keeping the low 32 bits.
+		offset := int(int32(args[3].Int()))
 		if offset > 0 {
 			return types.Err(types.E_INVARG)
 		}
