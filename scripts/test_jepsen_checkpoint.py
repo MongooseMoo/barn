@@ -558,6 +558,40 @@ class SplitTests(unittest.TestCase):
                          "{:index 1 :process 3 :type :ok :f :txn :value [[:append 1 2] [:r 1 [2]]]}\n")
 
 
+class FinalLiveAppendTests(unittest.TestCase):
+    def test_uses_only_writes_sent_in_this_generation_and_preserves_unknowns(self):
+        prop, keyed = (jc.FAMILIES[name]["base"] for name in ("props", "keyed"))
+        acknowledged = [["append", prop, 3]]
+        unknown = [["append", keyed, 4], ["append", keyed, 5]]
+        journal = [
+            {"event": "request", "id": 1, "value": acknowledged},
+            {"event": "send", "id": 1, "generation": 7, "monotonic_ns": 1},
+            {"event": "complete", "id": 1, "type": "ok", "value": acknowledged, "monotonic_ns": 2},
+            {"event": "request", "id": 2, "value": unknown},
+            {"event": "send", "id": 2, "generation": 7, "monotonic_ns": 3},
+            {"event": "complete", "id": 2, "type": "info", "monotonic_ns": 4},
+            {"event": "request", "id": 3, "value": [["append", prop, 6]]},
+            {"event": "complete", "id": 3, "type": "fail", "monotonic_ns": 4},
+            {"event": "request", "id": 4, "value": [["append", prop, 7]]},
+            {"event": "send", "id": 4, "generation": 6, "monotonic_ns": 1},
+        ]
+        observation = {"event": "observation", "reason": "checkpoint", "generation": 7, "ok": True,
+                       "keys": [prop, keyed], "started_ns": 10}
+        for values, expected in (([[3], []], []), ([[3], [4, 5]], []),
+                                 ([[], []], ["lost-live-update"]), ([[3, 3], []], ["duplicate-token"]),
+                                 ([[3, 6, 7], []], ["never-sent-token", "never-sent-token"]),
+                                 ([[3], [5]], ["partial-transaction"])):
+            with self.subTest(values=values):
+                records, findings = jc.live_append_checks([dict(observation, value=values)], journal)
+                self.assertEqual(records[0]["indeterminate"], 1)
+                self.assertEqual(records[0]["witnesses"], expected)
+                self.assertEqual([witness for _, witness, _ in findings], expected)
+        _, findings = jc.live_append_checks([dict(observation, keys=[], value=[])], journal)
+        self.assertEqual([witness for _, witness, _ in findings], ["live-observation-coverage"])
+        _, findings = jc.live_append_checks([dict(observation, started_ns=2, value=[[3], []])], journal)
+        self.assertEqual([witness for _, witness, _ in findings], ["live-observation-coverage"])
+
+
 class DurabilityTests(unittest.TestCase):
     def test_baseline_prefix_and_attempted_suffix_pass(self):
         self.assertEqual(jc.durability_violations({1: [1, 2]}, {1: [1, 2, 3], 2: [9]}, {(1, 2)},

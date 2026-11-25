@@ -13,8 +13,8 @@ disposable Barn server on the public Test.db profile
   (`.github/actions/elle-cli`, serializable), and checks the recovered ledger
   against each explicit checkpoint baseline.
 
-`--workloads` selects the row families the clients mix (default `smoke`; CI
-runs `smoke,props,keyed`). Each family has its own Elle list-append generator
+`--workloads` selects the row families the clients mix (default `smoke`; the
+ordinary CI campaign runs `smoke,props,keyed,effects,authority,topology`). Each family has its own Elle list-append generator
 over its own key range (`FAMILIES` in `scripts/jepsen_checkpoint.py`, passed to
 this project as `--families`):
 
@@ -33,6 +33,16 @@ this project as `--families`):
 Each generation's admission creates fresh row objects, so every family's
 rows start empty in each generation. Only smoke rows are compared with the
 checkpoint ledger.
+
+At a graceful checkpoint, the client phase has finished. The live observation
+reads the touched `props` and `keyed` rows in one MOO snapshot. The analyzer
+requires every acknowledged append exactly once, rejects invented tokens, and
+requires atomic visibility for a sent, single-publication transaction whose
+reply was lost. Such transactions remain indeterminate. The `live_append`
+summary records the observed keys, acknowledged appends, indeterminate
+transactions and witnesses. The observation and journal timestamps establish
+that the check follows all known client work in the generation. Archived
+campaigns without an observation start timestamp retain their original checks.
 
 A checkpoint is a graceful owned SIGTERM whose database/WAIF pair the owner
 verified; the baseline is the ledger read just before it. Every later
