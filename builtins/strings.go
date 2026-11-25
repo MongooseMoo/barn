@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 	"unicode"
@@ -747,6 +748,9 @@ func buildMatchResult(subject string, loc []int) types.Value {
 	})
 }
 
+// errMOOPatternMisplacedEOL reports a '$' that Toast's regex compiler rejects.
+var errMOOPatternMisplacedEOL = errors.New("misplaced $ in MOO pattern")
+
 // mooPatternToGoRegex converts MOO regex patterns to Go regex.
 // MOO uses '%' as its escape character; unknown escapes quote the following
 // character literally.
@@ -822,6 +826,15 @@ func mooPatternToGoRegex(pattern string) (string, error) {
 				classStart = i + 1
 				if i+1 < len(pattern) && pattern[i+1] == '^' {
 					classStart = i + 2
+				}
+			}
+			if c == '$' {
+				// Toast's regexpr.c (Reol, under RE_CONTEXT_INDEP_OPS) accepts
+				// '$' only at the end of the pattern or before "%|" or "%)";
+				// anywhere else it is an invalid pattern (E_INVARG).
+				rest := pattern[i+1:]
+				if rest != "" && !strings.HasPrefix(rest, "%|") && !strings.HasPrefix(rest, "%)") {
+					return "", errMOOPatternMisplacedEOL
 				}
 			}
 			if strings.ContainsRune("{}()|\\", rune(c)) {
