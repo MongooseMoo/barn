@@ -77,6 +77,48 @@ func requireProbeFrom(t *testing.T, definer types.ObjID, err error, want types.O
 	}
 }
 
+func TestVerbLookupSearchesFirstParentAncestry(t *testing.T) {
+	s := chparentProbeStore(t)
+	if ec := s.ChangeParents(probeChild, []types.ObjID{probeVC, probeVB}); ec != types.E_NONE {
+		t.Fatalf("ChangeParents: %v", ec)
+	}
+	direct := s.DirectTxn()
+	for name, lookup := range map[string]func(types.ObjID, string) (VerbView, types.ObjID, error){
+		"call": direct.FindCallableVerb,
+		"pass": direct.FindParentVerb,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, definer, err := lookup(probeChild, "probe")
+			requireProbeFrom(t, definer, err, probeVA)
+		})
+	}
+	t.Run("memoized call site", func(t *testing.T) {
+		warmProbeMemo(t, s, probeChild)
+		tx := s.BeginSnapshot(0)
+		defer tx.Release()
+		site := NewVerbCallSite()
+		_, definer, err := tx.FindCallableVerbAt(site, probeChild, "probe")
+		requireProbeFrom(t, definer, err, probeVA)
+		if !tx.usedVerbMemo || tx.verbSites[site.slot].site != site {
+			t.Fatal("expected the memo hit to fill the call site")
+		}
+		_, definer, err = tx.FindCallableVerbAt(site, probeChild, "probe")
+		requireProbeFrom(t, definer, err, probeVA)
+		stageLogWrite(t, tx)
+
+		if ec := s.ChangeParents(probeVC, []types.ObjID{probeRoot}); ec != types.E_NONE {
+			t.Fatalf("ChangeParents: %v", ec)
+		}
+		if ec := tx.Commit(); ec == types.E_NONE {
+			t.Fatal("commit succeeded after reparenting changed the memoized dispatch")
+		}
+		fresh := s.BeginSnapshot(0)
+		defer fresh.Release()
+		_, definer, err = fresh.FindCallableVerbAt(site, probeChild, "probe")
+		requireProbeFrom(t, definer, err, probeVB)
+	})
+}
+
 // A transaction that resolved vc:probe() by walking the ancestry, then wrote,
 // must not commit after another commit reparented an object on that walk: its
 // call dispatched to a verb the lookup no longer finds.
