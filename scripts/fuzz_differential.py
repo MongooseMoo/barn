@@ -352,13 +352,22 @@ class ComparisonDeadline(TimeoutError):
 
 def run_bounded(lane: str, run, lines: list[str], out: Path, probe_timeout: int = PROBE_SECONDS,
                 startup: int = STARTUP_SECONDS, chunk: int = CHUNK, checkpoint: Path | None = None,
-                deadline: float | None = None) -> tuple[list, list[str], list[int]]:
+                deadline: float | None = None, skip: frozenset[int] | set[int] = frozenset()
+                ) -> tuple[list, list[str], list[int]]:
     """Run lines (the preamble, then one probe per line) through one engine in
     bounded processes. Returns its record per line (TIMED_OUT for a probe the
     harness killed, KILLED for one that died of a SIGKILL from elsewhere,
     CRASHED for one Toast panicked on),
     record errors, and the indexes of the timed-out lines.
-    Every process's transcript is appended to <lane>_raw.txt."""
+    Every process's transcript is appended to <lane>_raw.txt.
+
+    skip holds the indexes of probes the other engine did not finish. Its
+    restarts left them out, so its later probes never saw their effects. A
+    probe can change the database: run 45489928135's F07137 recycled #3 on
+    Barn, then Toast panicked on it, so Barn's later probes ran with no
+    programmer and raised E_PERM where Toast's did not. Here the chunk's
+    process leaves the skipped probes out too, and each one then runs in a
+    process of its own after the probes before it, so it still has a record."""
     records: list = [None] * len(lines)
     errors: list[str] = []
     timed_out: list[int] = []
@@ -368,9 +377,10 @@ def run_bounded(lane: str, run, lines: list[str], out: Path, probe_timeout: int 
         checkpoint.mkdir(parents=True, exist_ok=True)
     for start in range(1, len(lines), chunk):
         ids = range(start, min(start + chunk, len(lines)))
+        held = [i for i in ids if i in skip]
         saved = checkpoint / f"{lane}-{start}.json" if checkpoint is not None else None
-        if saved is not None and saved.is_file():
-            state = json.loads(saved.read_bytes())
+        state = json.loads(saved.read_bytes()) if saved is not None and saved.is_file() else None
+        if state is not None and state.get("skip", []) == held:
             if records[0] is None:
                 records[0] = state["preamble"]
             records[ids.start:ids.stop] = state["records"]
@@ -381,59 +391,64 @@ def run_bounded(lane: str, run, lines: list[str], out: Path, probe_timeout: int 
         offset = transcript.stat().st_size if saved is not None else 0
         errors_before = len(errors)
         stuck: set[int] = set()
-        while True:
-            run_ids = [i for i in ids if i not in stuck]
-            if all(records[i] is not None for i in run_ids):
-                break
-            if deadline is not None and time.monotonic() >= deadline:
-                raise ComparisonDeadline(f"{lane}: cycle deadline before inputs {run_ids[0]}..{run_ids[-1]}")
-            bound = startup + probe_timeout * (1 + len(run_ids))
-            print(f"==> {lane}: inputs {run_ids[0]}..{run_ids[-1]} bound {bound}s", file=sys.stderr)
-            proc = run(lane, [lines[0]] + [lines[i] for i in run_ids], bound)
-            span = f"inputs {run_ids[0]}..{run_ids[-1]}"
-            with transcript.open("a", encoding="utf-8") as f:
-                f.write(f"--- process: {span} without {sorted(stuck)}, bound {bound}s, exit {proc.returncode} ---\n"
-                        f"{proc.stdout}\n--- STDERR ---\n{proc.stderr}\n")
-            crashed = (lane == "toast" and proc.returncode == TOAST_PANIC_EXIT
-                       and TOAST_PANIC in proc.stdout + proc.stderr)
-            killed = crashed or proc.returncode in TIMEOUT_EXITS
-            if proc.returncode != 0 and not killed:
-                raise RuntimeError(f"{lane} exited {proc.returncode}; see {transcript}")
-            got = results(proc.stdout)
-            if not got:
-                raise RuntimeError(f"{lane} printed no preamble result (exit {proc.returncode}); see {transcript}")
-            if records[0] is None:
-                records[0] = got[0]
-            for i, record in zip(run_ids, got[1:]):
-                if records[i] is None:
-                    records[i] = record
-            done = len(got) - 1
-            if killed and done >= len(run_ids):
-                errors.append(f"{lane}: killed after every result of {span}; see {transcript}")
-                break
-            if not killed:
-                if done != len(run_ids):
-                    errors.append(f"{lane}: {done} result records for {len(run_ids)} {span}; see {transcript}")
-                break
-            # Killed or crashed: the probe after the last record never finished.
-            hung = run_ids[done]
-            stuck.add(hung)
-            if records[hung] is None and crashed:
-                records[hung] = CRASHED
-            elif records[hung] is None and getattr(proc, "outside_kill", False):
-                records[hung] = KILLED
-            elif records[hung] is None:
-                records[hung] = TIMED_OUT
-                timed_out.append(hung)
-            else:
-                errors.append(f"{lane}: input {hung} completed once but timed out on replay; see {transcript}")
+        # The chunk without the skipped probes, then each skipped probe after
+        # the probes before it.
+        passes = [[i for i in ids if i not in skip]] + [[i for i in ids if i < h and i not in skip] + [h]
+                                                         for h in held]
+        for base in passes:
+            while True:
+                run_ids = [i for i in base if i not in stuck]
+                if all(records[i] is not None for i in run_ids):
+                    break
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise ComparisonDeadline(f"{lane}: cycle deadline before inputs {run_ids[0]}..{run_ids[-1]}")
+                bound = startup + probe_timeout * (1 + len(run_ids))
+                print(f"==> {lane}: inputs {run_ids[0]}..{run_ids[-1]} bound {bound}s", file=sys.stderr)
+                proc = run(lane, [lines[0]] + [lines[i] for i in run_ids], bound)
+                span = f"inputs {run_ids[0]}..{run_ids[-1]}"
+                with transcript.open("a", encoding="utf-8") as f:
+                    f.write(f"--- process: {span} without {sorted(stuck)}, bound {bound}s, exit {proc.returncode} ---\n"
+                            f"{proc.stdout}\n--- STDERR ---\n{proc.stderr}\n")
+                crashed = (lane == "toast" and proc.returncode == TOAST_PANIC_EXIT
+                           and TOAST_PANIC in proc.stdout + proc.stderr)
+                killed = crashed or proc.returncode in TIMEOUT_EXITS
+                if proc.returncode != 0 and not killed:
+                    raise RuntimeError(f"{lane} exited {proc.returncode}; see {transcript}")
+                got = results(proc.stdout)
+                if not got:
+                    raise RuntimeError(f"{lane} printed no preamble result (exit {proc.returncode}); see {transcript}")
+                if records[0] is None:
+                    records[0] = got[0]
+                for i, record in zip(run_ids, got[1:]):
+                    if records[i] is None:
+                        records[i] = record
+                done = len(got) - 1
+                if killed and done >= len(run_ids):
+                    errors.append(f"{lane}: killed after every result of {span}; see {transcript}")
+                    break
+                if not killed:
+                    if done != len(run_ids):
+                        errors.append(f"{lane}: {done} result records for {len(run_ids)} {span}; see {transcript}")
+                    break
+                # Killed or crashed: the probe after the last record never finished.
+                hung = run_ids[done]
+                stuck.add(hung)
+                if records[hung] is None and crashed:
+                    records[hung] = CRASHED
+                elif records[hung] is None and getattr(proc, "outside_kill", False):
+                    records[hung] = KILLED
+                elif records[hung] is None:
+                    records[hung] = TIMED_OUT
+                    timed_out.append(hung)
+                else:
+                    errors.append(f"{lane}: input {hung} completed once but timed out on replay; see {transcript}")
         if saved is not None and len(errors) == errors_before:
             with transcript.open("rb") as stream:
                 stream.seek(offset)
                 raw = stream.read().decode("utf-8")
             staged = saved.with_suffix(".tmp")
             staged.write_text(json.dumps({"preamble": records[0], "records": records[ids.start:ids.stop],
-                                          "transcript": raw}), encoding="utf-8")
+                                          "skip": held, "transcript": raw}), encoding="utf-8")
             staged.replace(saved)
     return records, errors, timed_out
 
@@ -548,8 +563,12 @@ def main() -> int:
     records, record_errors, timeouts, killed, crashed = {}, [], {}, {}, {}
     for lane in ("toast", "barn"):
         try:
+            # Barn leaves out the probes Toast did not finish, as Toast's
+            # restarts did, so both engines' later probes see one database.
+            skip = ({i for i, record in enumerate(records["toast"]) if record in (TIMED_OUT, KILLED, CRASHED)}
+                    if lane == "barn" else set())
             records[lane], errors, timed_out = run_bounded(lane, run, lane_inputs[lane], args.out, args.probe_timeout,
-                                                          checkpoint=checkpoint, deadline=deadline)
+                                                          checkpoint=checkpoint, deadline=deadline, skip=skip)
         except ComparisonDeadline as error:
             print(error, file=sys.stderr)
             return 124
