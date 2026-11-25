@@ -1454,7 +1454,8 @@ class Campaign:
         generation = self.generation
         with self.lock:
             keys, live = sorted(self.touched.get(generation, ())), self.live
-        row = {"event": "observation", "generation": generation, "reason": reason, "keys": keys}
+        row = {"event": "observation", "generation": generation, "reason": reason, "keys": keys,
+               "started_ns": time.monotonic_ns()}
         if not keys:
             row.update(ok=True, value=[])
         elif live is None or self.server.paused:
@@ -2642,7 +2643,7 @@ def _prefix_comparable(left, right):
     return left[:shorter] == right[:shorter]
 
 
-def snapshot_common_violations(rows, txns, observations):
+def snapshot_common_violations(rows, txns, observations, *, terminal=False):
     """Checks independent of the selected cut, over the recovered rows R (D = R: rows start empty).
 
     Rule 4: an atomic transaction's writes are all present or all absent
@@ -2655,22 +2656,27 @@ def snapshot_common_violations(rows, txns, observations):
     negative controls (CONTROLS).
     """
     problems = []
+    state = "final live" if terminal else "recovered"
     present = {(key, item) for key, items in rows.items() for item in items}
     attempted = {write for txn in txns for write in txn["writes"]}
     for key, items in sorted(rows.items()):
         if len(set(items)) != len(items):
-            problems.append(("duplicate-token", f"key {key}: recovered row {items} repeats a token"))
+            problems.append(("duplicate-token", f"key {key}: {state} row {items} repeats a token"))
         for item in items:
             if (key, item) not in attempted:
                 problems.append(("never-sent-token",
-                                 f"key {key}: recovered token {item} was never sent in this generation"))
+                                 f"key {key}: {state} token {item} was never sent in this generation"))
     for txn in txns:
         if not txn["writes"]:
             continue
         included = [write for write in txn["writes"] if write in present]
+        if terminal and txn["type"] == "ok" and len(included) != len(txn["writes"]):
+            missing = [write for write in txn["writes"] if write not in present]
+            problems.append(("lost-live-update", f"operation {txn['id']}: final live observation lacks {missing}"))
         if included and len(included) != len(txn["writes"]) and txn["error"].get("kind") != "native-error":
-            problems.append(("partial-transaction", f"operation {txn['id']} ({txn['type']}): recovered {included} "
-                                                    f"of its writes {txn['writes']}, not all or none"))
+            visible = "final live observation has" if terminal else "recovered"
+            problems.append(("partial-transaction", f"operation {txn['id']} ({txn['type']}): {visible} "
+                                                    f"{included} of its writes {txn['writes']}, not all or none"))
         if txn["type"] == "ok" and len(included) == len(txn["writes"]):
             for f, key, items in txn["result"] or []:
                 missing = [item for item in items if (key, item)
@@ -2688,6 +2694,44 @@ def snapshot_common_violations(rows, txns, observations):
             problems.append(("non-prefix-read",
                              f"{who}: read {items} on key {key} is not prefix-comparable with recovered {rows[key]}"))
     return problems
+
+
+def live_append_checks(lifecycle, journal):
+    """Compare drained Jepsen phases with the last live props/keyed snapshot.
+
+    Jepsen joins its client phase before requesting a graceful checkpoint.
+    A lost reply can leave a server task in flight even then. Its writes are
+    optional, with atomic visibility in this snapshot, and never promoted to
+    acknowledged writes. Keep that uncertainty in the coverage record.
+    """
+    records, findings = [], []
+    for observation in lifecycle:
+        if (observation.get("event"), observation.get("reason")) != ("observation", "checkpoint") \
+                or not observation.get("ok") or "started_ns" not in observation:
+            continue
+        generation, started = observation["generation"], observation["started_ns"]
+        rows = {key: items for key, items in zip(observation["keys"], observation["value"])
+                if family_of(key) in ("props", "keyed")}
+        txns = [txn for txn in epoch_transactions(journal, generation) if txn["value"] and
+                family_of(txn["value"][0][1]) in ("props", "keyed")]
+        if not rows and not txns:
+            continue
+        record = {"generation": generation, "keys": len(rows), "sent": len(txns),
+                  "acknowledged": sum(txn["type"] == "ok" for txn in txns),
+                  "acknowledged_appends": sum(len(txn["writes"]) for txn in txns if txn["type"] == "ok"),
+                  "indeterminate": sum(txn["type"] in (None, "info") for txn in txns), "witnesses": []}
+        records.append(record)
+        expected_keys = {key for txn in txns for _, key, _ in txn["value"]}
+        if expected_keys != rows.keys() or any(txn["send_ns"] >= started or
+                (txn["type"] == "ok" and txn["complete_ns"] >= started) for txn in txns):
+            record["witnesses"].append("live-observation-coverage")
+            findings.append((INCOMPLETE, "live-observation-coverage",
+                             f"generation {generation}: final observation does not follow all known client work"))
+            continue
+        for witness, message in snapshot_common_violations(rows, txns, (), terminal=True):
+            record["witnesses"].append(witness)
+            findings.append((CORRECTNESS, witness, f"generation {generation}: {message}"))
+    return records, findings
 
 
 def snapshot_cut_violations(cut, generation, epoch, start_epoch, rows, txns):
@@ -3961,6 +4005,9 @@ def analyze(inputs, output, jar, java):
     results["recoveries"], snapshot_problems = snapshot_checks(lifecycle, journal)
     for kind, message in snapshot_problems:
         find(kind, message)
+    results["live_append"], live_problems = live_append_checks(lifecycle, journal)
+    for kind, witness, message in live_problems:
+        find(kind, message, witness)
     receipts = load_jsonl(inputs / "receipts.jsonl") if (inputs / "receipts.jsonl").exists() else []
     parameters = (results.get("provenance") or {}).get("parameters", {})
     if parameters.get("tasks") or any(row.get("event") == "task-plant" for row in lifecycle):
@@ -4188,6 +4235,10 @@ def main(argv=None):
     for row in results.get("checkpoints", []):
         print(f"checkpoint comparison generation {row['generation']} ({row['kind']}): "
               f"{len(row['violations'])} violations", flush=True)
+    for row in results.get("live_append", []):
+        print(f"live append generation {row['generation']}: {row['keys']} rows, "
+              f"{row['acknowledged_appends']} acknowledged appends, {row['indeterminate']} indeterminate transactions, "
+              f"witnesses {row['witnesses']}", flush=True)
     for row in results.get("elle", []):
         print(f"elle generation {row['generation']}: {row.get('verdict', row.get('skipped'))}", flush=True)
     for family, counts in (results.get("families") or {}).get("totals", {}).items():

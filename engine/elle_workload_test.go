@@ -658,6 +658,14 @@ func TestElleIsolationHistories(t *testing.T) {
 			}
 			if model == "list-append" && paths["hot_renewal"] {
 				id = elleRenewalPairs(t, rt, store, id)
+				if fault == "hot-memo-guard" {
+					// Retain all origin writes to the two rows, including the
+					// prior prefixes the held reader used. Unrelated rows cannot
+					// supply the witness when this projection is checked alone.
+					if _, err := recorder.write(filepath.Join(out, "hot-memo-pair.edn"), "property", "hot-memo"); err != nil {
+						t.Error(err)
+					}
+				}
 				// Hold an old reader until a newer hot-key publication has completed.
 				elleDrain(t, rt, []*Task{
 					elleTask(t, rt, id, `elle_hot_wait();`+elleReadAll()),
@@ -762,7 +770,15 @@ func TestElleIsolationHistories(t *testing.T) {
 			} else {
 				final = elleRegisterReads() + final
 			}
-			elleDrain(t, rt, []*Task{elleTask(t, rt, id, final)})
+			reader := elleTask(t, rt, id, final)
+			elleDrain(t, rt, []*Task{reader})
+			if model == "list-append" && fault == "" {
+				if err := recorder.checkTerminalAppends(&reader.State, elleRows); err != nil {
+					t.Error(err)
+				} else {
+					isolationprobe.Note("terminal_append")
+				}
+			}
 		}()
 		if os.Getenv("BARN_LEAK_OUTPUT") != "" {
 			sample, err := leakcheck.Capture(filepath.Join(out, "memory-"+model), "model-runtime-stopped", holders(rt, store))
