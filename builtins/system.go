@@ -884,7 +884,9 @@ func builtinBackgroundTest(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	t.SuspendSeconds(-1)
+	release := acquireBackgroundHandle()
 	go func() {
+		defer release()
 		time.Sleep(time.Duration(delay) * time.Second)
 		t.CompleteExec(result)
 	}()

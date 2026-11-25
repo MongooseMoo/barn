@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"testing"
+	"time"
 
 	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/task"
@@ -132,5 +133,41 @@ func TestUnthreadedCurlCrossesIrreversibleBoundary(t *testing.T) {
 	}
 	if got := taskValue.GetState(); got != task.TaskRunning {
 		t.Fatalf("task state = %v, want still running", got)
+	}
+}
+
+// threads() lists a handle only while threaded work runs (Toast background.cc
+// background_process_table): none for the running task itself, one while the
+// work is in flight, and none again, with numbering restarted at 1, once the
+// work has finished.
+func TestThreadsListsBackgroundHandlesOnly(t *testing.T) {
+	ctx, _ := threadedCtx()
+	if got := builtinThreads(ctx, nil); got.Flow != types.FlowNormal || got.Val.String() != "{}" {
+		t.Fatalf("threads() with no background work = %+v, want {}", got)
+	}
+
+	for round := 0; round < 2; round++ {
+		ctx, taskValue := threadedCtx()
+		unblock := make(chan struct{})
+		result := runInBackground(ctx, func() types.Result {
+			<-unblock
+			return types.Ok(types.NewInt(7))
+		})
+		if result.Flow != types.FlowSuspend {
+			t.Fatalf("round %d: flow = %v, want suspend", round, result.Flow)
+		}
+		FlushPendingEffects(ctx)
+		if got := builtinThreads(ctx, nil).Val.String(); got != "{1}" {
+			t.Fatalf("round %d: threads() during background work = %s, want {1}", round, got)
+		}
+		close(unblock)
+		waitForSQLiteResume(t, taskValue)
+		deadline := time.Now().Add(time.Second)
+		for len(activeBackgroundHandles()) != 0 && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+		if got := builtinThreads(ctx, nil).Val.String(); got != "{}" {
+			t.Fatalf("round %d: threads() after background work = %s, want {}", round, got)
+		}
 	}
 }
