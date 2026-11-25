@@ -150,3 +150,27 @@ func TestRindexNegativeOffsetBeforeNeedleReturnsZero(t *testing.T) {
 		t.Fatalf("builtinRindex = %d, want 0", got)
 	}
 }
+
+// Issue #1152: Toast's regex compiler rejects a pattern ending in a lone
+// escape, so match() and rmatch() raise E_INVARG. "%%" is a quoted '%' and
+// a '%' inside a class is literal; both still compile.
+func TestMatchTrailingPercentRaisesInvarg(t *testing.T) {
+	for _, pattern := range []string{"%", "a%", "x%", "%%%"} {
+		for name, fn := range map[string]func(*Execution, []types.Value) types.Result{
+			"match": builtinMatch, "rmatch": builtinRmatch,
+		} {
+			for _, subject := range []string{"", "x", "a%"} {
+				r := fn(nil, []types.Value{types.NewStr(subject), types.NewStr(pattern)})
+				if r.Flow != types.FlowException || r.Error != types.E_INVARG {
+					t.Errorf("%s(%q, %q) = %+v, want E_INVARG", name, subject, pattern, r)
+				}
+			}
+		}
+	}
+	for _, pattern := range []string{"%%", "[%]", "a%%"} {
+		r := builtinMatch(nil, []types.Value{types.NewStr("a%"), types.NewStr(pattern)})
+		if r.Flow == types.FlowException {
+			t.Errorf("match(%q, %q) raised %v, want a match", "a%", pattern, r.Error)
+		}
+	}
+}

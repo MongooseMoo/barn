@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 	"unicode"
@@ -774,7 +775,12 @@ func mooPatternToGoRegex(pattern string) (string, error) {
 			i++
 			continue
 		}
-		if pattern[i] == '%' && i+1 < len(pattern) {
+		if pattern[i] == '%' && i+1 == len(pattern) {
+			// A trailing escape has nothing to quote; Toast's regex compiler
+			// rejects it and match()/rmatch() raise E_INVARG.
+			return "", errors.New("trailing % in pattern")
+		}
+		if pattern[i] == '%' {
 			// MOO regex (ToastStunt's Spencer "rx") uses '%' as the escape
 			// character. Only a small set of '% + char' sequences are special;
 			// EVERY other one is the literal following character. In particular
