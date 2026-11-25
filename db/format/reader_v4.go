@@ -123,11 +123,11 @@ func (database *Database) readObjectV4(r *bufio.Reader, slot types.ObjID) (*stor
 	obj := store.NewObjectBuilder(objID)
 
 	// Read name
-	name, err := r.ReadString('\n')
+	name, err := readDBString(r)
 	if err != nil {
 		return nil, err
 	}
-	obj.SetName(strings.TrimSpace(name))
+	obj.SetName(name)
 
 	// Read blank line (v4 specific)
 	if _, err := r.ReadString('\n'); err != nil {

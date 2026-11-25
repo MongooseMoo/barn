@@ -174,3 +174,48 @@ func TestMatchTrailingPercentRaisesInvarg(t *testing.T) {
 		}
 	}
 }
+
+// Toast reads the index/rindex offset into a C int, so only its low 32 bits
+// count (issue #1145). Expected values are from the ToastStunt oracle.
+func TestIndexOffsetKeepsLow32Bits(t *testing.T) {
+	cases := []struct {
+		name      string
+		haystack  string
+		needle    string
+		offset    int64
+		want      int64
+		wantError types.ErrorCode
+	}{
+		{"rindex", "b", "%b\tb$\t", 9223372036854775807, 0, types.E_NONE},
+		{"rindex", "abcabc", "abc", 4294967295, 1, types.E_NONE},
+		{"rindex", "abcabc", "abc", 4294967296, 4, types.E_NONE},
+		{"rindex", "abcabc", "abc", 2147483648, 0, types.E_NONE},
+		{"rindex", "abcabc", "abc", -4294967296, 4, types.E_NONE},
+		{"index", "b", "x", 9223372036854775807, 0, types.E_INVARG},
+		{"index", "abcabc", "abc", 4294967299, 1, types.E_NONE},
+		{"index", "abcabc", "abc", -4294967296, 1, types.E_NONE},
+	}
+	for _, tc := range cases {
+		result := admitTestBuiltin(tc.name, newTestExecution(), []types.Value{
+			types.NewStr(tc.haystack),
+			types.NewStr(tc.needle),
+			types.NewInt(0),
+			types.NewInt(tc.offset),
+		})
+		if tc.wantError != types.E_NONE {
+			if result.Flow != types.FlowException || result.Error != tc.wantError {
+				t.Errorf("%s(%q, %q, 0, %d) flow = %v error = %v, want %v",
+					tc.name, tc.haystack, tc.needle, tc.offset, result.Flow, result.Error, tc.wantError)
+			}
+			continue
+		}
+		if !result.IsNormal() {
+			t.Errorf("%s(%q, %q, 0, %d) flow = %v error = %v, want normal",
+				tc.name, tc.haystack, tc.needle, tc.offset, result.Flow, result.Error)
+			continue
+		}
+		if got := result.Val.Int(); got != tc.want {
+			t.Errorf("%s(%q, %q, 0, %d) = %d, want %d", tc.name, tc.haystack, tc.needle, tc.offset, got, tc.want)
+		}
+	}
+}
