@@ -107,6 +107,9 @@ func (s *Runtime) logCallVerbTraceback(objID types.ObjID, verbName string, resul
 	if result.Error == types.E_VERBNF {
 		return // Verb not found is expected for optional hooks
 	}
+	// Hook errors can carry caller input, including login payloads. Keep the
+	// native reason for the message without logging that exception value.
+	result.Val = types.None
 	metrics.UncaughtExceptions.Add(1)
 	attrs := append([]any{
 		slog.Int64("this", int64(objID)),

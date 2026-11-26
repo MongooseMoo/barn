@@ -23,7 +23,8 @@ Charge `fg_seconds` and `bg_seconds` for the user CPU consumed by a task slice. 
 
 - Before this change, Barn credited measured commit-gate and readmission waits back to the wall deadline. Synchronous I/O outside those credits still consumed the budget.
 - Toast's `ITIMER_VIRTUAL` measures process user CPU time. Its interpreter arms the timer for each execution. [Linux timer documentation](https://man7.org/linux/man-pages/man2/setitimer.2.html)
+- The first Barn PR build found that passing the full result to the shared traceback formatter exposed synthetic caller-supplied error text in a login trace. Synchronous hooks now strip the exception value before formatting while retaining the native reason.
 
 ## Next step
 
-Publish the Barn fix and the companion conformance change for review. Barn CI reads the conformance suite's default branch, so land Barn before the companion regression reaches that branch.
+The changes are open for review in [Barn #1198](https://github.com/MongooseMoo/barn/pull/1198) and [conformance #292](https://github.com/MongooseMoo/moo-conformance-tests/pull/292). Barn CI reads the conformance suite's default branch, so land Barn before the companion regression reaches that branch.
