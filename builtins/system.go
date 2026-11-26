@@ -3,6 +3,7 @@ package builtins
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -184,7 +185,7 @@ func builtinExec(ctx *Execution, args []types.Value) types.Result {
 	// Validate and resolve program path
 	resolvedPath, err := validateAndResolvePath(program)
 	if err != nil {
-		return types.Err(types.E_INVARG)
+		return types.Raise(types.NewErr(types.E_INVARG), err.Error(), types.NewInt(0))
 	}
 
 	// Get input if provided
@@ -297,88 +298,51 @@ func isValidBinaryString(s string) bool {
 	return true
 }
 
-// validateAndResolvePath validates the program path and resolves it to an executable
-// Returns E_INVARG for:
-// - Absolute paths (starting with /, \, or drive letter)
-// - Relative paths containing ./ or ../
-// - Path traversal attempts
-// - Non-existent files
+// These errors supply the public MOO messages for exec() path failures.
+var (
+	errExecInvalidPath = errors.New("Invalid path")
+	errExecMissingFile = errors.New("Does not exist")
+	errExecNotFile     = errors.New("Is not a file")
+)
+
+// validateAndResolvePath resolves a program within the executables directory.
 func validateAndResolvePath(program string) (string, error) {
-	// Empty path check
-	if len(program) == 0 {
-		return "", os.ErrNotExist
+	if program == "" || program[0] == '/' || strings.HasPrefix(program, "..") ||
+		strings.Contains(program, "/.") || strings.Contains(program, "./") {
+		return "", errExecInvalidPath
 	}
 
-	// Windows-specific validations
+	var candidates []string
 	if runtime.GOOS == "windows" {
-		// Reject absolute paths: drive letter (C:), forward slash (/), backslash (\)
-		if len(program) >= 2 && program[1] == ':' {
-			return "", os.ErrInvalid
-		}
-		if program[0] == '/' || program[0] == '\\' {
-			return "", os.ErrInvalid
-		}
-		// Reject parent directory references: .., ./, .\, /., \.
-		if strings.HasPrefix(program, "..") {
-			return "", os.ErrInvalid
-		}
-		if strings.Contains(program, "/.") || strings.Contains(program, "./") ||
+		if program[0] == '\\' || (len(program) >= 2 && program[1] == ':') ||
 			strings.Contains(program, "\\.") || strings.Contains(program, ".\\") {
-			return "", os.ErrInvalid
+			return "", errExecInvalidPath
 		}
-	} else {
-		// Unix-specific validations
-		if program[0] == '/' {
-			return "", os.ErrInvalid
-		}
-		if strings.HasPrefix(program, "..") {
-			return "", os.ErrInvalid
-		}
-		if strings.Contains(program, "/.") || strings.Contains(program, "./") {
-			return "", os.ErrInvalid
-		}
-	}
 
-	execDirs := []string{"executables"}
-
-	// On Windows, try PATHEXT extensions
-	if runtime.GOOS == "windows" {
 		pathExt := os.Getenv("PATHEXT")
 		if pathExt == "" {
 			pathExt = ".COM;.EXE;.BAT;.CMD"
 		}
-
-		extensions := strings.Split(pathExt, ";")
-		for _, dir := range execDirs {
-			fullPath := filepath.Join(dir, program)
-			for _, ext := range extensions {
-				if ext == "" {
-					continue
-				}
-				tryPath := fullPath + ext
-				if info, err := os.Stat(tryPath); err == nil && !info.IsDir() {
-					return tryPath, nil
-				}
-			}
-
-			// Try exact name as fallback
-			if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
-				return fullPath, nil
+		for ext := range strings.SplitSeq(pathExt, ";") {
+			if ext != "" {
+				candidates = append(candidates, program+ext)
 			}
 		}
-
-		return "", os.ErrNotExist
 	}
 
-	// Unix: check if file exists
-	for _, dir := range execDirs {
-		fullPath := filepath.Join(dir, program)
-		if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
+	failure := errExecMissingFile
+	for _, candidate := range append(candidates, program) {
+		fullPath := filepath.Join("executables", candidate)
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			continue
+		}
+		if info.Mode().IsRegular() {
 			return fullPath, nil
 		}
+		failure = errExecNotFile
 	}
-
-	return "", os.ErrNotExist
+	return "", failure
 }
 
 // execCommandWithContext runs a command with the given context and returns {exit_code, stdout, stderr}.

@@ -70,6 +70,20 @@ func Err(e ErrorCode) Result {
 	return Result{Flow: FlowException, Error: e, Val: None}
 }
 
+// Raise creates a MOO exception with an explicit message and value.
+// The VM appends the traceback when it observes the exception.
+func Raise(code Value, message string, value Value) Result {
+	errorCode := E_NONE
+	if code.Type() == TYPE_ERR {
+		errorCode = code.Code()
+	}
+	return Result{
+		Flow:  FlowException,
+		Error: errorCode,
+		Val:   NewList([]Value{code, NewStr(message), value}),
+	}
+}
+
 // Break creates a Result for a break statement
 // The value, if non-nil, becomes the value of the enclosing loop
 func Break(label string, val Value) Result {

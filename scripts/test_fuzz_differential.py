@@ -479,7 +479,13 @@ class ResultTests(unittest.TestCase):
         self.assertEqual(
             probe("F00007", 'return "a\nb";'),
             'try r = eval("return \\"a", "b\\";"); return {"F00007", r[1] ? "value" | "compile", '
-            'r[1] ? r[2] | 0}; except e (ANY) return {"F00007", "raised", e[1]}; endtry')
+            'r[1] ? r[2] | 0}; except e (ANY) return {"F00007", "raised", e[1], e[2], e[3]}; endtry')
+
+    def test_probe_keeps_code_comparison_for_host_diagnostics(self):
+        self.assertIn(
+            'except e (ANY) return {"F00007", "raised", e[1]};',
+            probe("F00007", 'return open_network_connection("localhost", 4);'),
+        )
 
 
 class CampaignTests(unittest.TestCase):
@@ -529,6 +535,17 @@ class CampaignTests(unittest.TestCase):
         # The same class keeps its signature whatever program shows it first.
         swapped = fuzz_report.report(text.replace("return 0;", "return 9;"), "./scripts", "ToastDifferential", "c")
         self.assertEqual(swapped[0]["signature"], findings[0]["signature"])
+
+    def test_deterministic_exception_message_and_value_each_cause_a_divergence(self):
+        toast = ['=> {"F00001", "raised", E_INVARG, "Invalid character in encoded data", "@@@@"}',
+                 '=> {"F00002", "raised", E_INVARG, "Invalid character in encoded data", "@@@@"}']
+        barn = ['=> {"F00001", "raised", E_INVARG, "Invalid argument", "@@@@"}',
+                '=> {"F00002", "raised", E_INVARG, "Invalid character in encoded data", 0}']
+        code, data, text = self.run_campaign(toast, barn)
+        self.assertEqual(code, 1)
+        self.assertEqual(data["summary"]["counts"], {"divergence": 2})
+        self.assertEqual(text.count("- signature: toast raised E_INVARG / barn raised E_INVARG"), 2)
+        self.assertIn('raised E_INVARG, "Invalid character in encoded data", "@@@@"', text)
 
     def test_real_completed_output_counts_and_both_aborted_is_partial(self):
         # A completed keyed value taken from the existing real Barn transcript.

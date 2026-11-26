@@ -411,11 +411,9 @@ func syntheticEvalCallers(ctx *Execution, includeLineNumbers bool) types.Value {
 // builtinRaise: raise(error [, message [, value]]) → none
 // Raises an error, stopping execution until caught by try/except
 func builtinRaise(ctx *Execution, args []types.Value) types.Result {
-	code := types.E_NONE
 	message := args[0].String()
 	if args[0].Type() == types.TYPE_ERR {
-		code = args[0].Code()
-		message = code.Message()
+		message = args[0].Code().Message()
 	}
 	if len(args) >= 2 {
 		if args[1].Type() != types.TYPE_STR {
@@ -429,17 +427,7 @@ func builtinRaise(ctx *Execution, args []types.Value) types.Result {
 		exceptionValue = args[2]
 	}
 
-	exceptionList := types.NewList([]types.Value{
-		args[0],
-		types.NewStr(message),
-		exceptionValue,
-	})
-
-	return types.Result{
-		Flow:  types.FlowException,
-		Error: code,
-		Val:   exceptionList,
-	}
+	return types.Raise(args[0], message, exceptionValue)
 }
 
 // builtinTaskStack: task_stack(task_id [, include_line_numbers [, include_vars]]) → LIST
