@@ -1,0 +1,23 @@
+# Experiment-local YAML using Gunray's existing Program fields.
+facts:
+  initial_parent:
+    - [leaf, wrapper]
+    - [leaf, side]
+    - [wrapper, bridge]
+    - [bridge, alpha]
+  terminal:
+    - [alpha]
+    - [beta]
+    - [side]
+  active:
+    - [wrapper]
+rules:
+  - 'changed(X) :- reparent(X,Y).'
+  - 'parent(X,Y) :- initial_parent(X,Y), not changed(X).'
+  - 'parent(X,Y) :- reparent(X,Y).'
+  - 'above(X,Y) :- parent(X,Y).'
+  - 'above(X,Z) :- parent(X,Y), above(Y,Z).'
+  - 'winner(Y) :- active(X), above(X,Y), terminal(Y).'
+  # The wrapper is the first direct parent until the receiver is moved to side.
+  - 'fresh_entry(W) :- parent("leaf",W), active(W).'
+  - 'fresh_entry("side") :- parent("leaf","side"), not parent("leaf","wrapper").'

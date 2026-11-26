@@ -1,0 +1,11 @@
+# Each stage is either an expression, a native VM check, or the final store.
+rules:
+  - 'reached(S) :- first(S).'
+  - 'reached(T) :- reached(S), next(S,T), not fault(S).'
+  - 'event(I,S) :- reached(S), expression(S,I).'
+  - 'error(E) :- reached(S), fault(S), throws(S,E).'
+  - 'stored(S) :- reached(S), last(S), not fault(S).'
+  - 'intervened(S) :- reached(S), writes_target(S).'
+  - 'visible("updated") :- stored(S).'
+  - 'visible("intervening") :- intervened(S), not stored("store").'
+  - 'visible("original") :- first(S), not intervened("rhs"), not stored("store").'

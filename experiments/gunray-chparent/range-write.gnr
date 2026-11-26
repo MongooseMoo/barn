@@ -1,0 +1,10 @@
+# A segment is a list of (one-based position, token) facts.
+rules:
+  - 'range_error(C) :- bounds(C,L,H), limit(C,Past), L > Past.'
+  - 'range_error(C) :- bounds(C,L,H), H < 0.'
+  - 'type_error(C) :- base(C,B), replacement(C,R), B != R.'
+  - 'error(C,"E_TYPE") :- type_error(C).'
+  - 'error(C,"E_RANGE") :- range_error(C), not type_error(C).'
+  - 'applies(C) :- bounds(C,L,H), not range_error(C), not type_error(C).'
+  - 'prefix(C,I,V) :- applies(C), bounds(C,L,H), item(C,I,V), I < L.'
+  - 'suffix(C,I,V) :- applies(C), bounds(C,L,H), item(C,I,V), I > H.'
