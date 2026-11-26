@@ -3,7 +3,6 @@ package builtins
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -183,9 +182,9 @@ func builtinExec(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Validate and resolve program path
-	resolvedPath, err := validateAndResolvePath(program)
-	if err != nil {
-		return types.Raise(types.NewErr(types.E_INVARG), err.Error(), types.NewInt(0))
+	resolvedPath, failureMessage := validateAndResolvePath(program)
+	if failureMessage != "" {
+		return types.Raise(types.NewErr(types.E_INVARG), failureMessage, types.NewInt(0))
 	}
 
 	// Get input if provided
@@ -298,25 +297,20 @@ func isValidBinaryString(s string) bool {
 	return true
 }
 
-// These errors supply the public MOO messages for exec() path failures.
-var (
-	errExecInvalidPath = errors.New("Invalid path")
-	errExecMissingFile = errors.New("Does not exist")
-	errExecNotFile     = errors.New("Is not a file")
-)
-
 // validateAndResolvePath resolves a program within the executables directory.
-func validateAndResolvePath(program string) (string, error) {
+// On failure it returns the MOO E_INVARG message.
+func validateAndResolvePath(program string) (path, failureMessage string) {
+	const invalidPathMessage = "Invalid path"
 	if program == "" || program[0] == '/' || strings.HasPrefix(program, "..") ||
 		strings.Contains(program, "/.") || strings.Contains(program, "./") {
-		return "", errExecInvalidPath
+		return "", invalidPathMessage
 	}
 
 	var candidates []string
 	if runtime.GOOS == "windows" {
 		if program[0] == '\\' || (len(program) >= 2 && program[1] == ':') ||
 			strings.Contains(program, "\\.") || strings.Contains(program, ".\\") {
-			return "", errExecInvalidPath
+			return "", invalidPathMessage
 		}
 
 		pathExt := os.Getenv("PATHEXT")
@@ -330,7 +324,7 @@ func validateAndResolvePath(program string) (string, error) {
 		}
 	}
 
-	failure := errExecMissingFile
+	failureMessage = "Does not exist"
 	for _, candidate := range append(candidates, program) {
 		fullPath := filepath.Join("executables", candidate)
 		info, err := os.Stat(fullPath)
@@ -338,11 +332,11 @@ func validateAndResolvePath(program string) (string, error) {
 			continue
 		}
 		if info.Mode().IsRegular() {
-			return fullPath, nil
+			return fullPath, ""
 		}
-		failure = errExecNotFile
+		failureMessage = "Is not a file"
 	}
-	return "", failure
+	return "", failureMessage
 }
 
 // execCommandWithContext runs a command with the given context and returns {exit_code, stdout, stderr}.

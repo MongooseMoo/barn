@@ -18,8 +18,10 @@ Keep failure classification with each builtin. The VM appends the traceback. The
 
 ## Surprises
 
-The previous exec suite required forking, so Barn skipped even its independent path cases. The standalone cases now use the existing builtin suite, whose requirements match what those tests exercise. The managed Toast run used a disposable profile declaring exec support and the harness-installed executable fixtures.
+The previous exec suite required forking, so Barn skipped even its independent path cases. Conformance PR #293 preserves the existing case identities and declares the forking requirement on the six cases that fork. The full Toast matrix passed with this correction.
+
+Staticcheck reported `ST1005` for the capitalized MOO messages stored as Go errors. The resolver now returns them as public MOO message data.
 
 ## Next step
 
-Publish the two branches and verify their PR checks. Land the Barn change before the conformance changes when a merge is authorized.
+Verify the updated Barn PR checks. Land Barn PR #1200 before conformance PR #293 when a merge is authorized.
