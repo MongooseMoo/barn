@@ -405,7 +405,6 @@ retryAttempt:
 			return true
 		}
 		scope.Waited(gateWait)
-		t.ExcludeExecutionWait(gateWait)
 		tl.noteGate(gate.detail, gateWait)
 		// For the census: the wait sits between the attempt's reads and the
 		// boundary's validation, and the boundary is where it validates next.
@@ -435,9 +434,7 @@ retryAttempt:
 
 	// A task resuming after suspend runs under background limits: Toast treats
 	// resumed tasks as background tasks, and time spent suspended does not count
-	// against the execution budget. Reset both the tick and second budgets (and
-	// the start time used for the deadline below) so ticks_left()/seconds_left()
-	// and the hard deadline reflect a fresh background slice.
+	// against the execution budget. Reset both limits for the background slice.
 	if savedVM := t.VM(); attempt == 0 && savedVM != nil && savedVM.IsYielded() {
 		bgTicks, bgSeconds := backgroundTaskLimits(s.session)
 		t.ResetExecutionBudget(bgTicks, bgSeconds, time.Now())
@@ -448,26 +445,6 @@ retryAttempt:
 	if savedVM := t.VM(); attempt == 0 && savedVM != nil {
 		sliceEntryTicks = savedVM.Ticks
 	}
-
-	// Set up the VM execution deadline. The budget deadline must be anchored
-	// to when the task actually starts running, not its (possibly long-past)
-	// scheduled start time — otherwise a fork-delayed or checkpoint-restored
-	// task whose StartTime has already elapsed (e.g. the server was down for
-	// a while between checkpoint and restart) gets an already-expired
-	// deadline and is killed instantly with context.DeadlineExceeded.
-	// t.StartTime itself is left untouched since it's spec-visible via
-	// queued_tasks() and used for scheduling order
-	// (engine/task_queue.go's readyTime()).
-	budgetAnchor, secondsLimit := t.ExecutionBudget()
-	if now := time.Now(); budgetAnchor.Before(now) {
-		budgetAnchor = now
-	}
-	deadline := budgetAnchor.Add(time.Duration(secondsLimit * float64(time.Second)))
-	if attempt == 0 {
-		t.SetExecutionDeadline(deadline)
-	}
-	// The VM owns the seconds deadline so commit-gate waits can extend it.
-	// Cancellation separately handles shutdown and explicit task kills.
 
 	// A root slice lends its reservation at tick checkpoints while others wait,
 	// and parks there while a deferred sweep walks it (parkForGC). Never while
@@ -480,9 +457,8 @@ retryAttempt:
 		}
 		s.parkForGC(t.ID, machine)
 		if ownsScope {
-			if wait := scope.Yield(); wait > 0 {
+			if wait := scope.Yield(t.PauseCPUExecution); wait > 0 {
 				metrics.ObserveRuntime(metrics.Readmission, id, wait, 0)
-				t.ExcludeExecutionWait(wait)
 			}
 		}
 		// Count-only early-abort check for the conflict census; it does nothing

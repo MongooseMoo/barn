@@ -2,7 +2,6 @@ package builtins
 
 import (
 	"fmt"
-	"regexp"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -153,7 +152,7 @@ func warmRegexEviction(workload string, patterns []string) error {
 	return nil
 }
 
-var regexEvictionSink *regexp.Regexp
+var regexEvictionSink *mooRegexp
 
 func BenchmarkRegexpEviction(b *testing.B) {
 	patterns := regexEvictionPatterns()
@@ -174,7 +173,7 @@ func BenchmarkRegexpEviction(b *testing.B) {
 					b.RunParallel(func(pb *testing.PB) {
 						// Local sequences avoid adding a shared atomic to every lookup.
 						i := workers.Add(1) * 10007
-						var last *regexp.Regexp
+						var last *mooRegexp
 						for pb.Next() {
 							var err error
 							last, err = cachedMOOPattern(patterns[regexEvictionIndex(workload, i)], true, false)

@@ -5,18 +5,45 @@ import (
 	"time"
 )
 
-func TestExecutionBudgetExcludesGateWait(t *testing.T) {
-	task := NewState(1, 0, 1000, 5)
-	task.SetExecutionDeadline(time.Now().Add(-time.Second))
-	if got := task.SecondsLeft(); got != 0 {
-		t.Fatalf("expired seconds = %v, want 0", got)
+func TestExecutionBudgetChargesOnlyRunningThread(t *testing.T) {
+	if !threadCPUTime {
+		t.Skip("requires a thread CPU clock")
 	}
-	task.ExcludeExecutionWait(3 * time.Second)
-	if got := task.SecondsLeft(); got != 2 {
-		t.Fatalf("seconds after excluded wait = %v, want 2", got)
+	state := NewState(1, 0, 1000, 0.1)
+	if !state.BeginCPUExecution() {
+		t.Fatal("could not start the CPU clock")
 	}
-	task.SetExecutionDeadline(time.Now().Add(5 * time.Second))
-	if got := task.SecondsLeft(); got != 5 {
+	defer state.EndCPUExecution()
+	if state.BeginCPUExecution() {
+		t.Fatal("nested interpreter acquired another clock")
+	}
+	ctx, cancel := state.CPUContext()
+	defer cancel()
+	// A different goroutine uses CPU while the task waits longer than its limit.
+	done := make(chan struct{})
+	go func() {
+		until := time.Now().Add(150 * time.Millisecond)
+		for time.Now().Before(until) {
+		}
+		close(done)
+	}()
+	<-done
+	if ctx.Err() != nil || state.SecondsLeft() != 1 {
+		t.Fatalf("waiting consumed task CPU: context %v, balance %v", ctx.Err(), state.SecondsLeft())
+	}
+	until := time.Now().Add(3 * time.Second)
+	for ctx.Err() == nil && time.Now().Before(until) {
+	}
+	if ctx.Err() == nil || state.SecondsLeft() != 0 {
+		t.Fatalf("task CPU was not charged: context %v, balance %v", ctx.Err(), state.SecondsLeft())
+	}
+	state.EndCPUExecution()
+	if !state.BeginCPUExecution() || state.SecondsLeft() != 0 {
+		t.Fatal("another interpreter entry must retain the exhausted budget")
+	}
+	state.EndCPUExecution()
+	state.ResetExecutionBudget(1000, 5, time.Now())
+	if got := state.SecondsLeft(); got != 5 {
 		t.Fatalf("fresh slice seconds = %v, want 5", got)
 	}
 }

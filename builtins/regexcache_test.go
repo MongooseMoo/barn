@@ -10,19 +10,18 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// coldCompileMOOPattern reproduces the pre-cache compile path verbatim so the
-// cached path can be diffed against it.
+// coldCompileMOOPattern compiles ordinary patterns without using the cache.
 func coldCompileMOOPattern(pattern string, caseSensitive, anchored bool) (*regexp.Regexp, error) {
-	goPattern, err := mooPatternToGoRegex(pattern)
+	goPattern, _, err := translateMOOPattern(pattern)
 	if err != nil {
 		return nil, err
 	}
-	pat := goPattern
+	pat := "(?m)" + goPattern
 	if !caseSensitive {
-		pat = "(?i)" + goPattern
+		pat = "(?i)" + pat
 	}
 	if anchored {
-		pat = "^(?:" + pat + ")"
+		pat = "\\A(?:" + pat + ")"
 	}
 	return regexp.Compile(pat)
 }
@@ -34,7 +33,7 @@ func TestCachedMOOPatternMatchesColdPath(t *testing.T) {
 		"^%w+$",
 		"a%db",
 		"[^abc]+",
-		"%<word%>",
+		"%bword%b",
 		"",
 		"a|b",
 	}

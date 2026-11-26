@@ -659,6 +659,9 @@ func (vm *VM) IsYielded() bool {
 // The VM's PC and stack are still intact from the yield point.
 func (vm *VM) Resume() types.Result {
 	vm.ensureContextDependencies()
+	if vm.Task != nil && vm.Task.BeginCPUExecution() {
+		defer vm.Task.EndCPUExecution()
+	}
 	vm.profileEnter()
 	result := vm.resume()
 	vm.profileExit()
@@ -735,6 +738,9 @@ func (vm *VM) SetForkResult(childTaskID int64) {
 
 // executeLoop is the core execution loop shared by Run() and Resume().
 func (vm *VM) executeLoop() types.Result {
+	if vm.Task != nil && vm.Task.BeginCPUExecution() {
+		defer vm.Task.EndCPUExecution()
+	}
 	// The fast path does not mirror ticks into the task context; publish the
 	// final balance however the loop exits.
 	defer vm.syncContextTicks()

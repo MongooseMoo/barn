@@ -142,20 +142,31 @@ func TestCallVerbForegroundBudget(t *testing.T) {
 	}
 }
 
-func TestCallVerbExpiredDeadlineStillStopsExecution(t *testing.T) {
+func TestCallVerbExhaustedCPUStillStopsExecution(t *testing.T) {
 	store := newConflictTestStore(t)
 	var expire builtins.BuiltinFunc
 	rt := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("expire_hook_budget", 0, 0, nil, &expire))
 	defer rt.Stop()
 	expire = func(ctx *builtins.Execution, _ []types.Value) types.Result {
-		ctx.Task.SetExecutionDeadline(time.Now().Add(-time.Second))
+		ctx.Task.ResetExecutionBudget(ctx.Task.TicksLimit, 0, time.Now())
 		return types.Ok(types.NewInt(0))
 	}
 	admissionVerb(t, store, "expired_probe", "expire_hook_budget(); for i in [1..2000] endfor return 42;")
-	result := rt.CallVerb(0, "expired_probe", nil, 0)
+	var result types.Result
+	records := captureRecords(t, func() { result = rt.CallVerb(0, "expired_probe", nil, 0) })
 	if result.Flow != types.FlowException || result.Error != types.E_MAXREC || result.Val.Str() != "E_MAXREC: seconds limit exceeded" {
 		t.Fatalf("expired hook result = %+v, want seconds limit exceeded", result)
 	}
+	for _, record := range records {
+		if record["msg"] == "verb call exception" && record["verb"] == "expired_probe" {
+			if record["error_msg"] != "Task ran out of seconds" || record["error_reason"] != "seconds_budget" {
+				t.Fatalf("expired hook logged %v (%v), want Task ran out of seconds (seconds_budget)",
+					record["error_msg"], record["error_reason"])
+			}
+			return
+		}
+	}
+	t.Fatal("missing expired hook traceback")
 }
 
 func TestCallVerbInContextPreservesParentBudget(t *testing.T) {
@@ -171,12 +182,11 @@ func TestCallVerbInContextPreservesParentBudget(t *testing.T) {
 			admissionVerb(t, store, "nested_probe", "total = 0; for i in [1..2000] total = total + i; endfor return total;")
 			parent := &Task{State: task.State{Owner: 0}}
 			anchor := time.Now()
-			parent.ResetExecutionBudget(40000, 2, anchor)
-			deadline := anchor.Add(2 * time.Second)
+			seconds := 2.0
 			if expired {
-				deadline = anchor.Add(-time.Second)
+				seconds = 0
 			}
-			parent.SetExecutionDeadline(deadline)
+			parent.ResetExecutionBudget(40000, seconds, anchor)
 			ctx := task.NewContext()
 			ctx.Store = store
 			ctx.StoreTxn = store.BeginSnapshot(0)
@@ -191,8 +201,8 @@ func TestCallVerbInContextPreservesParentBudget(t *testing.T) {
 			} else if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_INT || result.Val.Int() != 2001000 {
 				t.Fatalf("live nested hook = %+v, want return 2001000", result)
 			}
-			if gotAnchor, gotSeconds := parent.ExecutionBudget(); gotAnchor != anchor || gotSeconds != 2 {
-				t.Fatalf("parent budget changed: anchor %v seconds %v", gotAnchor, gotSeconds)
+			if parent.StartTime != anchor || parent.SecondsLimit != seconds {
+				t.Fatalf("parent budget changed: anchor %v seconds %v", parent.StartTime, parent.SecondsLimit)
 			}
 			if ctx.TicksRemaining >= 40000 || ctx.BuiltinTicksConsumed <= 0 {
 				t.Fatalf("nested execution did not charge parent: remaining %d consumed %d", ctx.TicksRemaining, ctx.BuiltinTicksConsumed)

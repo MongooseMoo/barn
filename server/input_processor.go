@@ -171,7 +171,7 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 		var line string
 		var isOutOfBand bool
 		var err error
-		if conn.IsLoggedIn() && p.runtime.Session().ConnectionOptionTruthy(conn.ID, "binary") {
+		if p.runtime.Session().ConnectionOptionTruthy(conn.ID, "binary") {
 			if binaryTransport, ok := conn.transport.(BinaryTransport); ok {
 				// Toast tests h->binary on bytes already read (network.cc
 				// pull_input). A read that has passed its deadline check can
