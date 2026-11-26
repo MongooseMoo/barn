@@ -141,18 +141,20 @@ func (s *Store) HasVerbNameInAncestry(objID types.ObjID, name string) bool {
 }
 
 // FindVerbInAncestry returns the first verb match accepts, searching objID and
-// then its ancestors breadth-first, and each object's verbs in definition
-// order. match runs under the store's read lock and must not call the store.
+// then its ancestors depth-first in parent-list order. It checks each object's
+// verbs in definition order. match runs under the store's read lock and must not
+// call the store.
 func (s *Store) FindVerbInAncestry(objID types.ObjID, match func(VerbView) bool) (VerbCandidate, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var visitedBuf, queueBuf [8]types.ObjID
+	var visitedBuf, stackBuf [8]types.ObjID
 	visited := visitedBuf[:0]
-	queue := append(queueBuf[:0], objID)
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
+	stack := append(stackBuf[:0], objID)
+	for len(stack) > 0 {
+		last := len(stack) - 1
+		currentID := stack[last]
+		stack = stack[:last]
 		if currentID < 0 || slices.Contains(visited, currentID) {
 			continue
 		}
@@ -170,7 +172,7 @@ func (s *Store) FindVerbInAncestry(objID types.ObjID, match func(VerbView) bool)
 				return VerbCandidate{Definer: currentID, Verb: view}, true
 			}
 		}
-		queue = append(queue, obj.parents...)
+		stack = pushVerbParents(stack, obj.parents)
 	}
 	return VerbCandidate{}, false
 }
