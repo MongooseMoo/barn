@@ -2,7 +2,6 @@ package vm
 
 import (
 	"testing"
-	"time"
 
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
@@ -144,7 +143,6 @@ func TestExtendedOpcodeLoopEndsOnTicks(t *testing.T) {
 			machine, prog := newTickTestVM(t, code)
 			machine.TickLimit = 100
 			machine.Task = task.NewState(1, 0, machine.TickLimit, 1)
-			machine.Task.SetExecutionDeadline(time.Now().Add(2 * time.Second))
 			requireExceptionReason(t, machine.Run(prog), types.ExceptionReasonTickBudget)
 			if machine.Ticks != machine.TickLimit {
 				t.Fatalf("ticks at abort = %d; want the limit %d", machine.Ticks, machine.TickLimit)

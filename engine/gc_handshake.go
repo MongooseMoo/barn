@@ -28,6 +28,7 @@ func (s *Runtime) parkForGC(taskID int64, machine *vm.VM) {
 	}
 	s.gcParked[taskID] = machine
 	s.mu.Unlock()
+	defer machine.Task.PauseCPUExecution()()
 	<-release
 }
 

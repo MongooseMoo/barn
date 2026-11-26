@@ -200,7 +200,7 @@ func TestCallVerbTracebackSkipsVerbNotFound(t *testing.T) {
 	s := &Runtime{}
 
 	records := captureRecords(t, func() {
-		s.logCallVerbTraceback(2, "user_disconnected", types.E_VERBNF, sampleStack(), 2)
+		s.logCallVerbTraceback(2, "user_disconnected", types.Result{Error: types.E_VERBNF, CallStack: sampleStack()}, 2)
 	})
 
 	if len(records) != 0 {
@@ -210,9 +210,15 @@ func TestCallVerbTracebackSkipsVerbNotFound(t *testing.T) {
 
 func TestCallVerbTracebackLogsRealErrors(t *testing.T) {
 	s := &Runtime{}
+	const payload = "caller supplied error text"
 
 	records := captureRecords(t, func() {
-		s.logCallVerbTraceback(10, "look_self", types.E_TYPE, sampleStack(), 2)
+		result := types.Result{
+			Error:     types.E_TYPE,
+			Val:       types.NewList([]types.Value{types.NewErr(types.E_TYPE), types.NewStr(payload), types.None}),
+			CallStack: sampleStack(),
+		}
+		s.logCallVerbTraceback(10, "look_self", result, 2)
 	})
 
 	if len(records) != 1 {
@@ -221,6 +227,9 @@ func TestCallVerbTracebackLogsRealErrors(t *testing.T) {
 	rec := records[0]
 	if rec["msg"] != "verb call exception" || rec["verb"] != "look_self" || rec["player"] != float64(2) {
 		t.Errorf("unexpected record: %#v", rec)
+	}
+	if rec["error_msg"] != types.E_TYPE.Message() || strings.Contains(rec["traceback"].(string), payload) {
+		t.Errorf("hook traceback exposed the caller's error text: %#v", rec)
 	}
 	if _, ok := rec["frames"].([]any); !ok {
 		t.Errorf("record is missing structured frames: %#v", rec)

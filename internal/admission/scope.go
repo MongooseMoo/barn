@@ -47,8 +47,10 @@ func (s *Scope) Start() { s.started = time.Now() }
 // quantum, and returns how long readmission took. The owner keeps its VM,
 // transaction and physical lease: this is neither a MOO suspension nor a commit
 // boundary. Only a root VM holding no gate or lock another admitted invocation
-// could need may yield; readmission is therefore not cancellable.
-func (s *Scope) Yield() time.Duration {
+// could need may yield; readmission is therefore not cancellable. Before a
+// blocking wait, pause may release the caller's execution thread and return
+// the function that reacquires its clock after admission.
+func (s *Scope) Yield(pause func() func()) time.Duration {
 	if s == nil || s.reservation == nil || s.started.IsZero() || s.controller.waiting.Load() == 0 {
 		return 0
 	}
@@ -58,7 +60,18 @@ func (s *Scope) Yield() time.Duration {
 	}
 	start := time.Now()
 	q := s.reservation.preempt(elapsed, time.Duration(s.wait.Load()))
-	s.reservation = <-q.ready
+	select {
+	case s.reservation = <-q.ready:
+	default:
+		var resume func()
+		if pause != nil {
+			resume = pause()
+		}
+		s.reservation = <-q.ready
+		if resume != nil {
+			resume()
+		}
+	}
 	s.wait.Store(0)
 	s.started = time.Now()
 	return s.started.Sub(start)

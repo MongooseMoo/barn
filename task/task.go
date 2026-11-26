@@ -59,20 +59,19 @@ func (s TaskState) String() string {
 
 // State holds a MOO task's execution context, lifecycle, and language-visible data.
 type State struct {
-	ID                int64
-	Owner             types.ObjID
-	Kind              TaskKind // Type of task (input, forked, suspended)
-	Status            TaskState
-	StartTime         time.Time
-	QueueTime         time.Time // When task was queued
-	TicksUsed         int64
-	TicksLimit        int64
-	SecondsUsed       float64
-	SecondsLimit      float64
-	executionDeadline time.Time
-	execReadyAt       time.Time // External completion, retained until its next execution slice.
-	CallStack         []types.ActivationFrame
-	TaskLocal         types.Value // Task-local storage (set_task_local/task_local)
+	ID           int64
+	Owner        types.ObjID
+	Kind         TaskKind // Type of task (input, forked, suspended)
+	Status       TaskState
+	StartTime    time.Time
+	QueueTime    time.Time // When task was queued
+	TicksUsed    int64
+	TicksLimit   int64
+	SecondsLimit float64
+	cpu          executionCPU
+	execReadyAt  time.Time // External completion, retained until its next execution slice.
+	CallStack    []types.ActivationFrame
+	TaskLocal    types.Value // Task-local storage (set_task_local/task_local)
 
 	// For suspension/resumption
 	WakeTime            time.Time
@@ -324,7 +323,6 @@ func (t *State) Init(id int64, owner types.ObjID, tickLimit int64, secondsLimit 
 		QueueTime:     now,
 		TicksUsed:     0,
 		TicksLimit:    tickLimit,
-		SecondsUsed:   0,
 		SecondsLimit:  secondsLimit,
 		CallStack:     make([]types.ActivationFrame, 0),
 		TaskLocal:     types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
@@ -713,25 +711,16 @@ func (t *State) TicksLeft() int64 {
 	return t.TicksLimit - t.TicksUsed
 }
 
-// ResetExecutionBudget starts a fresh execution slice and returns the values
-// needed to construct its deadline. Keeping this update atomic prevents task
-// introspection from observing a mixture of old and new limits.
-func (t *State) ResetExecutionBudget(ticks int64, seconds float64, start time.Time) (time.Time, float64) {
+// ResetExecutionBudget starts a fresh execution slice with both limits reset.
+func (t *State) ResetExecutionBudget(ticks int64, seconds float64, start time.Time) {
 	t.Mu.Lock()
 	defer t.Mu.Unlock()
 	t.TicksLimit = ticks
 	t.TicksUsed = 0
 	t.SecondsLimit = seconds
-	t.SecondsUsed = 0
+	t.cpu.spent = 0
+	t.cpu.failed = false
 	t.StartTime = start
-	return t.StartTime, t.SecondsLimit
-}
-
-// ExecutionBudget returns a consistent deadline budget snapshot.
-func (t *State) ExecutionBudget() (time.Time, float64) {
-	t.Mu.RLock()
-	defer t.Mu.RUnlock()
-	return t.StartTime, t.SecondsLimit
 }
 
 // SetCancelFunc publishes the cancellation function safely.
@@ -874,44 +863,6 @@ func (t *State) SchedulingSnapshot() (time.Time, time.Time, int64) {
 	t.Mu.RLock()
 	defer t.Mu.RUnlock()
 	return t.StartTime, t.WakeTime, t.QueueSeq
-}
-
-// SecondsLeft returns remaining seconds
-func (t *State) SecondsLeft() float64 {
-	t.Mu.RLock()
-	defer t.Mu.RUnlock()
-	if !t.executionDeadline.IsZero() {
-		return math.Max(0, math.Ceil(time.Until(t.executionDeadline).Seconds()))
-	}
-	return t.SecondsLimit - t.SecondsUsed
-}
-
-// ExecutionTimeLeft supplies exact remaining time to cancellable builtins.
-// SecondsLeft retains the language-visible rounding used by seconds_left().
-func (t *State) ExecutionTimeLeft() time.Duration {
-	t.Mu.RLock()
-	defer t.Mu.RUnlock()
-	if !t.executionDeadline.IsZero() {
-		return time.Until(t.executionDeadline)
-	}
-	return time.Duration((t.SecondsLimit - t.SecondsUsed) * float64(time.Second))
-}
-
-// SetExecutionDeadline starts the timer only once execution has acquired its
-// resources. Queueing and waiting for the commit gate do not consume it.
-func (t *State) SetExecutionDeadline(deadline time.Time) {
-	t.Mu.Lock()
-	defer t.Mu.Unlock()
-	t.executionDeadline = deadline
-}
-
-// ExcludeExecutionWait keeps server-side contention out of the MOO budget.
-func (t *State) ExcludeExecutionWait(wait time.Duration) {
-	t.Mu.Lock()
-	defer t.Mu.Unlock()
-	if !t.executionDeadline.IsZero() {
-		t.executionDeadline = t.executionDeadline.Add(wait)
-	}
 }
 
 // ConsumeTick increments tick count and returns true if ticks remain
