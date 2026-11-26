@@ -17,11 +17,12 @@ database and killed by the harness when it outruns its bound (see
 run_bounded).  Each program becomes one input line::
 
     try r = eval("line 1", "line 2"); return {"F00001", r[1] ? "value" | "compile", r[1] ? r[2] | 0};
-    except e (ANY) return {"F00001", "raised", e[1]}; endtry
+    except e (ANY) return {"F00001", "raised", e[1], e[2], e[3]}; endtry
 
 so what is compared is whether the program compiles, the value it returns, or
-the error code it raises.  Compile error text is not compared (only that
-compilation failed).  A preamble bounds every input to FG_TICKS ticks and
+the code, message and value it raises. Probes that can raise host or library
+diagnostics compare the error code. Compile errors compare whether compilation
+failed. A preamble bounds every input to FG_TICKS ticks and
 FG_SECONDS seconds on both engines.  An input that one engine aborts (ticks,
 seconds) has no probe result there; those are listed but not compared,
 because tick accounting is not claimed to be Toast-exact.  An input the
@@ -135,6 +136,12 @@ EXCLUDED_CALLS = {
     "load_server_options": "process effect",
 }
 CALL_RE = re.compile(r"\b(" + "|".join(sorted(EXCLUDED_CALLS)) + r")\s*\(")
+# These producers can include host or library diagnostics in e[2] or e[3].
+# Indirect builtin calls can reach any of the same producers.
+HOST_ERROR_DETAIL_CALL = re.compile(
+    r"\b(?:call_function|curl|file_\w+|listen|open_network_connection|pcre_\w+|sqlite_\w+)\s*\(",
+    re.IGNORECASE,
+)
 # fork returns a task id; $server_options changes the preamble's bounds.
 WORD_RE = re.compile(r"\b(fork|server_options)\b")
 # Every builtin an engine registers, as one input line (without Toast's ";;").
@@ -247,8 +254,9 @@ def exclusion(source: str, oracle_missing: re.Pattern | None = None) -> str | No
 
 def probe(key: str, source: str) -> str:
     lines = ", ".join(moo_str(line) for line in source.split("\n"))
+    exception = "e[1]" if HOST_ERROR_DETAIL_CALL.search(source) else "e[1], e[2], e[3]"
     return (f'try r = eval({lines}); return {{"{key}", r[1] ? "value" | "compile", r[1] ? r[2] | 0}}; '
-            f'except e (ANY) return {{"{key}", "raised", e[1]}}; endtry')
+            f'except e (ANY) return {{"{key}", "raised", {exception}}}; endtry')
 
 
 def results(stdout: str) -> list[str]:
@@ -263,7 +271,7 @@ def results(stdout: str) -> list[str]:
 
 
 def outcome(key: str, record: str | None) -> str | None:
-    """'value V', 'compile 0' or 'raised E' for a completed probe, else None."""
+    """Return a completed probe's result, including any exception details."""
     m = RESULT_RE.fullmatch(record or "")
     return f"{m.group(2)} {m.group(3)}" if m and m.group(1) == key else None
 
@@ -272,7 +280,7 @@ def result_class(result: str) -> str:
     """An outcome() string without its value: 'value', 'compile', or 'raised'
     with the error code. A divergence's class is its two engines' classes."""
     kind, _, rest = result.partition(" ")
-    return f"raised {rest.split(' ', 1)[0]}" if kind == "raised" else kind
+    return f"raised {rest.split(' ', 1)[0].removesuffix(',')}" if kind == "raised" else kind
 
 
 def run_streaming(script: str, timeout: int, kill: str, startup: int,

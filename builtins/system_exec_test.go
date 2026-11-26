@@ -317,9 +317,9 @@ func TestValidateAndResolvePathUsesServerExecutablesDirectory(t *testing.T) {
 	}
 	t.Chdir(serverDir)
 
-	got, err := validateAndResolvePath("sleep")
-	if err != nil {
-		t.Fatalf("resolve executables/sleep: %v", err)
+	got, failureMessage := validateAndResolvePath("sleep")
+	if failureMessage != "" {
+		t.Fatalf("resolve executables/sleep: %s", failureMessage)
 	}
 	want := filepath.Join("executables", "sleep")
 	if got != want {
