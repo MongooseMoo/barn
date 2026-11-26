@@ -222,16 +222,23 @@ func TestYieldLendsReservationToWaiterAndReadmitsOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner.Start()
-	if waited := owner.Yield(); waited != 0 {
+	if waited := owner.Yield(nil); waited != 0 {
 		t.Fatalf("uncontended yield waited %v", waited)
 	}
 	waiter := c.Enqueue(Key{Principal: 20, Class: Input})
-	if waited := owner.Yield(); waited != 0 {
+	if waited := owner.Yield(nil); waited != 0 {
 		t.Fatal("yield before a full quantum")
 	}
 	time.Sleep(Quantum)
 	yielded := make(chan time.Duration, 1)
-	go func() { yielded <- owner.Yield() }()
+	paused := make(chan struct{})
+	resumed := make(chan struct{})
+	go func() {
+		yielded <- owner.Yield(func() func() {
+			close(paused)
+			return func() { close(resumed) }
+		})
+	}()
 	var granted *Reservation
 	select {
 	case granted = <-waiter.Ready():
@@ -240,6 +247,16 @@ func TestYieldLendsReservationToWaiterAndReadmitsOwner(t *testing.T) {
 	}
 	if s := c.Snapshot(); s.Active != 1 || s.Preempted != 1 || s.Preemptions != 1 || s.Service <= 0 {
 		t.Fatalf("during handoff = %+v", s)
+	}
+	select {
+	case <-paused:
+	case <-time.After(time.Second):
+		t.Fatal("preempted owner did not pause before waiting")
+	}
+	select {
+	case <-resumed:
+		t.Fatal("preempted owner resumed before readmission")
+	default:
 	}
 	time.Sleep(5 * time.Millisecond)
 	granted.Finish(time.Millisecond, 0)
@@ -250,6 +267,11 @@ func TestYieldLendsReservationToWaiterAndReadmitsOwner(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("preempted owner was not readmitted")
+	}
+	select {
+	case <-resumed:
+	default:
+		t.Fatal("readmitted owner did not resume")
 	}
 	owner.Finish()
 	if s := c.Snapshot(); s.Active != 0 || s.Preempted != 0 || s.Queued != 0 {
@@ -267,7 +289,7 @@ func TestPauseWaitsForPreemptedSegmentAndReadmitsIt(t *testing.T) {
 	other := c.Enqueue(Key{Principal: 20, Class: Input})
 	time.Sleep(Quantum)
 	yielded := make(chan struct{})
-	go func() { owner.Yield(); close(yielded) }()
+	go func() { owner.Yield(nil); close(yielded) }()
 	granted := <-other.Ready()
 
 	paused := make(chan func(), 1)

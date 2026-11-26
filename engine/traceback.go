@@ -57,13 +57,18 @@ func tbFrames(stack []types.ActivationFrame) []tbFrame {
 // tracebackAttrs describes an error and its call stack. A traceback is logged
 // as a single record — one event, one line — because separate lines per frame
 // interleave with other tasks' output and cannot be reassembled afterwards.
-func tracebackAttrs(err types.ErrorCode, message string, stack []types.ActivationFrame) []any {
-	return []any{
-		slog.String("error", types.NewErr(err).String()),
+func tracebackAttrs(result types.Result, stack []types.ActivationFrame) []any {
+	message := result.ErrorMessage()
+	attrs := []any{
+		slog.String("error", types.NewErr(result.Error).String()),
 		slog.String("error_msg", message),
 		slog.String("traceback", strings.Join(task.FormatTraceback(stack, message), "\n")),
 		slog.Any("frames", tbFrames(stack)),
 	}
+	if result.Reason != types.ExceptionReasonUnknown {
+		attrs = append(attrs, slog.String("error_reason", result.Reason.String()))
+	}
+	return attrs
 }
 
 // SendTracebackToPlayer sends a formatted traceback through the server-owned output hook.
@@ -73,7 +78,7 @@ func (s *Runtime) SendTracebackToPlayer(player types.ObjID, result types.Result,
 		return
 	}
 
-	attrs := append([]any{slog.Int64("player", int64(player))}, tracebackAttrs(result.Error, result.ErrorMessage(), result.CallStack)...)
+	attrs := append([]any{slog.Int64("player", int64(player))}, tracebackAttrs(result, result.CallStack)...)
 	slog.Error("traceback (no output hook configured)", attrs...)
 }
 
@@ -92,17 +97,14 @@ func (s *Runtime) logTraceback(t *Task, result types.Result, stack []types.Activ
 		slog.String("verb", t.VerbName),
 		slog.Bool("forked", t.IsForked),
 		slog.Bool("handled", handled),
-	}, tracebackAttrs(result.Error, result.ErrorMessage(), stack)...)
-	if result.Reason != types.ExceptionReasonUnknown {
-		attrs = append(attrs, slog.String("error_reason", result.Reason.String()))
-	}
+	}, tracebackAttrs(result, stack)...)
 	slog.Log(context.Background(), level, "uncaught exception", attrs...)
 }
 
 // logCallVerbTraceback logs an uncaught exception from a synchronous verb call.
 // E_VERBNF is not logged because it's the normal case for optional hook verbs
-func (s *Runtime) logCallVerbTraceback(objID types.ObjID, verbName string, err types.ErrorCode, stack []types.ActivationFrame, player types.ObjID) {
-	if err == types.E_VERBNF {
+func (s *Runtime) logCallVerbTraceback(objID types.ObjID, verbName string, result types.Result, player types.ObjID) {
+	if result.Error == types.E_VERBNF {
 		return // Verb not found is expected for optional hooks
 	}
 	metrics.UncaughtExceptions.Add(1)
@@ -110,6 +112,6 @@ func (s *Runtime) logCallVerbTraceback(objID types.ObjID, verbName string, err t
 		slog.Int64("this", int64(objID)),
 		slog.String("verb", verbName),
 		slog.Int64("player", int64(player)),
-	}, tracebackAttrs(err, err.Message(), stack)...)
+	}, tracebackAttrs(result, result.CallStack)...)
 	slog.Error("verb call exception", attrs...)
 }

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
@@ -100,7 +99,7 @@ type checkpointFunc func(t *testing.T, machine *VM, store *dbstore.Store, queued
 // with the suspended parent and reconstructed from the loaded code/environment.
 // secondsBudgetSkip is checkpointResumeDifference's skip reason when a task
 // hit the seconds budget.
-const secondsBudgetSkip = "a task hit the seconds budget, which depends on wall-clock time"
+const secondsBudgetSkip = "a task hit the seconds budget, which depends on execution time"
 
 func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpointFunc, ticks int64, wizard bool) (difference, skip string) {
 	t.Helper()
@@ -112,11 +111,8 @@ func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpoi
 	plain, plainState, _ := runCheckpointResumeCase(t, registry, program, nil, ticks, wizard)
 	resumed, resumedState, suspends := runCheckpointResumeCase(t, registry, program, checkpoint, ticks, wizard)
 	lanes := [][]types.Result{plain, resumed}
-	// The seconds budget is checked first, in every task of both runs: a
-	// starved host can stop any task at its wall-clock deadline (and a later
-	// task can then fail on the state it left), so no outcome in a run with
-	// such a task, the world-history lane's included, says anything about the
-	// program.
+	// A seconds abort can leave partial state that changes the outcome of later
+	// tasks. Skip the comparison if any task consumed its budget in either run.
 	for _, results := range lanes {
 		for _, result := range results {
 			if result.Flow == types.FlowException && result.Reason == types.ExceptionReasonSecondsBudget {
@@ -340,10 +336,8 @@ func runPersistentStateObserver(t *testing.T, store *dbstore.Store, session *bui
 		t.Fatalf("observer does not compile: %v", diagnostics)
 	}
 	machine := newSourceFuzzVM(store, session, 1, defaultTickLimit)
-	// The observer is the harness reading the result, not the program under
-	// test: its ticks bound it, and a starved host must not stop it at the
-	// fuzz tasks' wall-clock deadline.
-	machine.Task.SetExecutionDeadline(time.Time{})
+	// The observer is harness code with its own execution allowance.
+	machine.Task.SecondsLimit = 60
 	machine.Context.IsWizard = true
 	result := machine.RunWithVerbContext(program, types.ObjNothing, machine.Context.Player, types.ObjNothing, "", types.ObjNothing, args)
 	if result.Flow != types.FlowReturn {

@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
@@ -236,8 +235,6 @@ func TestRestoredFailedUnwindJumpDoesNotFallThrough(t *testing.T) {
 	}
 	machine.Task = task.NewState(1, context.Player, context.TicksRemaining, 1)
 	machine.TickLimit = context.TicksRemaining
-	start, seconds := machine.Task.ExecutionBudget()
-	machine.Task.SetExecutionDeadline(start.Add(time.Duration(seconds * float64(time.Second))))
 	if result := machine.Resume(); result.Flow != types.FlowException {
 		t.Fatalf("failed UNWIND_JUMP ended with %+v, want an exception", result)
 	}
@@ -329,10 +326,6 @@ func restoreFuzzInput(t *testing.T, registry *builtins.Registry, source string, 
 	}
 	machine.Task = task.NewState(1, context.Player, context.TicksRemaining, 1)
 	machine.TickLimit = context.TicksRemaining
-	// The seconds budget is checked at tick checkpoints against a running
-	// deadline, as engine/task_runtime.go sets before a slice.
-	start, seconds := machine.Task.ExecutionBudget()
-	machine.Task.SetExecutionDeadline(start.Add(time.Duration(seconds * float64(time.Second))))
 	_ = machine.Resume()
 	return true
 }

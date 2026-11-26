@@ -200,7 +200,7 @@ func TestCallVerbTracebackSkipsVerbNotFound(t *testing.T) {
 	s := &Runtime{}
 
 	records := captureRecords(t, func() {
-		s.logCallVerbTraceback(2, "user_disconnected", types.E_VERBNF, sampleStack(), 2)
+		s.logCallVerbTraceback(2, "user_disconnected", types.Result{Error: types.E_VERBNF, CallStack: sampleStack()}, 2)
 	})
 
 	if len(records) != 0 {
@@ -212,7 +212,7 @@ func TestCallVerbTracebackLogsRealErrors(t *testing.T) {
 	s := &Runtime{}
 
 	records := captureRecords(t, func() {
-		s.logCallVerbTraceback(10, "look_self", types.E_TYPE, sampleStack(), 2)
+		s.logCallVerbTraceback(10, "look_self", types.Result{Error: types.E_TYPE, CallStack: sampleStack()}, 2)
 	})
 
 	if len(records) != 1 {
