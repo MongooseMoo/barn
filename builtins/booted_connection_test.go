@@ -93,6 +93,25 @@ func TestBootingTaskSeesItsPendingBoot(t *testing.T) {
 	}
 }
 
+// With no host there is no connection to boot: Toast's boot_player() returns
+// 0 in emergency mode for any object, valid or not (issue #1154), and still
+// raises E_PERM when a non-wizard names another player.
+func TestBootPlayerWithoutHostReturnsZero(t *testing.T) {
+	ctx := newTestExecution()
+	ctx.IsWizard = true
+	for _, id := range []int64{9223372036854775807, -1, 2} {
+		res := admitTestBuiltin("boot_player", ctx, []types.Value{types.NewObj(types.ObjID(id))})
+		if res.IsError() || res.Val.Type() != types.TYPE_INT || res.Val.Int() != 0 {
+			t.Errorf("boot_player(#%d) without a host = %+v, want 0", id, res)
+		}
+	}
+	ctx.IsWizard = false
+	ctx.Programmer = 5
+	if res := admitTestBuiltin("boot_player", ctx, []types.Value{types.NewObj(6)}); res.Flow != types.FlowException || res.Error != types.E_PERM {
+		t.Errorf("non-wizard boot_player(#6) without a host = %+v, want E_PERM", res)
+	}
+}
+
 // With no host there are no connections: Toast's connected_players() answers
 // {} in emergency mode for any argument (issue #1150), not E_INVARG.
 func TestConnectedPlayersWithoutHostIsEmpty(t *testing.T) {
