@@ -114,7 +114,9 @@ func (s *barnImportLayout) markRangeStart(c *lowerer, loop *ir.RangeLoopStmt) {
 }
 
 // leadingSplice reports whether node is a list, or a call whose argument
-// list, starts with @expr.
+// list, starts with @expr; or a catch expression or try statement with a
+// codes list that does, whose OP_SPLICE prepareExceptCodes emits under that
+// owner, where Toast builds the codes as an argument list (nativeVector.codes).
 func leadingSplice(node ir.Node) bool {
 	var elements []ir.Expr
 	switch n := node.(type) {
@@ -124,6 +126,15 @@ func leadingSplice(node ir.Node) bool {
 		elements = n.Args
 	case *ir.VerbCallExpr:
 		elements = n.Args
+	case *ir.CatchExpr:
+		elements = n.Codes
+	case *ir.TryStmt:
+		for _, handler := range n.Handlers {
+			if leadingSplice(&ir.ListExpr{Elements: handler.Codes}) {
+				return true
+			}
+		}
+		return false
 	}
 	if len(elements) == 0 {
 		return false
