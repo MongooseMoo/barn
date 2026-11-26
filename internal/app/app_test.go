@@ -107,6 +107,7 @@ func TestRunStartupReturnsWrappedLoadError(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.DatabasePath = filepath.Join(t.TempDir(), "missing.db")
 	cfg.DebugAddr = "off"
+	cfg.Listen = []string{"tcp://127.0.0.1:0"}
 	err := Run(context.Background(), cfg, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "load database") {
 		t.Fatalf("Run error = %v, want wrapped load database error", err)

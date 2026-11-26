@@ -1,0 +1,23 @@
+name: gunray_cf_replay
+description: One parsed command with two eligible inherited definitions.
+tests:
+  - name: gunray_cf_replay_one_command
+    permission: wizard
+    steps:
+      - run: |
+          deep = create($nothing);
+          left = create(deep);
+          right = create($nothing);
+          leaf = create({left, right});
+          for definer in ({deep, right})
+            add_verb(definer, {player, "rxd", "gunraycmdprobe"}, {"this", "none", "none"});
+          endfor
+          set_verb_code(deep, 1, {"notify(player, \"deep\");"});
+          set_verb_code(right, 1, {"notify(player, \"right\");"});
+          return leaf;
+        capture: leaf
+        expect: {type: obj}
+      - command: gunraycmdprobe {leaf}
+        capture: reply
+      - run: 'case_id = "gunray_cf_replay_one_command"; return {reply};'
+        expect: {value: [deep]}

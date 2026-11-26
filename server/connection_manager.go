@@ -639,14 +639,14 @@ func (cm *ConnectionManager) ConnectedPlayers(showAll bool) []types.ObjID {
 	return players
 }
 
-// BootPlayer disconnects a player
+// BootPlayer disconnects a player if a connection is still registered.
 func (cm *ConnectionManager) BootPlayer(player types.ObjID) error {
 	cm.mu.Lock()
 	conn := cm.playerConns[player]
 	cm.mu.Unlock()
 
 	if conn == nil {
-		return fmt.Errorf("player not connected")
+		return nil
 	}
 
 	conn.setDisconnectHook("user_disconnected")

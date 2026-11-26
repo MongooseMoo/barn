@@ -150,26 +150,26 @@ func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// Check for cycles BEFORE validating new parent existence
-	// This ensures self-parenting returns E_RECMOVE, not E_INVARG
-	if objVal.ID() == newParentVal.ID() {
-		return types.Err(types.E_RECMOVE)
-	}
-
 	// Check for invalid new parent
 	// $nothing (-1) is valid and means no parent
 	if newParentVal.ID() < -1 {
 		return types.Err(types.E_INVARG)
 	}
 
+	newParents := []types.ObjID{}
 	if newParentVal.ID() != types.ObjNothing {
 		if !validForRead(ctx, newParentVal.ID()) {
 			return types.Err(types.E_INVARG)
 		}
+		newParents = []types.ObjID{newParentVal.ID()}
+	}
+	if errCode := authorizeParentChange(ctx, objVal.ID(), newParents); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
-	// Check if new parent is a descendant of object (would create cycle)
-	if newParentVal.ID() != types.ObjNothing && store.HasDescendant(objVal.ID(), newParentVal.ID()) {
+	// Like chparents, check for recursion after validity and permission.
+	if newParentVal.ID() != types.ObjNothing &&
+		(objVal.ID() == newParentVal.ID() || store.HasDescendant(objVal.ID(), newParentVal.ID())) {
 		return types.Err(types.E_RECMOVE)
 	}
 
@@ -205,15 +205,6 @@ func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 	// Note: ToastStunt does NOT invalidate anonymous descendants when the parent
 	// hierarchy changes; they remain valid.
 
-	var newParents []types.ObjID
-	if newParentVal.ID() == types.ObjNothing {
-		newParents = []types.ObjID{}
-	} else {
-		newParents = []types.ObjID{newParentVal.ID()}
-	}
-	if errCode := authorizeParentChange(ctx, objVal.ID(), newParents); errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
 	if errCode := changeParentsLive(ctx, objVal.ID(), newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -279,39 +270,39 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 
-	if !validForRead(ctx, objVal.ID()) {
-		return types.Err(types.E_INVIND)
+	// Toast (objects.cc bf_chparent_chparents) checks in whole-list phases:
+	// the object and every parent valid (E_INVARG), then permission (E_PERM),
+	// then recursion over the whole list (E_RECMOVE), and only then, in
+	// db_change_parents, duplicates and property conflicts (E_INVARG).
+	objID := objVal.ID()
+	if !validForRead(ctx, objID) {
+		return types.Err(types.E_INVARG)
 	}
 
-	// Convert list to ObjIDs - check cycles and duplicates BEFORE validation
 	newParents := make([]types.ObjID, len(elements))
-	seenParents := make(map[types.ObjID]bool)
-
 	for i, elem := range elements {
-		parentID := elem.ID()
+		if !validForRead(ctx, elem.ID()) {
+			return types.Err(types.E_INVARG)
+		}
+		newParents[i] = elem.ID()
+	}
 
-		// Check for self-parenting FIRST (before validating parent exists)
-		if parentID == objVal.ID() {
+	if errCode := authorizeParentChange(ctx, objID, newParents); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+
+	for _, parentID := range newParents {
+		if parentID == objID || store.HasDescendant(objID, parentID) {
 			return types.Err(types.E_RECMOVE)
 		}
+	}
 
-		// Check for duplicate parents in list
+	seenParents := make(map[types.ObjID]bool, len(newParents))
+	for _, parentID := range newParents {
 		if seenParents[parentID] {
 			return types.Err(types.E_INVARG)
 		}
 		seenParents[parentID] = true
-
-		// Now validate parent exists
-		if !validForRead(ctx, parentID) {
-			return types.Err(types.E_INVARG)
-		}
-
-		// Check if parent is a descendant of object (would create cycle)
-		if store.HasDescendant(objVal.ID(), parentID) {
-			return types.Err(types.E_RECMOVE)
-		}
-
-		newParents[i] = parentID
 	}
 
 	tx := readTxn(ctx)
@@ -354,14 +345,10 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	if errCode := authorizeParentChange(ctx, objVal.ID(), newParents); errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-
 	// Note: ToastStunt does NOT invalidate anonymous descendants when the parent
 	// hierarchy changes; they remain valid.
 
-	if errCode := changeParentsLive(ctx, objVal.ID(), newParents); errCode != types.E_NONE {
+	if errCode := changeParentsLive(ctx, objID, newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
