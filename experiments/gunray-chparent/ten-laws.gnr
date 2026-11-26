@@ -1,0 +1,17 @@
+rules:
+  - 'prediction(C,N) :- ansi_bytes(C,Mode,Color), escape_length(Mode,Color,N).'
+  - 'prediction(C,0) :- palette_probe(C,Color), not palette(Color).'
+  - 'prediction(C,1) :- regex_probe(C), accepted(C).'
+  - 'prediction(C,0) :- regex_probe(C), not accepted(C).'
+  - 'accepted(C) :- boundary(C,"begin",0,1).'
+  - 'accepted(C) :- boundary(C,"end",1,0).'
+  - 'accepted(C) :- backreference(C,V,V).'
+  - 'accepted(C) :- anchored(C,1).'
+  - 'prediction(C,N) :- valid_float(C,N).'
+  - 'prediction(C,"E_INVARG") :- invalid_float(C,S).'
+  - 'prediction(C,N) :- required(C,Law), consequence(Law,N).'
+  - 'prediction(C,N) :- object_id(C,N).'
+facts:
+  escape_length: [[strip_raw, red, 5], [strip_tag, red, 0], [emit, grey, 7], [emit, red, 5]]
+  palette: [[red], [green], [yellow], [blue], [magenta]]
+  consequence: [[roundtrip, 1], [typed_match, 1], [literal_match, 1], [invalid_argument, E_INVARG], [zero_length, 0], [wrong_arity, E_ARGS], [invalid_integer, 0], [seven, 7], [no_match, 0], [two_point_five, 2.5]]

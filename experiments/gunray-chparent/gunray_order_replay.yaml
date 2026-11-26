@@ -1,0 +1,22 @@
+name: gunray_order_replay
+description: A definition on the first parent's parent precedes a definition on the second parent.
+tests:
+  - name: gunray_order_replay_direct_and_pass
+    permission: wizard
+    steps:
+      - run: |
+          case_id = "gunray_order_replay_direct_and_pass";
+          deep = create($nothing);
+          left = create(deep);
+          right = create($nothing);
+          leaf = create({left, right});
+          add_verb(deep, {player, "rxd", "pick"}, {"this", "none", "this"});
+          set_verb_code(deep, 1, {"return \"deep\";"});
+          add_verb(right, {player, "rxd", "pick"}, {"this", "none", "this"});
+          set_verb_code(right, 1, {"return \"right\";"});
+          direct = leaf:pick();
+          add_verb(leaf, {player, "rxd", "pick"}, {"this", "none", "this"});
+          set_verb_code(leaf, 1, {"return pass();"});
+          return {direct, leaf:pick()};
+        expect:
+          value: [deep, deep]
