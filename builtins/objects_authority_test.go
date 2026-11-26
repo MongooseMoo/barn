@@ -130,6 +130,54 @@ func TestChparentsTypeChecksWholeListFirst(t *testing.T) {
 	}
 }
 
+// Toast checks chparents in whole-list phases: validity (E_INVARG), then
+// permission (E_PERM), then recursion (E_RECMOVE), then duplicates (E_INVARG).
+// chparents(o, {#2, #2, o, o}) is E_RECMOVE on Toast, not the duplicate's
+// E_INVARG (issue #1186).
+func TestChparentsChecksInToastPhaseOrder(t *testing.T) {
+	obj := func(id types.ObjID) types.Value { return types.NewObj(id) }
+	for _, test := range []struct {
+		name       string
+		programmer types.ObjID
+		isWizard   bool
+		target     types.ObjID
+		list       []types.Value
+		want       types.ErrorCode
+	}{
+		{name: "self after duplicate", programmer: 4, isWizard: true, target: 11, list: []types.Value{obj(12), obj(12), obj(11), obj(11)}, want: types.E_RECMOVE},
+		{name: "invalid parent after self", programmer: 4, isWizard: true, target: 11, list: []types.Value{obj(11), obj(999)}, want: types.E_INVARG},
+		{name: "invalid target", programmer: 4, isWizard: true, target: 999, list: []types.Value{obj(12)}, want: types.E_INVARG},
+		{name: "permission before recursion", programmer: 3, target: 11, list: []types.Value{obj(11)}, want: types.E_PERM},
+		{name: "duplicate without recursion", programmer: 4, isWizard: true, target: 11, list: []types.Value{obj(12), obj(12)}, want: types.E_INVARG},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, _, oldParent, _ := newObjectAuthorityFixture(t, 0, 0)
+			ctx.Programmer = test.programmer
+			ctx.IsWizard = test.isWizard
+
+			result := builtinChparents(ctx, []types.Value{obj(test.target), types.NewList(test.list)})
+			if result.Error != test.want {
+				t.Fatalf("result = %+v, want error %s", result, test.want)
+			}
+			parents, errCode := readTxn(ctx).Parents(11)
+			if errCode != types.E_NONE || len(parents) != 1 || parents[0] != oldParent {
+				t.Fatalf("parents after %s = %v, %s; want [#%d]", test.want, parents, errCode, oldParent)
+			}
+		})
+	}
+}
+
+func TestChparentChecksPermissionBeforeRecursion(t *testing.T) {
+	ctx, _, _, _ := newObjectAuthorityFixture(t, 0, 0)
+	ctx.Programmer = 3
+	ctx.IsWizard = false
+	target := types.NewObj(11)
+	result := builtinChparent(ctx, []types.Value{target, target})
+	if result.Error != types.E_PERM {
+		t.Fatalf("unauthorized self-parent change = %+v, want E_PERM", result)
+	}
+}
+
 func TestRenumberRequiresEffectiveProgrammerWizardAuthority(t *testing.T) {
 	for _, test := range []struct {
 		name       string
