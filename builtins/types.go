@@ -172,21 +172,10 @@ func builtinTofloat(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewFloat(float64(val.Code())))
 
 	case types.TYPE_STR:
-		// Parse string as float. Go's ParseFloat accepts "inf"/"nan" tokens,
-		// but MOO's strtod-based tofloat() does not: a non-finite result is
-		// E_INVARG (as is an out-of-range magnitude, which ParseFloat already
-		// reports via err).
+		// tofloat requires a complete, finite number.
 		str := strings.TrimSpace(val.Str())
-		if strings.HasPrefix(str, "0x") || strings.HasPrefix(str, "0X") ||
-			strings.HasPrefix(str, "-0x") || strings.HasPrefix(str, "-0X") ||
-			strings.HasPrefix(str, "+0x") || strings.HasPrefix(str, "+0X") {
-			if integer, err := strconv.ParseInt(str, 0, 64); err == nil {
-				return types.Ok(types.NewFloat(float64(integer)))
-			}
-			return types.Err(types.E_INVARG)
-		}
-		f, err := strconv.ParseFloat(str, 64)
-		if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
+		f, consumed := cStrtod(str)
+		if consumed == 0 || consumed != len(str) || math.IsInf(f, 0) || math.IsNaN(f) {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Ok(types.NewFloat(f))
@@ -267,7 +256,7 @@ func builtinToobj(ctx *Execution, args []types.Value) types.Result {
 		str := strings.TrimSpace(val.Str())
 		// Parse "#123" format
 		if len(str) > 0 && str[0] == '#' {
-			str = str[1:]
+			str = strings.TrimLeft(str[1:], " \t\n\v\f\r")
 		}
 		i, err := strconv.ParseInt(str, 10, 64)
 		if err != nil {

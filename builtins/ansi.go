@@ -7,8 +7,11 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 var ansiTagRe = regexp.MustCompile(`\[([^\[\]]+)\]`)
+
+// Toast's random tag selects among six entries, with purple and magenta
+// contributing the same escape sequence.
+var ansiRandomPalette = [...]string{"red", "green", "yellow", "blue", "purple", "magenta"}
 
 var ansiTags = map[string]string{
 	"black":     "\x1b[30m",
@@ -41,7 +44,7 @@ var ansiTags = map[string]string{
 	"unblink":   "\x1b[25m",
 	"normal":    "\x1b[0m",
 	"beep":      "\a",
-	"random":    "\x1b[37m",
+	"random":    "",
 	"null":      "",
 }
 
@@ -53,6 +56,9 @@ func builtinParseAnsi(ctx *Execution, args []types.Value) types.Result {
 	}
 	converted := ansiTagRe.ReplaceAllStringFunc(s.Str(), func(tag string) string {
 		name := strings.ToLower(tag[1 : len(tag)-1])
+		if name == "random" {
+			name = ansiRandomPalette[sharedRandom.int64N(int64(len(ansiRandomPalette)))]
+		}
 		if code, ok := ansiTags[name]; ok {
 			return code
 		}
@@ -74,7 +80,7 @@ func builtinRemoveAnsi(ctx *Execution, args []types.Value) types.Result {
 		}
 		return tag
 	})
-	return types.Ok(types.NewStr(ansiEscapeRe.ReplaceAllString(strippedTags, "")))
+	return types.Ok(types.NewStr(strippedTags))
 }
 
 func ansiDescriptors() []Descriptor {
