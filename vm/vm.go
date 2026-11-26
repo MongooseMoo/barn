@@ -1437,6 +1437,8 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	// Collection operations
 	case bytecode.OP_INDEX:
 		return vm.executeIndex()
+	case bytecode.OP_PUSH_REF:
+		return vm.executePushRef()
 	case bytecode.OP_INDEX_KEYED:
 		return vm.executeIndexKeyed()
 	case bytecode.OP_MAPHASKEY_KEYED:

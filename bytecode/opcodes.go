@@ -105,7 +105,15 @@ const (
 	OP_END_EXCEPT                                  // Pop exception handlers [num_clauses]
 	OP_TRY_FINALLY                                 // Push finally handler [finally_offset]
 	OP_END_FINALLY                                 // Finish matching finally handler [finally_offset]
-	OP_CATCH                                       // DEAD: replaced by OP_TRY_EXCEPT/OP_END_EXCEPT pattern (never emitted by compiler)
+	// OP_PUSH_REF reuses the number of OP_CATCH, which no compiler emitted
+	// and the decoder rejected, because every other byte is taken.
+	//
+	// It is Toast's OP_PUSH_REF: the read of each collection a nested
+	// indexed or range assignment descends through (the x[i] of x[i][j] = v).
+	// Pop idx, coll; push coll[idx] like OP_INDEX, except that coll must be a
+	// list, map or WAIF: anything else, a string included, raises E_TYPE
+	// before the index is looked at. It charges no tick.
+	OP_PUSH_REF
 	// OP_MAPHASKEY_KEYED reuses the number of OP_RAISE, which no compiler
 	// emitted and the decoder rejected, because every other byte is taken.
 	//
@@ -296,7 +304,7 @@ var OpCodeNames = map[OpCode]string{
 	OP_END_EXCEPT:            "END_EXCEPT",
 	OP_TRY_FINALLY:           "TRY_FINALLY",
 	OP_END_FINALLY:           "END_FINALLY",
-	OP_CATCH:                 "DEAD_CATCH",
+	OP_PUSH_REF:              "PUSH_REF",
 	OP_MAPHASKEY_KEYED:       "MAPHASKEY_KEYED",
 	OP_CALL_BUILTIN:          "CALL_BUILTIN",
 	OP_CALL_VERB:             "CALL_VERB",

@@ -316,8 +316,7 @@ func (c *lowerer) compileIndexAssign(target *ir.IndexTarget, value ir.Expr) erro
 			c.emitByte(byte(collectionVar))
 			c.emit(bytecode.OP_GET_VAR)
 			c.emitByte(byte(indexVars[i]))
-			c.emitTicks(0) // Toast's OP_PUSH_REF is tick-free
-			c.emit(bytecode.OP_INDEX)
+			c.emit(bytecode.OP_PUSH_REF) // tick-free, like Toast's
 			intermediateVars[i] = c.collectionAssignTemp("assignintermediate", i)
 			c.emitStoreLocal(intermediateVars[i])
 			c.markHeldTarget(intermediateVars[i], targets[i])
@@ -432,8 +431,7 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *ir.IndexTarget, start, e
 		c.emitByte(byte(collectionVar))
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(indexVars[i]))
-		c.emitTicks(0) // Toast's OP_PUSH_REF is tick-free
-		c.emit(bytecode.OP_INDEX)
+		c.emit(bytecode.OP_PUSH_REF) // tick-free, like Toast's
 		collectionVars[i] = c.collectionAssignTemp("nestedrangecollection", i)
 		c.emitStoreLocal(collectionVars[i])
 		c.markHeldTarget(collectionVars[i], targets[i])
