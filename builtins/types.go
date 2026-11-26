@@ -172,23 +172,10 @@ func builtinTofloat(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewFloat(float64(val.Code())))
 
 	case types.TYPE_STR:
-		// Parse string as float. Go's ParseFloat accepts "inf"/"nan" tokens,
-		// but MOO's strtod-based tofloat() does not: a non-finite result is
-		// E_INVARG (as is an out-of-range magnitude, which ParseFloat already
-		// reports via err).
+		// tofloat requires a complete, finite number.
 		str := strings.TrimSpace(val.Str())
-		if strings.ContainsRune(str, '_') {
-			return types.Err(types.E_INVARG)
-		}
-		unsigned := strings.TrimPrefix(strings.TrimPrefix(str, "+"), "-")
-		// strtod allows a hexadecimal significand without an exponent.
-		// ParseFloat requires one, so supply the equivalent exponent of zero.
-		if (strings.HasPrefix(unsigned, "0x") || strings.HasPrefix(unsigned, "0X")) &&
-			!strings.ContainsAny(unsigned, "pP") {
-			str += "p0"
-		}
-		f, err := strconv.ParseFloat(str, 64)
-		if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
+		f, consumed := cStrtod(str)
+		if consumed == 0 || consumed != len(str) || math.IsInf(f, 0) || math.IsNaN(f) {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Ok(types.NewFloat(f))

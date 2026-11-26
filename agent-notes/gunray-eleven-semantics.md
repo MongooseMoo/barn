@@ -8,7 +8,7 @@ Fix the eleven new builtin discrepancies from the Gunray replay.
 
 - ANSI conversion selects a color for each random tag using Toast's palette. Removal operates on recognized tags, so an already expanded escape remains in the output.
 - Numeric conversion accepts signed hexadecimal significands with explicit or implicit binary exponents and whitespace after the object marker.
-- Embedded-types JSON protects annotated-looking strings in both map keys and values, annotates boolean keys, reads tagged booleans, and uses the existing decimal-prefix conversion for tagged integers.
+- Embedded-types JSON protects annotated-looking strings in both map keys and values, annotates boolean keys, reads tagged booleans, and uses the existing C-compatible prefix conversions for tagged integers and floats. An absent numeric prefix yields a zero of the tagged type.
 - MOO pattern compilation validates the start anchor at branch boundaries and matches the start and end of lines. Directional assertions and numbered backreferences use the existing bounded regexp2 dependency. Ordinary patterns use RE2. The bounded matcher maps aborts to E_QUOTA, the result from Toast's do_match. The rightmost wrapper keeps captures numbered as in the source pattern.
 
 ## Surprises

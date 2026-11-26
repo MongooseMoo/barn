@@ -332,13 +332,12 @@ func jsonNumberToMOO(text string) (types.Value, bool) {
 
 // jsonStringToMOO converts a decoded JSON string or object member name.
 func jsonStringToMOO(s string, embeddedTypes bool) types.Value {
-	s = encodeJSONDecodedBytes(s)
 	if embeddedTypes {
 		if parsed, ok := parseEmbeddedType(s); ok {
 			return parsed
 		}
 	}
-	return types.NewStr(s)
+	return types.NewStr(encodeJSONDecodedBytes(s))
 }
 
 // encodeJSONDecodedBytes writes decoded JSON text as a MOO string: a tab
@@ -381,15 +380,11 @@ func parseEmbeddedType(s string) (types.Value, bool) {
 	case "bool":
 		return types.NewBool(text == "true"), true
 	case "float":
-		if text == "" {
-			return types.NewFloat(0.0), true
-		}
-		var f float64
-		if _, err := fmt.Sscanf(text, "%f", &f); err == nil {
-			return types.NewFloat(f), true
-		}
+		// strtod accepts a numeric prefix, returning zero if none is present.
+		f, _ := cStrtod(text)
+		return types.NewFloat(f), true
 	case "str":
-		return types.NewStr(text), true
+		return types.NewStr(encodeJSONDecodedBytes(text)), true
 	case "obj":
 		// Toast: strtol() of the text after an optional '#'.
 		return types.NewObj(types.ObjID(cStrtol(strings.TrimPrefix(text, "#")))), true

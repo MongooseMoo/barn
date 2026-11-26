@@ -73,6 +73,11 @@ func TestGunrayEmbeddedJSON(t *testing.T) {
 		{`"abc|int"`, types.NewInt(0)},
 		{`"  -42.5|int"`, types.NewInt(-42)},
 		{`"99999999999999999999|int"`, types.NewInt(9223372036854775807)},
+		{`"abc|float"`, types.NewFloat(0)},
+		{`"|float"`, types.NewFloat(0)},
+		{`"12.5trail|float"`, types.NewFloat(12.5)},
+		{`"12e+trail|float"`, types.NewFloat(12)},
+		{`"\n-0x1.8trail|float"`, types.NewFloat(-1.5)},
 	} {
 		t.Run(tc.text, func(t *testing.T) {
 			got := admitTestBuiltin("parse_json", ctx, []types.Value{types.NewStr(tc.text), mode})
