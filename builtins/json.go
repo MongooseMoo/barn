@@ -86,9 +86,7 @@ func (g *jsonGenerator) write(v types.Value) types.ErrorCode {
 		return types.E_NONE
 
 	case types.TYPE_STR:
-		// Convert MOO binary escapes (~XX) to actual bytes; the encoder then
-		// produces proper \n, \r, \t, \uXXXX escapes.
-		return g.token(jsontext.String(decodeBinaryEscapes(v.Str(), g.disableBinaryEscapes)))
+		return g.token(jsontext.String(g.stringText(v.Str())))
 
 	case types.TYPE_BOOL:
 		return g.token(jsontext.Bool(v.Bool()))
@@ -162,7 +160,7 @@ func (g *jsonGenerator) memberName(key types.Value) (string, types.ErrorCode) {
 		return "", types.E_INVARG
 	}
 	if key.Type() == types.TYPE_STR {
-		return decodeBinaryEscapes(key.Str(), g.disableBinaryEscapes), types.E_NONE
+		return g.stringText(key.Str()), types.E_NONE
 	}
 	if !g.embeddedTypes {
 		return key.String(), types.E_NONE
@@ -175,12 +173,22 @@ func (g *jsonGenerator) memberName(key types.Value) (string, types.ErrorCode) {
 		s, code := formatJSONFloat(key.Float())
 		return s + "|float", code
 	case types.TYPE_BOOL:
-		return strconv.FormatBool(key.Bool()), types.E_NONE
+		return strconv.FormatBool(key.Bool()) + "|bool", types.E_NONE
 	case types.TYPE_OBJ, types.TYPE_ANON, types.TYPE_ERR:
 		return g.scalarText(key)
 	default:
 		return "", types.E_TYPE
 	}
+}
+
+func (g *jsonGenerator) stringText(s string) string {
+	s = decodeBinaryEscapes(s, g.disableBinaryEscapes)
+	if g.embeddedTypes {
+		if _, tag := splitEmbeddedType(s); tag != "" {
+			s += "|str"
+		}
+	}
+	return s
 }
 
 // formatJSONFloat formats a float with a decimal point for whole numbers
@@ -353,38 +361,43 @@ func encodeJSONDecodedBytes(s string) string {
 	return result.String()
 }
 
-// parseEmbeddedType parses a type-annotated string like "123|int" or "#5|obj"
-// Empty prefix is valid and returns the default value for that type
+// splitEmbeddedType recognizes the final annotation, even on an empty prefix.
+func splitEmbeddedType(s string) (string, string) {
+	if i := strings.LastIndexByte(s, '|'); i >= 0 {
+		switch tag := s[i+1:]; tag {
+		case "int", "float", "str", "obj", "err", "bool":
+			return s[:i], tag
+		}
+	}
+	return s, ""
+}
+
+// parseEmbeddedType parses a type-annotated string like "123|int" or "#5|obj".
 func parseEmbeddedType(s string) (types.Value, bool) {
-	if strings.HasSuffix(s, "|int") {
-		numStr := s[:len(s)-4]
-		if numStr == "" {
-			return types.NewInt(0), true
-		}
-		var n int64
-		if _, err := fmt.Sscanf(numStr, "%d", &n); err == nil {
-			return types.NewInt(n), true
-		}
-	} else if strings.HasSuffix(s, "|float") {
-		numStr := s[:len(s)-6]
-		if numStr == "" {
+	text, tag := splitEmbeddedType(s)
+	switch tag {
+	case "int":
+		return types.NewInt(cStrtol(text)), true
+	case "bool":
+		return types.NewBool(text == "true"), true
+	case "float":
+		if text == "" {
 			return types.NewFloat(0.0), true
 		}
 		var f float64
-		if _, err := fmt.Sscanf(numStr, "%f", &f); err == nil {
+		if _, err := fmt.Sscanf(text, "%f", &f); err == nil {
 			return types.NewFloat(f), true
 		}
-	} else if strings.HasSuffix(s, "|str") {
-		return types.NewStr(s[:len(s)-4]), true
-	} else if strings.HasSuffix(s, "|obj") {
+	case "str":
+		return types.NewStr(text), true
+	case "obj":
 		// Toast: strtol() of the text after an optional '#'.
-		return types.NewObj(types.ObjID(cStrtol(strings.TrimPrefix(s[:len(s)-4], "#")))), true
-	} else if strings.HasSuffix(s, "|err") {
-		errStr := s[:len(s)-4]
-		if errStr == "" {
+		return types.NewObj(types.ObjID(cStrtol(strings.TrimPrefix(text, "#")))), true
+	case "err":
+		if text == "" {
 			return types.NewErr(types.E_NONE), true
 		}
-		if errCode, ok := types.ErrorFromString(errStr); ok {
+		if errCode, ok := types.ErrorFromString(text); ok {
 			return types.NewErr(errCode), true
 		}
 	}

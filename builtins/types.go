@@ -177,13 +177,15 @@ func builtinTofloat(ctx *Execution, args []types.Value) types.Result {
 		// E_INVARG (as is an out-of-range magnitude, which ParseFloat already
 		// reports via err).
 		str := strings.TrimSpace(val.Str())
-		if strings.HasPrefix(str, "0x") || strings.HasPrefix(str, "0X") ||
-			strings.HasPrefix(str, "-0x") || strings.HasPrefix(str, "-0X") ||
-			strings.HasPrefix(str, "+0x") || strings.HasPrefix(str, "+0X") {
-			if integer, err := strconv.ParseInt(str, 0, 64); err == nil {
-				return types.Ok(types.NewFloat(float64(integer)))
-			}
+		if strings.ContainsRune(str, '_') {
 			return types.Err(types.E_INVARG)
+		}
+		unsigned := strings.TrimPrefix(strings.TrimPrefix(str, "+"), "-")
+		// strtod allows a hexadecimal significand without an exponent.
+		// ParseFloat requires one, so supply the equivalent exponent of zero.
+		if (strings.HasPrefix(unsigned, "0x") || strings.HasPrefix(unsigned, "0X")) &&
+			!strings.ContainsAny(unsigned, "pP") {
+			str += "p0"
 		}
 		f, err := strconv.ParseFloat(str, 64)
 		if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
@@ -267,7 +269,7 @@ func builtinToobj(ctx *Execution, args []types.Value) types.Result {
 		str := strings.TrimSpace(val.Str())
 		// Parse "#123" format
 		if len(str) > 0 && str[0] == '#' {
-			str = str[1:]
+			str = strings.TrimLeft(str[1:], " \t\n\v\f\r")
 		}
 		i, err := strconv.ParseInt(str, 10, 64)
 		if err != nil {

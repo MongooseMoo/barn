@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MongooseMoo/barn/types"
 	"github.com/dlclark/regexp2"
 )
 
@@ -174,10 +175,48 @@ func skipPCREClass(pattern string, start int) int {
 // regexpCacheEntry also memoizes failures: an invalid pattern costs the same
 // translate+compile work as a valid one and is equally repeatable from MOO.
 type regexpCacheEntry struct {
-	re                 *regexp.Regexp
+	moo                *mooRegexp
 	pcre               *pcrePattern
 	requiresSuffixScan bool
 	err                error
+}
+
+// mooRegexp uses RE2 for ordinary patterns. For directional assertions and
+// backreferences it uses the time-bounded engine of the PCRE builtins.
+type mooRegexp struct {
+	*regexp.Regexp
+	extended  *regexp2.Regexp
+	rightmost bool
+}
+
+func (re *mooRegexp) find(subject string) ([]int, error) {
+	if re.extended == nil {
+		return re.FindStringSubmatchIndex(subject), nil
+	}
+	match, err := re.extended.FindStringMatch(subject)
+	if err != nil || match == nil {
+		// regexp2 reports a match timeout here. The MOO builtins return
+		// E_QUOTA for an aborted search, as Toast's do_match does.
+		return nil, err
+	}
+
+	cv := types.CharViewOf(subject)
+	groups := match.Groups()
+	if re.rightmost {
+		// The named wrapper follows the original unnamed captures.
+		groups[0] = groups[len(groups)-1]
+		groups = groups[:len(groups)-1]
+	}
+	groups = groups[:min(len(groups), 10)]
+	loc := make([]int, 0, 2*len(groups))
+	for _, group := range groups {
+		if len(group.Captures) == 0 {
+			loc = append(loc, -1, -1)
+		} else {
+			loc = append(loc, cv.ByteOffset(group.Index), cv.ByteOffset(group.Index+group.Length))
+		}
+	}
+	return loc, nil
 }
 
 var (
@@ -185,18 +224,16 @@ var (
 	regexpCache   = make(map[regexpCacheKey]regexpCacheEntry)
 )
 
-// cachedMOOPattern returns the compiled Go regexp for a MOO pattern.
-// caseSensitive=false prefixes "(?i)"; anchored=true wraps the result in
-// "^(?:...)" for rmatch's left-anchored scan. Results and errors are identical
-// to translating and compiling on every call.
-func cachedMOOPattern(pattern string, caseSensitive, anchored bool) (*regexp.Regexp, error) {
+// cachedMOOPattern returns the compiled MOO pattern. anchored constrains
+// the starting position to byte zero for rmatch's legacy suffix scan.
+func cachedMOOPattern(pattern string, caseSensitive, anchored bool) (*mooRegexp, error) {
 	key := regexpCacheKey{pattern: pattern, caseSensitive: caseSensitive, anchored: anchored}
 
 	regexpCacheMu.RLock()
 	entry, ok := regexpCache[key]
 	regexpCacheMu.RUnlock()
 	if ok {
-		return entry.re, entry.err
+		return entry.moo, entry.err
 	}
 
 	entry = compileMOOPattern(pattern, caseSensitive, anchored)
@@ -208,7 +245,7 @@ func cachedMOOPattern(pattern string, caseSensitive, anchored bool) (*regexp.Reg
 	regexpCache[key] = entry
 	regexpCacheMu.Unlock()
 
-	return entry.re, entry.err
+	return entry.moo, entry.err
 }
 
 // cachedMOORightmostPattern compiles a regexp that selects the match with the
@@ -219,14 +256,14 @@ func cachedMOOPattern(pattern string, caseSensitive, anchored bool) (*regexp.Reg
 // Assertions about the beginning of the input or a word boundary observe the
 // artificial start of every suffix in the historical rmatch implementation.
 // Those patterns must keep the suffix scan to preserve exact behavior.
-func cachedMOORightmostPattern(pattern string, caseSensitive bool) (*regexp.Regexp, bool, error) {
+func cachedMOORightmostPattern(pattern string, caseSensitive bool) (*mooRegexp, bool, error) {
 	key := regexpCacheKey{pattern: pattern, caseSensitive: caseSensitive, rightmost: true}
 
 	regexpCacheMu.RLock()
 	entry, ok := regexpCache[key]
 	regexpCacheMu.RUnlock()
 	if ok {
-		return entry.re, entry.requiresSuffixScan, entry.err
+		return entry.moo, entry.requiresSuffixScan, entry.err
 	}
 
 	entry = compileMOORightmostPattern(pattern, caseSensitive)
@@ -238,38 +275,37 @@ func cachedMOORightmostPattern(pattern string, caseSensitive bool) (*regexp.Rege
 	regexpCache[key] = entry
 	regexpCacheMu.Unlock()
 
-	return entry.re, entry.requiresSuffixScan, entry.err
+	return entry.moo, entry.requiresSuffixScan, entry.err
 }
 
 func compileMOOPattern(pattern string, caseSensitive, anchored bool) regexpCacheEntry {
-	goPattern, err := mooPatternToGoRegex(pattern)
+	pat, extended, err := translateMOOPattern(pattern)
 	if err != nil {
 		return regexpCacheEntry{err: err}
 	}
-	pat := goPattern
+	pat = "(?m)" + pat
 	if !caseSensitive {
 		pat = "(?i)" + pat
 	}
 	if anchored {
-		pat = "^(?:" + pat + ")"
+		pat = "\\A(?:" + pat + ")"
 	}
-	re, err := regexp.Compile(pat)
-	if err != nil {
-		return regexpCacheEntry{err: err}
-	}
-	return regexpCacheEntry{re: re}
+	return compileMOORegexp(pat, extended, false)
 }
 
 func compileMOORightmostPattern(pattern string, caseSensitive bool) regexpCacheEntry {
-	goPattern, err := mooPatternToGoRegex(pattern)
+	pat, extended, err := translateMOOPattern(pattern)
 	if err != nil {
 		return regexpCacheEntry{err: err}
 	}
-	pat := goPattern
+	pat = "(?m)" + pat
 	if !caseSensitive {
 		pat = "(?i)" + pat
 	}
 
+	if extended {
+		return compileMOORegexp("\\A(?s:.*)(?<rightmost>"+pat+")", true, true)
+	}
 	parsed, err := syntax.Parse(pat, syntax.Perl)
 	if err != nil {
 		return regexpCacheEntry{err: err}
@@ -280,11 +316,23 @@ func compileMOORightmostPattern(pattern string, caseSensitive bool) regexpCacheE
 		return entry
 	}
 
-	re, err := regexp.Compile("^(?s:.*)(" + pat + ")")
+	return compileMOORegexp("\\A(?s:.*)("+pat+")", false, false)
+}
+
+func compileMOORegexp(pat string, extended, rightmost bool) regexpCacheEntry {
+	if extended {
+		re, err := regexp2.Compile(pat, regexp2.RE2)
+		if err != nil {
+			return regexpCacheEntry{err: err}
+		}
+		re.MatchTimeout = pcreMatchTimeout
+		return regexpCacheEntry{moo: &mooRegexp{extended: re, rightmost: rightmost}}
+	}
+	re, err := regexp.Compile(pat)
 	if err != nil {
 		return regexpCacheEntry{err: err}
 	}
-	return regexpCacheEntry{re: re}
+	return regexpCacheEntry{moo: &mooRegexp{Regexp: re}}
 }
 
 func regexpNeedsSuffixContext(re *syntax.Regexp) bool {
