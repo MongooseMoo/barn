@@ -34,6 +34,19 @@ func TestBootedPlayerIsNotListedAsConnected(t *testing.T) {
 	}
 }
 
+func TestBootPlayerSucceedsAfterConnectionRemoval(t *testing.T) {
+	cm := NewConnectionManager(7777)
+	conn := historyTestConnection(t, cm, 8)
+	cm.playerConns[8] = conn
+	if cm.GetConnection(8) == nil {
+		t.Fatal("initial lookup did not find the connection")
+	}
+	delete(cm.playerConns, 8)
+	if err := cm.BootPlayer(8); err != nil {
+		t.Fatalf("boot after connection removal: %v", err)
+	}
+}
+
 func assertHistorySlotsCleared(t *testing.T, backing []*Connection) {
 	t.Helper()
 	for i, conn := range backing {

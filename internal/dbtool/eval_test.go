@@ -243,3 +243,27 @@ func TestEvalFileReportsCompileErrorsPerLine(t *testing.T) {
 		t.Fatalf("EvalFile output lines = %q", got)
 	}
 }
+
+// threads() lists background-thread handles, not tasks (Toast background.cc
+// bf_threads), so the evaluating task itself is not in it. Issue #1153: the
+// ToastDifferential program below returns 0 on Toast because threads() is {}
+// and the loop body, whose float..error range raises E_TYPE, never runs.
+func TestEvalThreadsOmitsRunningTask(t *testing.T) {
+	cases := []struct{ input, want string }{
+		{"return threads();", "=> {}\n"},
+		{"fork (5) endfork return threads();", "=> {}\n"},
+		{"n = 3;\nf = 710.4;\ns = \"ea\";\nl = {255, 10, \"\\\"\"};\n" +
+			"m = [\"1\t\" -> 10, 18446744073709551615 -> \"a\"];\no = #1;\n" +
+			"`flush_input(#2) ! ANY => -l';\nfor x, n in (threads())\n  {};\n  ;\n" +
+			"  for x in [f..E_NACC]\n  endfor\nendfor\n", "=> 0\n"},
+	}
+	for _, c := range cases {
+		out, errOut, err := runEval(t, evalStore(t), c.input)
+		if err != nil {
+			t.Fatalf("EvalExpression(%q): %v\nstderr: %s", c.input, err, errOut)
+		}
+		if out != c.want {
+			t.Errorf("EvalExpression(%q) printed %q, want %q", c.input, out, c.want)
+		}
+	}
+}

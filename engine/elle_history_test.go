@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -127,11 +128,62 @@ func elleEDN(value any) string {
 	}
 }
 
+// checkTerminalAppends compares a designated MOO read with published appends.
+// It is called after all tasks drain, separately from Elle's serializability check.
+func (r *elleRecorder) checkTerminalAppends(reader *taskpkg.State, keys []string) error {
+	expected := make(map[string]map[int64]bool, len(keys))
+	for _, key := range keys {
+		expected[key] = make(map[int64]bool)
+	}
+	observed := make(map[string][]any, len(keys))
+	r.Lock()
+	defer r.Unlock()
+	for _, tx := range r.txns {
+		if !tx.committed {
+			continue
+		}
+		for _, op := range tx.ops {
+			key := op[1].(string)
+			tokens, check := expected[key]
+			if !check {
+				continue
+			}
+			switch {
+			case op[0] == "append":
+				token := op[2].(int64)
+				if tokens[token] {
+					return fmt.Errorf("%s: token %d was published twice", key, token)
+				}
+				tokens[token] = true
+			case tx.task == reader && op[0] == "r":
+				observed[key] = op[2].([]any)
+			}
+		}
+	}
+	for _, key := range keys {
+		items, ok := observed[key]
+		if !ok {
+			return fmt.Errorf("%s: missing committed terminal read", key)
+		}
+		for _, item := range items {
+			token := item.(int64)
+			if !expected[key][token] {
+				return fmt.Errorf("%s: terminal read repeated or invented token %d", key, token)
+			}
+			delete(expected[key], token)
+		}
+		if len(expected[key]) != 0 {
+			return fmt.Errorf("%s: terminal read omitted committed tokens %v", key, expected[key])
+		}
+	}
+	return nil
+}
+
 // write is called only after the worker pool has drained. Unpublished retry
 // attempts are discarded. A terminal failed commit is fail; a still-live or
 // otherwise unconfirmed attempt is info. Native exceptions whose writes were
 // published are ok, independently of the task's language return value.
-func (r *elleRecorder) write(path string) (map[string]int, error) {
+func (r *elleRecorder) write(path string, keys ...string) (map[string]int, error) {
 	r.Lock()
 	defer r.Unlock()
 	type event struct {
@@ -140,7 +192,9 @@ func (r *elleRecorder) write(path string) (map[string]int, error) {
 	}
 	events := []event{}
 	counts := map[string]int{}
+	clock := r.clock
 	for _, tx := range r.txns {
+		end := tx.end
 		outcome := "ok"
 		if !tx.committed {
 			if tx.task != nil && tx.task.ContextValue() != tx.context {
@@ -151,11 +205,14 @@ func (r *elleRecorder) write(path string) (map[string]int, error) {
 			if isolationprobe.Failed(tx.context) {
 				outcome = "fail"
 			}
-			r.clock++
-			tx.end = r.clock
+			clock++
+			end = clock
 		}
 		observed, invoked := []string{}, []string{}
 		for _, op := range tx.ops {
+			if len(keys) != 0 && !slices.Contains(keys, op[1].(string)) {
+				continue
+			}
 			prefix := fmt.Sprintf("[:%s %s ", op[0], elleEDN(op[1]))
 			observed = append(observed, prefix+elleEDN(op[2])+"]")
 			value := op[2]
@@ -164,6 +221,9 @@ func (r *elleRecorder) write(path string) (map[string]int, error) {
 			}
 			invoked = append(invoked, prefix+elleEDN(value)+"]")
 		}
+		if len(observed) == 0 {
+			continue
+		}
 		// Every committed publication has its own process: serializable checks do
 		// not impose a stronger session/realtime order on old read-only snapshots.
 		for _, row := range []struct {
@@ -171,14 +231,16 @@ func (r *elleRecorder) write(path string) (map[string]int, error) {
 			kind  string
 			ops   []string
 		}{
-			{tx.start, "invoke", invoked}, {tx.end, outcome, observed},
+			{tx.start, "invoke", invoked}, {end, outcome, observed},
 		} {
 			events = append(events, event{row.index, fmt.Sprintf("{:index %d :process %d :type :%s :f :txn :value [%s]}", row.index, tx.start, row.kind, strings.Join(row.ops, " "))})
 		}
 		counts[outcome]++
 		if outcome == "ok" {
 			for _, op := range tx.ops {
-				counts[fmt.Sprintf("%s/%s", op[0], op[1])]++
+				if len(keys) == 0 || slices.Contains(keys, op[1].(string)) {
+					counts[fmt.Sprintf("%s/%s", op[0], op[1])]++
+				}
 			}
 		}
 	}

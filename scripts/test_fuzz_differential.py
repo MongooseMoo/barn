@@ -86,10 +86,14 @@ class FakeEngine:
 
 class RawEngine(FakeEngine):
     """Prints a lane's whole transcript verbatim, whatever its record count,
-    unless it holds a HANG."""
+    unless it holds a HANG or the process runs only some of the probes."""
+
+    def __init__(self, outputs, probes=None):
+        super().__init__(outputs)
+        self.probes = probes
 
     def __call__(self, lane, lines, bound):
-        if HANG in self.outputs[lane]:
+        if HANG in self.outputs[lane] or (self.probes is not None and len(lines) - 1 != self.probes):
             return super().__call__(lane, lines, bound)
         self.calls.append((lane, list(lines), bound))
         return SimpleNamespace(returncode=0, stdout="\n".join(self.outputs[lane]) + "\n", stderr="")
@@ -188,6 +192,36 @@ class BoundedRunTests(unittest.TestCase):
         self.assertEqual(records, ["=> 0", value("F00001"), CRASHED, value("F00003")])
         self.assertEqual((errors, timed_out), ([], []))
         self.assertIn("PANIC: Caught signal 11", transcript)
+
+    def test_barn_leaves_out_probes_toast_did_not_finish(self):
+        # Run 45489928135 (#1148): Toast panicked on F07137, which recycles
+        # #3 on Barn; Toast's restart left it out, Barn's process did not, and
+        # Barn's F07140 then raised E_PERM where Toast raised E_TYPE.
+        def engine(lane, lines, bound):
+            calls.append([re.search(r'"F(\d{5})"', line).group(1) if '"F' in line else "pre" for line in lines])
+            if lane == "toast" and any("F00002" in line for line in lines):
+                return SimpleNamespace(returncode=134, stdout=f"=> 0\n{value('F00001')}\n",
+                                       stderr="*** PANIC: Missing END_CATCH in DECOMPILE!\n")
+            printed, recycled = ["=> 0"], False
+            for line in lines[1:]:
+                key = re.search(r'"(F\d{5})"', line).group(1)
+                recycled |= key == "F00002"
+                printed.append('=> {"F00003", "raised", E_PERM}' if key == "F00003" and recycled
+                               else "Error: E_MAXREC" if key == "F00002" else value(key))
+            return SimpleNamespace(returncode=0, stdout="\n".join(printed) + "\n", stderr="")
+        calls = []
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            toast, _, _ = run_bounded("toast", engine, self.lines(3), out, probe_timeout=1, startup=1, chunk=20)
+            skip = {i for i, record in enumerate(toast) if record == CRASHED}
+            calls.clear()
+            barn, errors, timed_out = run_bounded("barn", engine, self.lines(3), out, probe_timeout=1, startup=1,
+                                                  chunk=20, skip=skip)
+        self.assertEqual(skip, {2})
+        self.assertEqual(barn, ["=> 0", value("F00001"), "Error: E_MAXREC", value("F00003")])
+        self.assertEqual((errors, timed_out), ([], []))
+        # The chunk without F00002, then F00002 after the probes before it.
+        self.assertEqual(calls, [["pre", "00001", "00003"], ["pre", "00001", "00002"]])
 
     def test_barn_exit_134_and_toast_exit_134_without_a_panic_still_raise(self):
         panic = "*** PANIC: Caught signal 11\n"
@@ -454,7 +488,7 @@ class CampaignTests(unittest.TestCase):
         programs = {f"return {i};": {"origin": f"corpus/{i}", "lane": "corpus"} for i in range(len(toast))}
         lanes_counts = {"corpus": {"records": len(toast), "duplicates": 0, "excluded": 0,
                                    "eligible": len(toast), "completed": 0, "undecodable": []}}
-        engine = RawEngine({"toast": ["=> 0"] + toast, "barn": ["=> 0"] + barn})
+        engine = RawEngine({"toast": ["=> 0"] + toast, "barn": ["=> 0"] + barn}, len(toast))
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             with (patch("sys.argv", ["fuzz_differential.py", "corpus", "--barn-linux", "barn",

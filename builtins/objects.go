@@ -168,15 +168,13 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// Validate owner if explicitly specified
-	// Special case: invalid object numbers like -2, -3, -4 automatically create anonymous objects
+	// Validate owner if explicitly specified. An owner other than $nothing
+	// must be a valid object; -2, -3 and the other negative numbers are not
+	// (Toast objects.cc bf_create: !valid(owner) && owner != NOTHING).
 	programmerIsWizard := ctx.IsWizard
 	if ownerSpecified {
-		if owner < -1 {
-			// Special invalid object numbers like -2, -3, -4 ($ambiguous_match, $failed_match)
-			// These automatically create anonymous objects (force anonymous flag)
-			anonymous = true
-			owner = ctx.Programmer // Use programmer as owner
+		if owner < types.ObjNothing {
+			return types.Err(types.E_INVARG)
 		} else if owner != types.ObjNothing && !validForRead(ctx, owner) {
 			return types.Err(types.E_INVARG)
 		} else if owner == types.ObjNothing && !programmerIsWizard {

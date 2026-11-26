@@ -1100,7 +1100,9 @@ func builtinListeners(ctx *Execution, args []types.Value) types.Result {
 func builtinConnectedPlayers(ctx *Execution, args []types.Value) types.Result {
 	cm := hostOf(ctx).ConnManager
 	if cm == nil {
-		return types.Err(types.E_INVARG)
+		// No host means no connections: Toast answers {} (emergency mode
+		// included), not an error.
+		return types.Ok(types.NewList([]types.Value{}))
 	}
 
 	showAll := false

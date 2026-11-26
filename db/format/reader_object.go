@@ -75,11 +75,11 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool, sl
 	obj := store.NewObjectBuilder(objID)
 
 	// Read name
-	name, err := r.ReadString('\n')
+	name, err := readDBString(r)
 	if err != nil {
 		return nil, err
 	}
-	obj.SetName(strings.TrimSpace(name))
+	obj.SetName(name)
 
 	// Read flags
 	flags, err := readInt(r)
@@ -432,7 +432,7 @@ func (database *Database) readPropDefs(r *bufio.Reader, objID types.ObjID) ([]st
 	}
 	propDefs := make([]string, 0, min(propDefCount, maxTrustedCount))
 	for i := 0; i < propDefCount; i++ {
-		name, err := readPropDefName(r)
+		name, err := readDBString(r)
 		if err != nil {
 			return nil, err
 		}

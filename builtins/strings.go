@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 	"unicode"
@@ -119,7 +120,8 @@ func builtinIndex(ctx *Execution, args []types.Value) types.Result {
 		if args[3].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		offset = int(args[3].Int())
+		// Toast reads the offset into a C int, keeping the low 32 bits.
+		offset = int(int32(args[3].Int()))
 		// Negative offset is invalid
 		if offset < 0 {
 			return types.Err(types.E_INVARG)
@@ -186,7 +188,8 @@ func builtinRindex(ctx *Execution, args []types.Value) types.Result {
 		if args[3].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		offset := int(args[3].Int())
+		// Toast reads the offset into a C int, keeping the low 32 bits.
+		offset := int(int32(args[3].Int()))
 		if offset > 0 {
 			return types.Err(types.E_INVARG)
 		}
@@ -501,7 +504,6 @@ func replaceAllCaseInsensitive(ctx *Execution, s, old, new string) (string, type
 
 // builtinMatch implements match(subject, pattern [, case_matters]) -> list
 // MOO-style regex matching. Returns {start, end, subs, subject} or {} if no match.
-// For now, implements a simplified version that handles basic patterns.
 func builtinMatch(ctx *Execution, args []types.Value) types.Result {
 	subject := args[0].Str()
 
@@ -521,7 +523,10 @@ func builtinMatch(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	loc := re.FindStringSubmatchIndex(subject)
+	loc, err := re.find(subject)
+	if err != nil {
+		return types.Err(types.E_QUOTA)
+	}
 	if loc == nil {
 		// No match - return empty list
 		return types.Ok(types.NewList([]types.Value{}))
@@ -550,7 +555,7 @@ func builtinRmatch(ctx *Execution, args []types.Value) types.Result {
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	if !requiresSuffixScan && !isASCII(subject) {
+	if !requiresSuffixScan && re.extended == nil && !isASCII(subject) {
 		// Non-ASCII subjects use the suffix scan, stepping by character.
 		re, err = cachedMOOPattern(pattern, caseSensitive, true)
 		if err != nil {
@@ -577,9 +582,15 @@ func builtinRmatch(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewList([]types.Value{}))
 	}
 
-	loc := re.FindStringSubmatchIndex(subject)
+	loc, err := re.find(subject)
+	if err != nil {
+		return types.Err(types.E_QUOTA)
+	}
 	if loc == nil {
 		return types.Ok(types.NewList([]types.Value{}))
+	}
+	if re.extended != nil {
+		return types.Ok(buildMatchResult(subject, loc))
 	}
 	// Drop the greedy-prefix match and promote its wrapper capture to the full
 	// match. The remaining captures are the original MOO pattern's captures.
@@ -745,11 +756,34 @@ func buildMatchResult(subject string, loc []int) types.Value {
 	})
 }
 
-// mooPatternToGoRegex converts MOO regex patterns to Go regex.
-// MOO uses '%' as its escape character; unknown escapes quote the following
-// character literally.
-func mooPatternToGoRegex(pattern string) (string, error) {
+// errMOOPatternMisplacedEOL reports a '$' that Toast's regex compiler rejects.
+var errMOOPatternMisplacedEOL = errors.New("misplaced $ in MOO pattern")
+
+// regexp2 gives \b and \B Unicode semantics even in its RE2 mode. Keep the
+// existing ASCII boundary behavior when a pattern moves to the extended engine.
+var mooBoundaryEscape = regexp.MustCompile(`\\(?:\\|[bB])`)
+
+func extendMOORegexpBoundaries(pattern string) string {
+	const boundary = "(?-i:(?:(?<![a-zA-Z0-9_])(?=[a-zA-Z0-9_])|(?<=[a-zA-Z0-9_])(?![a-zA-Z0-9_])))"
+	return mooBoundaryEscape.ReplaceAllStringFunc(pattern, func(escape string) string {
+		switch escape {
+		case "\\b":
+			return boundary
+		case "\\B":
+			return "(?!" + boundary + ")"
+		default:
+			return escape
+		}
+	})
+}
+
+// translateMOOPattern returns a pattern for RE2, or for the extended engine
+// when it needs directional assertions or numbered backreferences.
+func translateMOOPattern(pattern string) (string, bool, error) {
 	var result strings.Builder
+	extended := false
+	beginning := true // start of pattern, group, or alternative
+	captures, maxReference := 0, 0
 	i := 0
 	inClass := false // inside [...] — MOO gives '%' no special meaning there
 	classStart := -1 // index of the first member position (after '[' or '[^')
@@ -774,7 +808,12 @@ func mooPatternToGoRegex(pattern string) (string, error) {
 			i++
 			continue
 		}
-		if pattern[i] == '%' && i+1 < len(pattern) {
+		if pattern[i] == '%' && i+1 == len(pattern) {
+			// A trailing escape has nothing to quote; Toast's regex compiler
+			// rejects it and match()/rmatch() raise E_INVARG.
+			return "", false, errors.New("trailing % in pattern")
+		}
+		if pattern[i] == '%' {
 			// MOO regex (ToastStunt's Spencer "rx") uses '%' as the escape
 			// character. Only a small set of '% + char' sequences are special;
 			// EVERY other one is the literal following character. In particular
@@ -789,25 +828,30 @@ func mooPatternToGoRegex(pattern string) (string, error) {
 				result.WriteString("\\b")
 			case 'B': // not a word boundary
 				result.WriteString("\\B")
-			case '<': // beginning of a word (best RE2 approximation)
-				result.WriteString("\\b")
-			case '>': // end of a word (best RE2 approximation)
-				result.WriteString("\\b")
+			case '<': // beginning of a word
+				extended = true
+				result.WriteString("(?-i:(?<![a-zA-Z0-9])(?=[a-zA-Z0-9]))")
+			case '>': // end of a word
+				extended = true
+				result.WriteString("(?-i:(?<=[a-zA-Z0-9])(?![a-zA-Z0-9]))")
 			case '(': // start capture group
+				captures++
 				result.WriteByte('(')
 			case ')': // end capture group
 				result.WriteByte(')')
 			case '|': // alternation
 				result.WriteByte('|')
 			case '1', '2', '3', '4', '5', '6', '7', '8', '9':
-				// Backreference: RE2 cannot express these. Preserve the original
-				// bytes rather than silently treating the digit as a literal.
-				result.WriteByte('%')
+				extended = true
+				maxReference = max(maxReference, int(c-'0'))
+				result.WriteString("\\k<")
 				result.WriteByte(c)
+				result.WriteByte('>')
 			default:
 				// Any other escaped char is that literal character.
 				result.WriteString(regexp.QuoteMeta(string(c)))
 			}
+			beginning = c == '(' || c == '|'
 			i += 2
 		} else {
 			// Regular character - escape if special in Go regex
@@ -815,6 +859,9 @@ func mooPatternToGoRegex(pattern string) (string, error) {
 			// ^ $ [ ] are passed through (anchors and character classes)
 			// . + * ? also pass through (they work the same in MOO and Go)
 			c := pattern[i]
+			if c == '^' && !beginning {
+				return "", false, errors.New("misplaced ^ in MOO pattern")
+			}
 			if c == '[' {
 				inClass = true
 				classStart = i + 1
@@ -822,14 +869,34 @@ func mooPatternToGoRegex(pattern string) (string, error) {
 					classStart = i + 2
 				}
 			}
+			if c == '$' {
+				// Toast's regexpr.c (Reol, under RE_CONTEXT_INDEP_OPS) accepts
+				// '$' only at the end of the pattern or before "%|" or "%)";
+				// anywhere else it is an invalid pattern (E_INVARG).
+				rest := pattern[i+1:]
+				if rest != "" && !strings.HasPrefix(rest, "%|") && !strings.HasPrefix(rest, "%)") {
+					return "", false, errMOOPatternMisplacedEOL
+				}
+			}
 			if strings.ContainsRune("{}()|\\", rune(c)) {
 				result.WriteByte('\\')
 			}
 			result.WriteByte(c)
+			beginning = false
 			i++
 		}
 	}
-	return result.String(), nil
+	translated := result.String()
+	if extended {
+		translated = extendMOORegexpBoundaries(translated)
+	}
+	if maxReference > captures {
+		// Toast compiles references to undefined registers successfully.
+		// Define them in an unreachable branch so the engine does likewise
+		// and attempts to match those registers fail at execution time.
+		translated = "(?:" + translated + ")(?:(?!)" + strings.Repeat("()", maxReference-captures) + ")?"
+	}
+	return translated, extended, nil
 }
 
 func stringsDescriptors() []Descriptor {

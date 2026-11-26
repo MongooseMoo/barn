@@ -147,29 +147,47 @@ func (c *lowerer) collectionAssignTemp(kind string, position int) int {
 	return c.declareInternalVariable(fmt.Sprintf("__%s_%d_depth_%d__", kind, position, c.collectionAssignDepth))
 }
 
+// propertyWriteback describes how a collection assignment stores its updated
+// base. For a property it is the retained object and name; with variableSlot
+// set (heldVariable), the base is a variable whose value was held in a
+// temporary and is stored back with one OP_PUT.
 type propertyWriteback struct {
-	objectVar int
-	nameVar   int
-	name      string
+	objectVar    int
+	nameVar      int
+	name         string
+	heldVariable bool
+	variableSlot int
 }
 
 // prepareCollectionBase evaluates a collection target before the assignment
 // value. Property objects and dynamic names are retained for the eventual
 // write-back, so no target expression is evaluated twice. keyedBase fetches a
 // static property with OP_GET_PROP_KEYBASE, for an assignment that writes it
-// back with OP_SET_PROP_KEYED.
-func (c *lowerer) prepareCollectionBase(target ir.CollectionTarget, keyedBase bool) (int, *propertyWriteback, error) {
+// back with OP_SET_PROP_KEYED. operands are the index, range bound and value
+// expressions the assignment evaluates after its base.
+func (c *lowerer) prepareCollectionBase(target ir.CollectionTarget, keyedBase bool, operands ...ir.Expr) (int, *propertyWriteback, error) {
 	if variable, ok := target.(*ir.VariableTarget); ok {
 		// Toast pushes the base variable before it generates any index, range
 		// bound or value (code_gen.cc push_lvalue, EXPR_ASGN), so an unassigned
-		// base raises E_VARNF before any of them runs. The assignment updates
-		// the slot in place, so read it here only for that check; both
-		// instructions are tick-free, as Toast's OP_PUSH is.
+		// base raises E_VARNF before any of them runs. Both instructions are
+		// tick-free, as Toast's OP_PUSH is.
 		slot := c.declareVariable(variable.Name)
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(slot))
-		c.emit(bytecode.OP_POP)
-		return slot, nil, nil
+		if !slices.ContainsFunc(operands, func(operand ir.Expr) bool { return assignsVariable(operand, variable.Name) }) {
+			// Nothing after the base can change the variable, so the
+			// assignment updates the slot in place and this read is only
+			// the check.
+			c.emit(bytecode.OP_POP)
+			return slot, nil, nil
+		}
+		// An operand assigns the variable. Toast updates the value it pushed
+		// here and stores the result over whatever the operand assigned
+		// (l = {1, 2}; l[l = 1] = 5 leaves l == {5, 2}), so hold that value.
+		baseVar := c.collectionAssignTemp("collectionbase", 0)
+		c.emitStoreLocal(baseVar)
+		c.markHeldTarget(baseVar, variable)
+		return baseVar, &propertyWriteback{objectVar: -1, nameVar: -1, heldVariable: true, variableSlot: slot}, nil
 	}
 	property, ok := target.(*ir.PropertyTarget)
 	if !ok {
@@ -221,6 +239,11 @@ func (c *lowerer) emitCollectionWriteback(baseVar int, writeback *propertyWriteb
 	}
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(baseVar))
+	if writeback.heldVariable {
+		c.emit(bytecode.OP_SET_VAR) // Toast's closing OP_PUT
+		c.emitByte(byte(writeback.variableSlot))
+		return
+	}
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(writeback.objectVar))
 	if writeback.name != "" {
@@ -275,7 +298,7 @@ func (c *lowerer) compileIndexAssign(target *ir.IndexTarget, value ir.Expr) erro
 	// entry of the property's value; the store can track it per key.
 	property, isProperty := base.(*ir.PropertyTarget)
 	keyed := isProperty && property.Name != "" && len(indices) == 1 && !containsIndexBoundary(indices[0])
-	baseVar, writeback, err := c.prepareCollectionBase(base, keyed)
+	baseVar, writeback, err := c.prepareCollectionBase(base, keyed, append(slices.Clone(indices), value)...)
 	if err != nil {
 		return err
 	}
@@ -354,7 +377,7 @@ func (c *lowerer) compileRangeAssign(target *ir.RangeTarget, value ir.Expr) erro
 	if nested, ok := target.Collection.(*ir.IndexTarget); ok {
 		return c.compileNestedRangeAssign(nested, target.Start, target.End, value)
 	}
-	baseVar, writeback, err := c.prepareCollectionBase(target.Collection, false)
+	baseVar, writeback, err := c.prepareCollectionBase(target.Collection, false, target.Start, target.End, value)
 	if err != nil {
 		return err
 	}
@@ -392,7 +415,7 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *ir.IndexTarget, start, e
 	defer c.enterCollectionAssign()()
 	indices, targets, base := collectionIndices(indexTarget)
 
-	baseVar, writeback, err := c.prepareCollectionBase(base, false)
+	baseVar, writeback, err := c.prepareCollectionBase(base, false, append(slices.Clone(indices), start, end, value)...)
 	if err != nil {
 		return err
 	}
@@ -680,6 +703,94 @@ func containsTargetIndexBoundary(target ir.Target) bool {
 		return false
 	default:
 		return false
+	}
+}
+
+// assignsVariable reports whether evaluating expr can assign the variable
+// name, directly or by an index, range or scatter assignment. An expression
+// kind it does not know is reported as assigning, so a caller relying on a
+// false answer stays correct.
+func assignsVariable(expr ir.Expr, name string) bool {
+	assigns := func(exprs ...ir.Expr) bool {
+		return slices.ContainsFunc(exprs, func(e ir.Expr) bool { return assignsVariable(e, name) })
+	}
+	switch n := expr.(type) {
+	case nil:
+		return false
+	case *ir.LiteralExpr, *ir.IdentifierExpr, *ir.IndexBoundaryExpr:
+		return false
+	case *ir.UnaryExpr:
+		return assigns(n.Operand)
+	case *ir.BinaryExpr:
+		return assigns(n.Left, n.Right)
+	case *ir.TernaryExpr:
+		return assigns(n.Condition, n.ThenExpr, n.ElseExpr)
+	case *ir.IndexExpr:
+		return assigns(n.Expr, n.Index)
+	case *ir.RangeExpr:
+		return assigns(n.Expr, n.Start, n.End)
+	case *ir.PropertyExpr:
+		return assigns(n.Expr, n.PropertyExpr)
+	case *ir.VerbCallExpr:
+		return assigns(n.Expr, n.VerbExpr) || assigns(n.Args...)
+	case *ir.BuiltinCallExpr:
+		return assigns(n.Args...)
+	case *ir.SpliceExpr:
+		return assigns(n.Expr)
+	case *ir.CatchExpr:
+		return assigns(n.Expr, n.Default) || assigns(n.Codes...)
+	case *ir.AssignExpr:
+		return targetAssignsVariable(n.Target, name) || assigns(n.Value)
+	case *ir.ListExpr:
+		return assigns(n.Elements...)
+	case *ir.ListRangeExpr:
+		return assigns(n.Start, n.End)
+	case *ir.MapExpr:
+		for _, pair := range n.Pairs {
+			if assigns(pair.Key, pair.Value) {
+				return true
+			}
+		}
+		return false
+	default:
+		return true
+	}
+}
+
+// targetAssignsVariable reports whether assigning to target can assign the
+// variable name, including through the expressions inside target.
+func targetAssignsVariable(target ir.Target, name string) bool {
+	switch target := target.(type) {
+	case *ir.VariableTarget:
+		return canonicalIdentifier(target.Name) == canonicalIdentifier(name)
+	case *ir.PropertyTarget:
+		return assignsVariable(target.Object, name) || assignsVariable(target.NameExpr, name)
+	case *ir.IndexTarget:
+		return targetAssignsVariable(target.Collection, name) || assignsVariable(target.Index, name)
+	case *ir.RangeTarget:
+		return targetAssignsVariable(target.Collection, name) || assignsVariable(target.Start, name) || assignsVariable(target.End, name)
+	case *ir.DestructuringTarget:
+		for _, binding := range target.Bindings {
+			switch binding := binding.(type) {
+			case *ir.RequiredBinding:
+				if canonicalIdentifier(binding.Name) == canonicalIdentifier(name) {
+					return true
+				}
+			case *ir.OptionalBinding:
+				if canonicalIdentifier(binding.Name) == canonicalIdentifier(name) || assignsVariable(binding.Default, name) {
+					return true
+				}
+			case *ir.RestBinding:
+				if canonicalIdentifier(binding.Name) == canonicalIdentifier(name) {
+					return true
+				}
+			default:
+				return true
+			}
+		}
+		return false
+	default:
+		return true
 	}
 }
 

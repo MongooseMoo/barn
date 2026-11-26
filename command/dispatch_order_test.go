@@ -16,6 +16,56 @@ func addDispatchTestVerb(t *testing.T, store *dbstore.Store, objID types.ObjID, 
 	}
 }
 
+func TestFindVerbSearchesFirstParentAncestry(t *testing.T) {
+	const (
+		player types.ObjID = iota + 1
+		deep
+		left
+		right
+		leaf
+	)
+	store := dbstore.NewStore()
+	for id := player; id <= leaf; id++ {
+		addCommandTestObject(t, store, id, "", types.ObjNothing, nil)
+	}
+	if ec := store.ChangeParents(left, []types.ObjID{deep}); ec != types.E_NONE {
+		t.Fatalf("set left parent: %v", ec)
+	}
+	object := dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}
+	noObject := dbstore.VerbArgs{This: "none", Prep: "none", That: "none"}
+	addDispatchTestVerb(t, store, deep, "probe", object, "return 1;")
+	addDispatchTestVerb(t, store, right, "probe", object, "return 2;")
+	addDispatchTestVerb(t, store, deep, "fallback", noObject, "return 1;")
+	addDispatchTestVerb(t, store, right, "fallback", object, "return 2;")
+
+	for _, test := range []struct {
+		name    string
+		parents []types.ObjID
+		verb    string
+		want    types.ObjID
+	}{
+		{"first parent's ancestor", []types.ObjID{left, right}, "probe", deep},
+		{"reversed parents", []types.ObjID{right, left}, "probe", right},
+		{"argument mismatch", []types.ObjID{left, right}, "fallback", right},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if ec := store.ChangeParents(leaf, test.parents); ec != types.E_NONE {
+				t.Fatalf("set leaf parents: %v", ec)
+			}
+			cmd := NewParsedCommand()
+			cmd.Verb = test.verb
+			cmd.Dobj = leaf
+			match := FindVerb(store, player, types.ObjNothing, cmd)
+			if match == nil {
+				t.Fatal("command found no matching verb")
+			}
+			if match.VerbLoc != test.want || match.This != leaf {
+				t.Fatalf("command chose definer #%d with this #%d, want definer #%d with this #%d", match.VerbLoc, match.This, test.want, leaf)
+			}
+		})
+	}
+}
+
 // Two verbs on one object may share their first name and differ in argument
 // specs. The command must reach the one whose specs match.
 func TestFindVerbReachesASecondVerbWithTheSameName(t *testing.T) {

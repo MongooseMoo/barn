@@ -263,13 +263,19 @@ jobs:
           # verb's reads and writes: a memo fault needs a shape change to commit
           # inside a memo-hitting observer's window, so v_observe dwells
           # OBSERVE_DWELL times as long (scripts/jepsen_checkpoint.py).
-          for control in relationship-reads verb-memo hot-memo-guard; do
+          for control in relationship-reads verb-memo; do
             family=authority
             if [ "$control" = relationship-reads ]; then family=topology; fi
             run --control "$control" --workloads "$family" --phase1 45 --phase3 0 --phase-live 0 \
               --rate 100 --concurrency 32 --dwell 10 \
               --output "jepsen-stage-evidence/control-$control" --jepsen-timeout 240 || status=1
           done
+          # A hot-memo guard bypass can occur during a retry or after an
+          # unrelated shape change. Hold the reader across the mutator's
+          # publication and require the resulting stale-dispatch witness.
+          python3 scripts/check_elle.py --fault hot-memo-guard \
+            --jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" \
+            --output jepsen-stage-evidence/control-hot-memo-guard || status=1
           exit "$status"
       - name: Archive raw evidence
         if: always()

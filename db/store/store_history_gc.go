@@ -4,6 +4,7 @@ import (
 	"runtime"
 	"slices"
 
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -285,6 +286,7 @@ func (s *Store) pruneObjectHistory(id types.ObjID, floor uint64) {
 	if entries, ok := s.history.byID[id]; ok {
 		if pruned := pruneHistoryToReaders(entries, readers, clock); len(pruned) != len(entries) {
 			s.history.byID[id] = pruned
+			isolationprobe.Note("reader_prune")
 		}
 	}
 	s.history.mu.Unlock()

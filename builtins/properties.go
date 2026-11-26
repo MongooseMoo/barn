@@ -62,9 +62,11 @@ func builtinPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
+	// Toast bf_prop_info (src/property.cc) reports E_INVARG for any object that
+	// is not valid, including #-1 and other negative or never-created numbers.
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 
 	// Toast db_find_property (src/db_properties.cc) finds a built-in property
@@ -367,8 +369,10 @@ func builtinClearProperty(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+	// Toast bf_clear_prop raises E_INVARG for every invalid object, never
+	// E_INVIND: #-1 and never-created numbers as well as recycled ones.
+	if objectExistsForRead(ctx, objID) != types.E_NONE {
+		return types.Err(types.E_INVARG)
 	}
 
 	propName := nameVal.Str()

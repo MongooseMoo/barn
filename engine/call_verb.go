@@ -426,8 +426,7 @@ func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args
 	// This standalone hook owns a fresh foreground slice. Start its budget only
 	// after admission and setup, just as the normal task execution path does.
 	ticks, seconds := foregroundTaskLimits(s.session)
-	start, seconds := t.ResetExecutionBudget(ticks, seconds, time.Now())
-	t.SetExecutionDeadline(start.Add(time.Duration(seconds * float64(time.Second))))
+	t.ResetExecutionBudget(ticks, seconds, time.Now())
 	bcVM.TickLimit = ticks
 	configureVMStackLimit(bcVM, s.session)
 
@@ -493,7 +492,7 @@ func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args
 		}
 		result.CallStack = stack
 		// Log traceback to server log
-		s.logCallVerbTraceback(objID, verbName, result.Error, stack, player)
+		s.logCallVerbTraceback(objID, verbName, result, player)
 		// Trace exception
 		trace.Exception(objID, verbName, result.Error)
 	} else {

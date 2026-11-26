@@ -150,7 +150,7 @@ func wasmValueLimit(ctx *Execution, v types.Value) types.ErrorCode {
 
 func wasmContext(ctx *Execution) (context.Context, context.CancelFunc) {
 	if ctx.Task != nil {
-		return context.WithTimeout(context.Background(), ctx.Task.ExecutionTimeLeft())
+		return ctx.Task.CPUContext()
 	}
 	return context.WithCancel(context.Background())
 }
