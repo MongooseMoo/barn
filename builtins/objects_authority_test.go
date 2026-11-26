@@ -167,6 +167,17 @@ func TestChparentsChecksInToastPhaseOrder(t *testing.T) {
 	}
 }
 
+func TestChparentChecksPermissionBeforeRecursion(t *testing.T) {
+	ctx, _, _, _ := newObjectAuthorityFixture(t, 0, 0)
+	ctx.Programmer = 3
+	ctx.IsWizard = false
+	target := types.NewObj(11)
+	result := builtinChparent(ctx, []types.Value{target, target})
+	if result.Error != types.E_PERM {
+		t.Fatalf("unauthorized self-parent change = %+v, want E_PERM", result)
+	}
+}
+
 func TestRenumberRequiresEffectiveProgrammerWizardAuthority(t *testing.T) {
 	for _, test := range []struct {
 		name       string
