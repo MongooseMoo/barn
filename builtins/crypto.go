@@ -86,8 +86,7 @@ func builtinDecodeBase64(ctx *Execution, args []types.Value) types.Result {
 	var decoded []byte
 	var err error
 	if urlSafe {
-		// URL-safe can be with or without padding, or partial padding
-		decoded, err = base64.RawURLEncoding.DecodeString(strings.TrimRight(input, "="))
+		decoded, err = decodeToastURLSafeBase64(input)
 	} else {
 		decoded, err = base64.StdEncoding.DecodeString(input)
 	}
@@ -103,6 +102,33 @@ func builtinDecodeBase64(ctx *Execution, args []types.Value) types.Result {
 
 	// Encode the result as a binary string with ~XX escapes
 	return types.Ok(types.NewStr(EncodeRawToBinary(decoded)))
+}
+
+// decodeToastURLSafeBase64 decodes an input already checked by base64InputError.
+// Toast visits len + len%4 positions and emits bytes only for complete blocks.
+func decodeToastURLSafeBase64(input string) ([]byte, error) {
+	data := strings.TrimRight(input, "=")
+	complete := (len(input) + len(input)%4) / 4 * 4
+	if len(data) > complete {
+		return base64.RawURLEncoding.DecodeString(data[:complete])
+	}
+	if len(data) == complete || len(data)%4 >= 2 {
+		return base64.RawURLEncoding.DecodeString(data)
+	}
+
+	// A completed block with zero or one data digits emits one byte in Toast.
+	// Its table maps explicit padding to 90. Use the low six bits (26, 'a')
+	// in the first position when needed and apply the second pad's bits below.
+	const toastPad = 90
+	if len(data)%4 == 0 {
+		data += "a"
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(data + "A")
+	if err != nil {
+		return nil, err
+	}
+	decoded[len(decoded)-1] |= toastPad >> 4
+	return decoded, nil
 }
 
 // base64InputError mirrors the validation order in ToastStunt's bf_decode_base64.

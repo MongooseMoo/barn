@@ -24,6 +24,8 @@ Staticcheck reported `ST1005` for the capitalized MOO messages stored as Go erro
 
 CI confirmed the Go VM fuzz seed also passes on baseline Barn. The seed supplied input without asserting the exception result, so it was removed. The conformance cases assert the failure directly.
 
+The URL-safe decoder accepted these inputs in the Toast validation phase and then either rejected or shortened them in Go. The managed Toast run observed `abc`, `abce`, and `abcm` for the three final-block cases. The original PR head failed all three. Barn now preserves Toast's treatment of unfinished blocks and the explicit padding digits that contribute to a completed block.
+
 ## Next step
 
 Verify the updated Barn PR checks. Land Barn PR #1200 before conformance PR #293 when a merge is authorized.

@@ -199,6 +199,22 @@ func TestDecodeBinaryGroupedUsesPendingListValueByteLimit(t *testing.T) {
 	}
 }
 
+func TestDecodeURLSafeBase64FinalBlock(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{"YWJjZ", "abc"},
+		{"YWJjZ=", "abce"},
+		{"YWJj==", "abcm"},
+	} {
+		result := admitTestBuiltin("decode_base64", newTestExecution(), []types.Value{types.NewStr(tc.input), types.NewInt(1)})
+		if result.IsError() || result.Val.Type() != types.TYPE_STR || result.Val.Str() != tc.want {
+			t.Errorf("decode_base64(%q, 1) = %+v, want %q", tc.input, result, tc.want)
+		}
+	}
+}
+
 // Toast base64.cc: decode_base64 refuses (len / 4) * 3 past max_string_concat
 // + 1 with make_space_pack(), E_QUOTA when max_concat_catchable is true.
 func TestDecodeBase64UsesStringLimit(t *testing.T) {
