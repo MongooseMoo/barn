@@ -230,7 +230,7 @@ func (vm *VM) executeGetPropAccess(propName string, builtin bool, access propAcc
 				vm.Push(val)
 				return nil
 			}
-			return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName).withMessage()
+			return propertyNotFound(objVal, propName)
 		}
 		prop, _, errCode = txn.MapPropertyForKey(objID, propName, access == propKeyBase)
 	} else {
@@ -257,7 +257,20 @@ func (vm *VM) executeGetPropAccess(propName string, builtin bool, access propAcc
 	}
 
 	// Property not found
-	return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName).withMessage()
+	return propertyNotFound(objVal, propName)
+}
+
+// propertyNotFound is E_PROPNF for a property an object lacks, raised as Toast
+// PUSH_X_NOT_FOUND does: the message names the object and the property, and
+// the value is {object, name}.
+func propertyNotFound(objVal types.Value, propName string) MooError {
+	object := "*anonymous*"
+	if objVal.Type() == types.TYPE_OBJ {
+		object = fmt.Sprintf("#%d", objVal.ID())
+	}
+	return newMooErrorf(types.E_PROPNF, "Property not found: %s.%s", object, propName).
+		withMessage().
+		withValue(types.NewList([]types.Value{objVal, types.NewStr(propName)}))
 }
 
 // getWaifProp handles property read on a waif value.
@@ -404,7 +417,7 @@ func (vm *VM) executeSetPropNamed(propName string) error {
 	// Property not on this object - check if inherited
 	inheritedProp, errCode := findPropertyForRead(txn, objID, propName)
 	if errCode != types.E_NONE {
-		return newMooErrorf(types.E_PROPNF, "property not found: %s", propName)
+		return propertyNotFound(objVal, propName)
 	}
 
 	// Check write permission on the inherited property
