@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
@@ -87,6 +88,15 @@ func (vm *VM) executeCallVerbNamed(name types.Value, argc int, site *verbCallSit
 		}
 	}
 	return vm.startVerbCallResolved(objVal, name.Str(), name, args, argsList, false, nil, site)
+}
+
+// verbNotFound is the E_VERBNF a verb call on target raises when no callable
+// verb is named name (a waif call's name carries its ':' prefix). Like Toast's
+// PUSH_X_NOT_FOUND in OP_CALL_VERB, the message names the target and verb and
+// the value is {target, name}.
+func verbNotFound(target types.Value, name string) MooError {
+	return newMooErrorf(types.E_VERBNF, "Verb not found: %s:%s()", builtins.PublicLiteral(target), name).
+		withMessage().withValue(types.NewList([]types.Value{target, types.NewStr(name)}))
 }
 
 func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Value) error {
@@ -180,7 +190,7 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 		}
 		if err != nil {
 			vm.Store.NoteVerbCacheMiss()
-			return newMooErrorf(types.E_VERBNF, "verb not found: %s", verbName)
+			return verbNotFound(objVal, lookupVerbName)
 		}
 	}
 
