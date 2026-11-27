@@ -74,3 +74,42 @@ func TestMathExpFiniteToTrueOverflow(t *testing.T) {
 		}
 	}
 }
+
+// TestAtanUnderflowMatchesToast pins two-argument atan() rows observed on the
+// stock WSL Toast oracle (issue #1210): a nonzero y whose quotient underflows to
+// zero raises E_FLOAT, while subnormal results, a zero y and atan2() do not.
+func TestAtanUnderflowMatchesToast(t *testing.T) {
+	ctx := newTestExecution()
+	tests := []struct {
+		name    string
+		builtin BuiltinFunc
+		y, x    float64
+		want    string
+		wantErr types.ErrorCode
+	}{
+		{name: "fuzz input row", builtin: builtinAtan, y: 9.99999999999997e-311, x: 3e300, wantErr: types.E_FLOAT},
+		{name: "underflow to zero", builtin: builtinAtan, y: 1e-300, x: 1e300, wantErr: types.E_FLOAT},
+		{name: "negative underflow to zero", builtin: builtinAtan, y: -1e-300, x: 1e300, wantErr: types.E_FLOAT},
+		{name: "subnormal result", builtin: builtinAtan, y: 1e-300, x: 1e10, want: "9.99999999999997e-311"},
+		{name: "zero y", builtin: builtinAtan, y: 0, x: 5, want: "0"},
+		{name: "negative x is pi", builtin: builtinAtan, y: 1e-310, x: -1e300, want: "3.14159265358979"},
+		{name: "atan2 ignores underflow", builtin: builtinAtan2, y: 1e-300, x: 1e300, want: "0"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := test.builtin(ctx, []types.Value{types.NewFloat(test.y), types.NewFloat(test.x)})
+			if test.wantErr != types.E_NONE {
+				if result.Flow != types.FlowException || result.Error != test.wantErr {
+					t.Fatalf("result = flow %v error %v value %v, want %v", result.Flow, result.Error, result.Val, test.wantErr)
+				}
+				return
+			}
+			if !result.IsNormal() || result.Val.Type() != types.TYPE_FLOAT {
+				t.Fatalf("result = flow %v error %v value %v, want %s", result.Flow, result.Error, result.Val, test.want)
+			}
+			if got := strconv.FormatFloat(result.Val.Float(), 'g', 15, 64); got != test.want {
+				t.Fatalf("result = %s, want %s", got, test.want)
+			}
+		})
+	}
+}

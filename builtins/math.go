@@ -201,7 +201,15 @@ func builtinAtan(ctx *Execution, args []types.Value) types.Result {
 	if len(args) == 1 {
 		return types.Ok(types.NewFloat(math.Atan(numberFloat(args[0]))))
 	}
-	return types.Ok(types.NewFloat(math.Atan2(numberFloat(args[0]), numberFloat(args[1]))))
+	y, x := numberFloat(args[0]), numberFloat(args[1])
+	result := math.Atan2(y, x)
+	if result == 0 && y != 0 && !math.IsInf(x, 0) {
+		// glibc's atan2 sets ERANGE when a nonzero y underflows to a zero
+		// result (subnormal results do not), and Toast's bf_atan raises
+		// E_FLOAT on any errno. The atan2() builtin ignores errno.
+		return types.Err(types.E_FLOAT)
+	}
+	return types.Ok(types.NewFloat(result))
 }
 
 // builtinSinh returns hyperbolic sine
