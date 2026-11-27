@@ -686,11 +686,19 @@ func builtinThreadPool(ctx *Execution, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	if args[0].Str() != "INIT" || args[1].Str() != "MAIN" {
-		return types.Err(types.E_INVARG)
+	// Toast checks the pool name before the function name and raises each
+	// failure with its own message and the offending argument as the value.
+	if args[1].Str() != "MAIN" {
+		return types.Raise(types.NewErr(types.E_INVARG), "Invalid thread pool", args[1])
 	}
-	if len(args) == 3 && args[2].Int() < 0 {
-		return types.Err(types.E_INVARG)
+	if args[0].Str() != "INIT" {
+		return types.Raise(types.NewErr(types.E_INVARG), "Invalid function", args[0])
+	}
+	if len(args) == 3 {
+		// Toast reads the thread count into a C int.
+		if value := int32(args[2].Int()); value < 0 {
+			return types.Raise(types.NewErr(types.E_INVARG), "Invalid number of threads", types.NewInt(int64(value)))
+		}
 	}
 	return types.Ok(types.NewInt(1))
 }
