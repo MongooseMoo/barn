@@ -72,9 +72,6 @@ func (vm *VM) executeAdd() error {
 			vm.Push(a.StrAppend(b))
 			return nil
 		}
-		if b.Type() == types.TYPE_INT {
-			return newMooError(types.E_TYPE, "Type mismatch (expected string; got integer)").withMessage()
-		}
 	}
 
 	// Handle list concatenation (list + list) and append (list + any)
@@ -108,7 +105,28 @@ func (vm *VM) executeAdd() error {
 		}
 	}
 
-	return newMooError(types.E_TYPE, "invalid operands for +")
+	return addTypeMismatch(a.Type(), b.Type())
+}
+
+// addTypeMismatch reproduces Toast's OP_ADD E_TYPE report (execute.cc,
+// "It assumes lhs is the type you really wanted"): which type it names as
+// expected and which as got depends on the operand pair.
+func addTypeMismatch(lhs, rhs types.TypeCode) MooError {
+	isNum := func(t types.TypeCode) bool { return t == types.TYPE_INT || t == types.TYPE_FLOAT }
+	switch {
+	case lhs == types.TYPE_STR:
+		return typeMismatchError(rhs, types.TYPE_STR)
+	case rhs == types.TYPE_STR && !isNum(lhs):
+		return typeMismatchError(lhs, types.TYPE_STR)
+	case lhs == types.TYPE_INT:
+		return typeMismatchError(rhs, types.TYPE_INT)
+	case lhs == types.TYPE_FLOAT:
+		return typeMismatchError(rhs, types.TYPE_FLOAT)
+	case isNum(rhs):
+		return typeMismatchError(lhs, rhs)
+	default:
+		return typeMismatchError(lhs, types.TYPE_INT, types.TYPE_FLOAT, types.TYPE_STR)
+	}
 }
 
 func (vm *VM) executeStringAppend() error {
