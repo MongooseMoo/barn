@@ -411,10 +411,9 @@ func syntheticEvalCallers(ctx *Execution, includeLineNumbers bool) types.Value {
 // builtinRaise: raise(error [, message [, value]]) → none
 // Raises an error, stopping execution until caught by try/except
 func builtinRaise(ctx *Execution, args []types.Value) types.Result {
-	message := args[0].String()
-	if args[0].Type() == types.TYPE_ERR {
-		message = args[0].Code().Message()
-	}
+	// Toast's bf_raise defaults the message to value2str(code): tostr()
+	// formatting, so a string is used raw, a list is "{list}", a map "[map]".
+	message := valueToStr(args[0])
 	if len(args) >= 2 {
 		if args[1].Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
