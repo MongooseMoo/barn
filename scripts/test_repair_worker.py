@@ -22,6 +22,8 @@ class PolicyBlockTest(unittest.TestCase):
                 return [{"name": name} for name in labels]
             if "/pulls?" in path or path.endswith("/comments"):
                 return []
+            if path.endswith("/pulls/1124"):
+                return {"merged": False}
             return None
 
         result = {"outcome": "policy-block", "retry_at": "", "title": "", "evidence": ""}
@@ -52,6 +54,29 @@ class PolicyBlockTest(unittest.TestCase):
     def test_conformance_policy_block_dispatches_the_conformance_stage(self):
         _, _, dispatches = self.process(["codex-conformance"], stage="conformance")
         self.assertIn("inputs[stage]=conformance", dispatches[0])
+
+
+class CompanionHandoffTest(unittest.TestCase):
+    def test_merged_repair_with_any_existing_companion_bypasses_test_generation(self):
+        for state in ("open", "closed"):
+            with self.subTest(state=state):
+                responses = {
+                    f"repos/{repair_worker.BARN}/issues/1219/comments": [],
+                    f"repos/{repair_worker.BARN}/pulls/1219": {"merged": True},
+                    f"repos/{repair_worker.SUITE}/pulls?state=all&head=MongooseMoo:barn-fix/pr-1219&base=main": [
+                        {"number": 301, "state": state},
+                    ],
+                }
+                with mock.patch.object(repair_worker, "api", side_effect=lambda path: responses[
+                        path.split("?")[0] if "/comments" in path else path
+                ]) as api, \
+                        mock.patch.object(repair_worker, "label") as label, \
+                        mock.patch.object(repair_worker, "finish_companion", return_value="Finished") as finish, \
+                        mock.patch.object(repair_worker, "proposal") as proposal:
+                    self.assertTrue(repair_worker.process(None, "conformance", {"number": 1219}))
+                finish.assert_called_once_with(api, 1219)
+                proposal.assert_not_called()
+                label.assert_called_once_with(1219, "codex-running", True)
 
 
 class ManagedProofTest(unittest.TestCase):

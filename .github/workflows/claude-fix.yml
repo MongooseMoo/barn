@@ -640,11 +640,33 @@ jobs:
       # Barn CI consumes suite main, so the companion follows the Barn verdict.
       - name: Finish the conformance pull request
         if: steps.merged_route.outputs.provider != 'codex'
+        id: finish_companion
         env:
-          GH_TOKEN: ${{ secrets.CONFORMANCE_PR_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          SUITE_TOKEN: ${{ secrets.CONFORMANCE_PR_TOKEN }}
+          CODEX_ENABLED: ${{ vars.BARN_CODEX_WORKER_ENABLED }}
         run: |
           set -euo pipefail
+          # Use the existing protected publisher for a merged repair's test
+          # PR. The generation credential need not be a protected merger.
+          if [ "$MERGED" = true ] && [ "$CODEX_ENABLED" = true ]; then
+            companion=$(gh api "repos/$SUITE/pulls?state=open&head=MongooseMoo:barn-fix/pr-$FIXED_PR&base=main" --jq '.[0].number // empty')
+            if [ -n "$companion" ]; then
+              echo "protected_publisher=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
           gh api -H "Accept: application/vnd.github.raw+json" \
             "repos/$GITHUB_REPOSITORY/contents/scripts/repair_completion.py?ref=master" \
             > "$RUNNER_TEMP/repair_completion.py"
-          python3 "$RUNNER_TEMP/repair_completion.py" "$FIXED_PR"
+          GH_TOKEN="$SUITE_TOKEN" python3 "$RUNNER_TEMP/repair_completion.py" "$FIXED_PR"
+
+      - name: Hand the existing companion to the protected publisher
+        if: steps.finish_companion.outputs.protected_publisher == 'true'
+        uses: $/.github/actions/repair-route
+        with:
+          issue: ${{ env.FIXED_PR }}
+          stage: conformance
+          provider: codex
+          codex_enabled: ${{ vars.BARN_CODEX_WORKER_ENABLED }}
+          token: ${{ github.token }}

@@ -28,8 +28,8 @@ def required_check_state(api, repository, branch, head):
     return failed, pending
 
 
-def companion_pull(api, number):
-    pulls = api(f"repos/{SUITE}/pulls?state=open&head=MongooseMoo:barn-fix/pr-{number}&base=main")
+def companion_pull(api, number, state="open"):
+    pulls = api(f"repos/{SUITE}/pulls?state={state}&head=MongooseMoo:barn-fix/pr-{number}&base=main")
     return pulls[0] if pulls else None
 
 

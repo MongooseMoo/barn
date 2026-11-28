@@ -30,8 +30,10 @@ The verifier caught an installation-token lifetime mismatch before publication. 
 
 The verifier also found that persistent auto-merge could admit a newer head than the one proved, and that a refreshed companion could skip the allowed-file review. No automation path now persists auto-merge. An existing manual request is preserved and an armed stale branch is left for its owner to refresh. The branch-details read exposes the same required check contexts and app IDs without the administration permission needed by the dedicated protection endpoint.
 
+Historical closed-repair run 45943102911 announced that suite #301 would merge when checks passed. The suite timeline records `ctoth` enabling it, and the current viewer check on open companions reports bypass ability for that identity. The installed worker publisher's read-only check reports no bypass ability and a grant to merge normally. A merged repair with an existing suite companion now uses the already authorized conformance queue for that publisher when the worker is enabled. It finishes the existing companion without regenerating a test, even if the companion closes between the workflow and worker polls.
+
 Independent verification found that the long managed-proof watcher retains one installation credential for the entire subprocess. GitHub installation credentials can expire while the proof remains queued or running. The verification verdict is recorded in the parent workspace report.
 
 ## Next step
 
-The exact-head follow-up's focused worker and completion checks returned `OK`. Inspect its merge against the independent authorization branch before publication. The parent owns publication and the exact-head CI verdict. Verify installation permissions, an actual protected merge receipt, and a real proof job before claiming runtime acceptance.
+The exact-head and completion-only handoff's focused checks returned `OK`. The parent owns publication and the exact-head CI verdict. Coordinate worker rollout with this workflow. Pause the old consumer before the producer can emit completion-only requests, then resume only the updated consumer. The old worker would start test generation for a merged repair on that same label. Verify an actual protected merge receipt and a real proof job before claiming runtime acceptance.

@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 
 from repair_provider import classify
 
-from repair_completion import finish_companion, wait_for_repair_checks
+from repair_completion import companion_pull, finish_companion, wait_for_repair_checks
 
 
 BARN = "MongooseMoo/barn"
@@ -303,12 +303,26 @@ def queue_repair(root, pr, suite_pr=None):
     return True
 
 
+def finish_closed_companion(number):
+    try:
+        print(finish_companion(api, number), flush=True)
+    except (ValueError, subprocess.SubprocessError) as error:
+        print(f"Repair #{number}: {error}", flush=True)
+        label(number, "needs-decision", True)
+
+
 def process(args, stage, item):
     number = item["number"]
     label(number, "codex-running", True)
     report = {"item": item, "comments": api(f"repos/{BARN}/issues/{number}/comments")}
     if stage == "conformance":
         report["pull"] = api(f"repos/{BARN}/pulls/{number}")
+        # A merged repair with a published companion only needs completion.
+        # Include closed companions so a concurrent merge cannot restart
+        # test generation when the existing handoff reaches the worker.
+        if report["pull"]["merged"] and companion_pull(api, number, state="all"):
+            finish_closed_companion(number)
+            return True
     elif stage == "repair":
         for branch in (f"codex/issue-{number}", f"claude/issue-{number}"):
             existing = api(f"repos/{BARN}/pulls?state=open&head=MongooseMoo:{branch}")
@@ -358,11 +372,7 @@ def process(args, stage, item):
         if outcome == "test":
             suite_pr = open_pr(SUITE, f"barn-fix/pr-{number}", "main", result, patch, number, tested_head=head)
             if pr["merged"]:
-                try:
-                    print(finish_companion(api, number), flush=True)
-                except (ValueError, subprocess.SubprocessError) as error:
-                    print(f"Repair #{number}: {error}", flush=True)
-                    label(number, "needs-decision", True)
+                finish_closed_companion(number)
         else:
             suite_pr = None
             api(f"repos/{BARN}/issues/{number}/comments", "-X", "POST", "-f", f"body={result['evidence']}")
