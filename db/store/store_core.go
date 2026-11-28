@@ -840,7 +840,7 @@ func (s *Store) ObjectIDsByNameSubstring(needle string, caseSensitive bool) []ty
 		if obj == nil || !validLiveObject(obj) {
 			return true
 		}
-		name := strings.TrimSpace(obj.name)
+		name := obj.name
 		if !caseSensitive {
 			name = strings.ToLower(name)
 		}
