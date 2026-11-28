@@ -166,9 +166,9 @@ func TestMapOverwriteCaseAndDeleteReinsert(t *testing.T) {
 func TestMapIndexFullHashCollision(t *testing.T) {
 	a, b := keyHash(NewInt(1)), keyHash(NewInt(2))
 	// At depth 16 the hash has been exhausted: only exact typed keys decide.
-	n := mapIndexSet(nil, a, mapEntry{NewInt(1), NewInt(10)}, 0, 16, true)
-	collision := mapIndexSet(n, b, mapEntry{NewInt(2), NewInt(20)}, 0, 16, true)
-	updated := mapIndexSet(collision, a, mapEntry{NewInt(1), NewInt(30)}, 0, 16, true)
+	n := mapIndexSet(nil, a, indexedMapEntry{mapEntry: mapEntry{key: NewInt(1), val: NewInt(10)}}, 0, 16, true)
+	collision := mapIndexSet(n, b, indexedMapEntry{mapEntry: mapEntry{key: NewInt(2), val: NewInt(20)}}, 0, 16, true)
+	updated := mapIndexSet(collision, a, indexedMapEntry{mapEntry: mapEntry{key: NewInt(1), val: NewInt(30)}}, 0, 16, true)
 	for _, tc := range []struct {
 		n    *mapIndex
 		key  mapHash
