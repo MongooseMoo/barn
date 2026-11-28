@@ -236,17 +236,11 @@ func (vm *VM) executeRangeSet() error {
 			return newMooError(types.E_RANGE, "map range end key not found")
 		}
 		length := coll.Len()
-
-		// Build new map: pairs[1..start-1] + newMap + pairs[end+1..$]
-		pairs := coll.Pairs()
-		result := make([][2]types.Value, 0)
-		for i := 0; i < int(startIdx)-1; i++ {
-			result = append(result, pairs[i])
-		}
-		result = append(result, newMap.Pairs()...)
-		for i := int(endIdx); i < length; i++ {
-			result = append(result, pairs[i])
-		}
+		prefix := int(startIdx) - 1
+		result := make([][2]types.Value, 0, prefix+newMap.Len()+length-int(endIdx))
+		result = coll.AppendMapPairs(result, 1, prefix)
+		result = newMap.AppendMapPairs(result, 1, newMap.Len())
+		result = coll.AppendMapPairs(result, int(endIdx)+1, length)
 		newColl = types.NewMap(result)
 
 	default:
@@ -367,11 +361,7 @@ func (vm *VM) executeRange() error {
 			return newMooError(types.E_RANGE, "map range end key not found")
 		}
 
-		pairs := collection.Pairs()
-		result := make([][2]types.Value, 0, endIdx-startIdx+1)
-		for i := startIdx; i <= endIdx; i++ {
-			result = append(result, pairs[i-1])
-		}
+		result := collection.AppendMapPairs(nil, int(startIdx), int(endIdx))
 		vm.Push(types.NewMap(result))
 		return nil
 
@@ -441,29 +431,20 @@ func (vm *VM) executeIndexMarker() error {
 		return nil
 
 	case types.TYPE_MAP:
-		keys := coll.Keys()
-		if len(keys) == 0 {
-			// Preserve empty-collection marker shape; downstream index ops return E_RANGE.
-			switch marker {
-			case bytecode.IndexMarkerFirst:
-				vm.Push(types.NewInt(1))
-			case bytecode.IndexMarkerLast:
-				vm.Push(types.NewInt(0))
-			default:
-				return newMooError(types.E_INVARG, "invalid index marker")
-			}
-			return nil
-		}
-
-		// Keys() is already rbtree traversal order (Toast's first/last).
+		var fallback int64
 		switch marker {
 		case bytecode.IndexMarkerFirst:
-			vm.Push(keys[0])
+			fallback = 1
 		case bytecode.IndexMarkerLast:
-			vm.Push(keys[len(keys)-1])
 		default:
 			return newMooError(types.E_INVARG, "invalid index marker")
 		}
+		key, ok := coll.MapBoundaryKey(marker == bytecode.IndexMarkerLast)
+		if !ok {
+			// Downstream indexing of an empty map returns E_RANGE.
+			key = types.NewInt(fallback)
+		}
+		vm.Push(key)
 		return nil
 
 	default:
