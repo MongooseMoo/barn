@@ -200,6 +200,12 @@ func builtinToliteral(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewStr(resultStr))
 }
 
+// PublicLiteral renders value as toliteral() does, the form Toast's
+// unparse_value gives error messages.
+func PublicLiteral(value types.Value) string {
+	return publicLiteral(value)
+}
+
 func publicLiteral(value types.Value) string {
 	switch value.Type() {
 	case types.TYPE_ANON:
