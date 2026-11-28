@@ -220,7 +220,9 @@ func TestQueuedTasksListsSuspendedForkWithoutVerb(t *testing.T) {
 	defer removeTasksForOwner(b.s, owner)
 
 	parent := b.newTask(t, 3341, owner, `
+marker = "before";
 fork child (0)
+  marker = "after";
   suspend(5);
 endfork
 return child;
@@ -238,6 +240,10 @@ return child;
 	}
 	if state := child.GetState(); state != task.TaskSuspended {
 		t.Fatalf("child state = %v, want suspended", state)
+	}
+	vars := child.ToQueuedTaskInfo(true).Get(11)
+	if marker, ok := vars.MapGet(types.NewStr("marker")); !ok || marker.Str() != "after" {
+		t.Fatalf("suspended fork variables = %v, want marker from suspend", vars)
 	}
 	if _, listed := b.listQueued(t, 3342, owner)[childID]; !listed {
 		t.Fatalf("suspended fork %d without a verb missing from queued_tasks()", childID)
