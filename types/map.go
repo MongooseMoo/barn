@@ -101,6 +101,8 @@ func mapKeyMatches(a, b Value) bool {
 		return a.Int() == b.Int()
 	case TYPE_OBJ:
 		return a.Obj() == b.Obj()
+	case TYPE_ANON, TYPE_ERR, TYPE_BOOL:
+		return specialMapKeyScalar(a) == specialMapKeyScalar(b)
 	case TYPE_STR:
 		return equalFoldedASCII(a.Str(), b.Str())
 	case TYPE_FLOAT:
@@ -117,6 +119,15 @@ func mapKeyMatches(a, b Value) bool {
 	default:
 		return a.String() == b.String()
 	}
+}
+
+func specialMapKeyScalar(v Value) uint64 {
+	// Persisted maps can contain unknown error codes. These all used the
+	// same E_UNKNOWN map key before scalar hashing.
+	if v.Type() == TYPE_ERR && v.n > uint64(E_INTRPT) {
+		return uint64(E_INTRPT) + 1
+	}
+	return v.n
 }
 
 // flatEntry is one pair of a flat map with its key's flatKeyHash, so a scan
@@ -203,6 +214,8 @@ func flatKeyHash(v Value) uint64 {
 		h = uint64(v.Int()) * mix
 	case TYPE_OBJ:
 		h = uint64(v.Obj()) * mix
+	case TYPE_ANON, TYPE_ERR, TYPE_BOOL:
+		h = specialMapKeyScalar(v) * mix
 	case TYPE_STR:
 		s := v.Str()
 		h = offset
@@ -556,6 +569,10 @@ func keyHash(v Value) mapHash {
 	}
 	if v.Type() == TYPE_WAIF {
 		return mapHash{typeCode: v.Type(), identity: v.WaifIdentity()}
+	}
+	switch v.Type() {
+	case TYPE_ANON, TYPE_ERR, TYPE_BOOL:
+		return mapHash{typeCode: v.Type(), scalar: specialMapKeyScalar(v)}
 	}
 	return mapHash{typeCode: v.Type(), text: v.String()}
 }
