@@ -712,7 +712,7 @@ func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRef
 	for _, exec := range s.gcParked {
 		collectParkedRoots(exec, anonRefs, waifSet)
 	}
-	for _, t := range s.taskManager.Snapshot() {
+	for _, t := range s.taskManager.Unfinished() {
 		if t == nil || s.gcParked[t.ID] != nil {
 			continue
 		}
@@ -745,7 +745,7 @@ func (s *Runtime) collectExplicitGlobalGCSiblingRefs(exclude *task.State) (anonR
 	}
 	anonRefs = make(map[types.ObjID]struct{})
 	s.collectAdmissionRoots(anonRefs, nil)
-	for _, sibling := range s.taskManager.Snapshot() {
+	for _, sibling := range s.taskManager.Unfinished() {
 		if sibling == nil || (exclude != nil && sibling.ID == exclude.ID) {
 			continue
 		}
@@ -786,7 +786,7 @@ func (s *Runtime) collectSiblingGCRefs(exclude *task.State) (anonRefs map[types.
 	anonRefs = make(map[types.ObjID]struct{})
 	waifSet := types.NewWaifSet(nil)
 	s.collectAdmissionRoots(anonRefs, waifSet)
-	for _, queued := range s.taskManager.Snapshot() {
+	for _, queued := range s.taskManager.Unfinished() {
 		if queued == nil || (exclude != nil && queued.ID == exclude.ID) {
 			continue
 		}

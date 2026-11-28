@@ -14,9 +14,10 @@ type TaskManager struct {
 	mu              sync.RWMutex
 	scheduleChanged chan struct{}
 
-	// unfinished is the catalog's tasks that are neither completed nor killed,
-	// kept exact by State's settlement notifications. unfinishedMu is a leaf lock: it is
-	// taken under a task's lock and never the other way round.
+	// unfinished holds the catalog's unsettled tasks, including terminal tasks
+	// whose physical slice is still running. State's settlement notifications
+	// keep it exact. unfinishedMu is a leaf lock: it is taken under a task's
+	// lock and never the other way round.
 	unfinishedMu sync.Mutex
 	unfinished   map[int64]*Task
 
@@ -219,7 +220,7 @@ func (m *TaskManager) GetQueuedTasks() []*task.State {
 	defer m.mu.RUnlock()
 
 	tasks := make([]*task.State, 0)
-	for _, candidate := range m.tasks {
+	for _, candidate := range m.Unfinished() {
 		state := candidate.GetState()
 		if state == task.TaskQueued || state == task.TaskSuspended || candidate.RunningInBackground() {
 			tasks = append(tasks, &candidate.State)
@@ -237,7 +238,7 @@ func (m *TaskManager) FindReadingTask(player types.ObjID) *Task {
 
 	var oldest *Task
 	var oldestQueueSeq, oldestID int64
-	for _, t := range m.tasks {
+	for _, t := range m.Unfinished() {
 		queueSeq, id, ok := t.ReadingOrder(player)
 		if !ok {
 			continue
