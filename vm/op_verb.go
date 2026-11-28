@@ -91,12 +91,16 @@ func (vm *VM) executeCallVerbNamed(name types.Value, argc int, site *verbCallSit
 }
 
 // verbNotFound is the E_VERBNF a verb call on target raises when no callable
-// verb is named name (a waif call's name carries its ':' prefix). Like Toast's
-// PUSH_X_NOT_FOUND in OP_CALL_VERB, the message names the target and verb and
-// the value is {target, name}.
+// verb is named name (a waif call's name carries its ':' prefix).
 func verbNotFound(target types.Value, name string) MooError {
-	return newMooErrorf(types.E_VERBNF, "Verb not found: %s:%s()", builtins.PublicLiteral(target), name).
-		withMessage().withValue(types.NewList([]types.Value{target, types.NewStr(name)}))
+	var err MooError
+	// Toast's PUSH_X_NOT_FOUND sees int -1 as NOTHING in its receiver union.
+	if target.Type() == types.TYPE_INT && target.Int() == int64(types.ObjNothing) {
+		err = newMooError(types.E_VERBNF, "Verb not found: "+name)
+	} else {
+		err = newMooErrorf(types.E_VERBNF, "Verb not found: %s:%s()", builtins.PublicLiteral(target), name)
+	}
+	return err.withMessage().withValue(types.NewList([]types.Value{target, types.NewStr(name)}))
 }
 
 func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Value) error {
