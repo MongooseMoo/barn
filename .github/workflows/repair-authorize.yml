@@ -1,0 +1,34 @@
+name: Authorize Barn repair
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        type: string
+        required: true
+    outputs:
+      authorized:
+        description: The request satisfies Barn's repair authorization policy
+        value: ${{ jobs.check.outputs.authorized }}
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  check:
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 5
+    outputs:
+      authorized: ${{ steps.policy.outputs.authorized }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: master
+          persist-credentials: false
+      - id: policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+        run: python3 scripts/repair_authority.py "$MODE"

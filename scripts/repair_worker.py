@@ -1,8 +1,6 @@
 """Consume the Barn repair queue from the trusted WSL runner machine."""
 
 import argparse
-import base64
-from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -11,12 +9,13 @@ import subprocess
 import tempfile
 import time
 from urllib.error import URLError
-from urllib.request import Request, urlopen
 
+from repair_authority import (ACTIONS_BOT, BARN, WORKER_BOT, approved_comments, authorized_item,
+                              bot, current_label_actor, pages, writer)
 from repair_provider import classify
+from repair_publisher import PublisherToken
 
 
-BARN = "MongooseMoo/barn"
 SUITE = "MongooseMoo/moo-conformance-tests"
 STAGES = ("conformance", "repair", "investigation")
 RESULT = {
@@ -26,37 +25,6 @@ RESULT = {
     "additionalProperties": False,
 }
 PUBLISHER_TOKEN = None
-
-
-class PublisherToken:
-    def __init__(self, config):
-        self.config = config
-        self.token = None
-        self.expires = 0
-
-    def get(self):
-        now = int(time.time())
-        if self.expires > now + 120:
-            return self.token
-        def encode(value):
-            return base64.urlsafe_b64encode(value).rstrip(b"=")
-        header = encode(b'{"alg":"RS256","typ":"JWT"}')
-        claims = encode(json.dumps({"iat": now - 60, "exp": now + 480,
-                                    "iss": self.config["client_id"]}).encode())
-        unsigned = header + b"." + claims
-        signed = subprocess.run(["openssl", "dgst", "-sha256", "-sign", self.config["key_file"]],
-                                input=unsigned, capture_output=True, check=True, timeout=10).stdout
-        jwt = (unsigned + b"." + encode(signed)).decode()
-        installation = int(self.config["installation_id"])
-        request = Request(f"https://api.github.com/app/installations/{installation}/access_tokens",
-                          data=b'{"repositories":["barn","moo-conformance-tests"]}',
-                          headers={"Authorization": f"Bearer {jwt}", "Accept": "application/vnd.github+json",
-                                   "Content-Type": "application/json", "User-Agent": "Barn repair worker"})
-        with urlopen(request, timeout=30) as response:
-            result = json.load(response)
-        self.token = result["token"]
-        self.expires = datetime.fromisoformat(result["expires_at"].replace("Z", "+00:00")).timestamp()
-        return self.token
 
 
 def run(*args, cwd=None, user=None, data=None, timeout=120, cache=None):
@@ -270,7 +238,7 @@ def queue_repair(root, pr):
 def process(args, stage, item):
     number = item["number"]
     label(number, "codex-running", True)
-    report = {"item": item, "comments": api(f"repos/{BARN}/issues/{number}/comments")}
+    report = {"item": item, "comments": list(approved_comments(api, number))}
     if stage == "conformance":
         report["pull"] = api(f"repos/{BARN}/pulls/{number}")
     elif stage == "repair":
@@ -354,13 +322,21 @@ def process(args, stage, item):
 
 def cycle(args):
     for stage in STAGES:
-        queue = api(f"repos/{BARN}/issues?state=all&labels=codex-{stage}&sort=created&direction=asc&per_page=100")
+        requested_label = f"codex-{stage}"
+        queue = list(pages(api, f"repos/{BARN}/issues?state=all&labels={requested_label}&sort=created&direction=asc"))
         for item in queue:
             number = item["number"]
             if args.number and number != args.number:
                 continue
             if stage != "conformance" and item["state"] != "open":
-                label(number, f"codex-{stage}", False)
+                label(number, requested_label, False)
+                continue
+            if not authorized_item(api, stage, item):
+                print(f"Skipping unauthorized {stage} request #{number}: issue or PR opener", flush=True)
+                continue
+            actor = current_label_actor(api, number, {requested_label})
+            if not (bot(actor, ACTIONS_BOT, WORKER_BOT) or writer(api, actor)):
+                print(f"Skipping unauthorized {stage} request #{number}: label actor", flush=True)
                 continue
             try:
                 done = process(args, stage, item)

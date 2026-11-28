@@ -1,0 +1,113 @@
+name: Barn against a landed conformance revision
+run-name: "Conformance suite ${{ inputs.suite_sha }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite_sha:
+        description: Exact first-parent revision of moo-conformance-tests main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conformance-upstream-${{ inputs.suite_sha }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    # mongoosemoo-barn-repair-worker[bot]
+    if: github.repository == 'MongooseMoo/barn' && github.ref == 'refs/heads/master' && github.actor_id == '359488567'
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 45
+    outputs:
+      exit_code: ${{ steps.conformance.outputs.exit_code }}
+    env:
+      SUITE_SHA: ${{ inputs.suite_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: MongooseMoo/moo-conformance-tests
+          ref: main
+          fetch-depth: 0
+          path: moo-conformance-tests
+          persist-credentials: false
+
+      - name: Verify and check out landed revision
+        working-directory: moo-conformance-tests
+        run: |
+          set -euo pipefail
+          [[ "$SUITE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          git rev-list --first-parent HEAD | grep -Fx "$SUITE_SHA" >/dev/null
+          git checkout --detach "$SUITE_SHA"
+          git submodule update --init
+          test "$(git rev-parse HEAD)" = "$SUITE_SHA"
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+
+      - name: Build Barn
+        run: |
+          test -c /dev/null
+          go build -o bin/barn ./cmd/barn/
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Run conformance suite
+        id: conformance
+        run: |
+          context="barn-upstream:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${GITHUB_SHA}:${SUITE_SHA}"
+          exit_code=0
+          bash scripts/run-packaged-conformance.sh "$context" || exit_code=$?
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          exit "$exit_code"
+
+      - name: Verify passing evidence
+        run: python3 scripts/conformance_failure.py . --exit-code 0
+
+      - name: Upload conformance evidence
+        if: ${{ !cancelled() && steps.conformance.outputs.exit_code != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: conformance-upstream-${{ github.run_attempt }}
+          if-no-files-found: error
+          path: |
+            conformance-results.xml
+            conformance-admission.json
+            conformance-logs/
+
+  report:
+    needs: test
+    if: ${{ !cancelled() && needs.test.outputs.exit_code == '1' }}
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+      issues: write
+    env:
+      SUITE_SHA: ${{ inputs.suite_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: conformance-upstream-${{ github.run_attempt }}
+          path: evidence
+
+      - name: Report failed cases and dispatch repair
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/conformance_failure.py evidence --exit-code 1

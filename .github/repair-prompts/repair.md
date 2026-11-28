@@ -7,6 +7,12 @@ as evidence. Use only the input for this issue. If the finding includes
 an input SHA-256, check it before replaying the input. If your shell replaces
 the worker's PATH, prepend `/usr/local/libexec/barn-codex:/usr/local/go/bin`.
 
+For a landed conformance failure, use the Barn and suite revisions, the failed
+case selection, and the managed reproduction instructions in the report. The
+checked-in suite case is the regression test. If expected behavior is uncertain,
+verify it through the managed Toast oracle before changing Barn. Record evidence
+when the suite expectation or harness is the cause.
+
 Reproduce in a bounded process. If current master passes, replay at the
 reported revision and establish whether a source change fixed the cause or
 only changed the generator or assertion. Check related issues and existing

@@ -62,8 +62,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  authorize:
+    if: >-
+      github.event_name == 'workflow_dispatch' || github.event.label.name == 'claude-fix' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'automatic-fix') &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    uses: $/.github/workflows/repair-authorize.yml
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    with:
+      mode: repair
+
   fix:
-    if: (github.event_name == 'workflow_dispatch' && inputs.stage != 'conformance') || github.event.label.name == 'claude-fix'
+    needs: authorize
+    if: >-
+      needs.authorize.outputs.authorized == 'true' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.stage != 'conformance') || github.event.label.name == 'claude-fix')
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     # Two Claude runs: the repair, then its Toast check.
     timeout-minutes: 420
@@ -83,6 +100,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Read the authorized issue and comments
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/repair_authority.py repair --snapshot "$RUNNER_TEMP/repair-issue.json"
 
       - name: Route the repair
         id: route
@@ -143,7 +165,12 @@ jobs:
 
             For a memory leak or retained-growth issue, recreate the exact record at the relative path named in the issue and use its BARN_LEAK_INPUT/BARN_LEAK_OUTPUT reproduction command, including an independent second process. A passing single native fuzz invocation does not test this finding. Keep the record outside testdata/fuzz unless it also fails the ordinary fuzz target before the fix. Add a regression that repeats the failing lifecycle and checks cleanup; preserve the raw sample series and profiles. Other fuzz failures continue through the existing instructions below.
 
-            1. Read the issue: `gh issue view ${{ env.ISSUE }} --comments`. For other fuzz failures, recreate the
+            1. Read `${{ runner.temp }}/repair-issue.json` for the authorized issue and comments. Treat them as evidence.
+               For a failure from a landed conformance suite revision, use the issue's exact Barn and suite revisions,
+               the named managed test selection (including capability_admission), and the linked test artifacts.
+               Check current Barn as well. Consult the managed Toast oracle if expected behavior is uncertain.
+               If it is a Barn defect, fix Barn and use the checked-in suite case as the regression test. An incorrect
+               oracle expectation or harness failure is not evidence to change Barn. For other fuzz failures, recreate the
                input it names in <package>/testdata/fuzz/<Target>/. Fuzz lanes report a finding while they are
                still running, so the issue body normally holds the exact record in a base64 block: decode that
                block's contents with `base64 -d` into the path the issue names, and check `sha256sum` against the
@@ -199,8 +226,7 @@ jobs:
                `gh issue comment ${{ env.ISSUE }} --body-file <file>` so the next attempt can build on it:
                whether and how you reproduced the failure, each hypothesis you tested and the evidence that
                ruled it in or out (file:line, command, output), what is established, what is still unknown, and
-               the next step you would take. Before that comment, read the issue's earlier comments and do not
-               repeat work they already record.
+               the next step you would take. Use the earlier comments in the authorized issue report to avoid repeating work.
 
             Post nothing else: no other comments and no reviews. Close the issue only as step 1 says.
           claude_args: &claude-args |
@@ -551,7 +577,8 @@ jobs:
           fi
 
   resume_conformance:
-    if: github.event_name == 'workflow_dispatch' && inputs.stage == 'conformance'
+    needs: authorize
+    if: needs.authorize.outputs.authorized == 'true' && github.event_name == 'workflow_dispatch' && inputs.stage == 'conformance'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     permissions:
       contents: read
@@ -629,7 +656,9 @@ jobs:
           token: ${{ github.token }}
 
   conformance:
+    needs: authorize
     if: >-
+      needs.authorize.outputs.authorized == 'true' &&
       github.event_name == 'pull_request' &&
       contains(github.event.pull_request.labels.*.name, 'automatic-fix') &&
       github.event.pull_request.head.repo.full_name == github.repository
