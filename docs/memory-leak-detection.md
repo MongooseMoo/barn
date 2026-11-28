@@ -55,6 +55,14 @@ cgroup `memory.events`/`memory.stat` and tmpfs usage are runner context, not
 attributable bytes from one input. Unsupported platform measurements are marked
 unavailable. The descriptor oracle is Linux-only.
 
+The checkpoint resume discovery lane keeps `runner-memory-NNN.log` in the
+existing retained logs for each attempt. It contains listener cgroup memory
+usage, limit, composition and event counters from before the command, the
+highest sample observed at five-second intervals, and after the command.
+Compare the before and after `oom_kill` counters for evidence of a kill in
+that cgroup during the attempt. The kernel log is needed to name the killed
+process. A sample can miss a fast peak, and a killed worker can leave no input.
+
 Go GC never substitutes for Barn anonymous/WAIF cleanup. Replay does not call
 `run_gc` to conceal an automatic-cleanup defect. Append histories, recorder
 buffers, intentionally suspended tasks and a growing world cannot be subjected

@@ -44,17 +44,22 @@ def test_process_findings(directory):
     return findings
 
 
+def runner_cgroup(membership, root=Path("/sys/fs/cgroup")):
+    lines = membership.read_text().splitlines()
+    group = next(line[3:] for line in lines if line.startswith("0::"))
+    root = root.resolve()
+    path = (root / group.lstrip("/")).resolve()
+    if not path.is_relative_to(root):
+        raise ValueError("cgroup path escapes mount")
+    return path
+
+
 def runner_context(directory, membership):
     """Shared-runner context only; never attribute these deltas to an input."""
     directory.mkdir(parents=True, exist_ok=True)
     result = {"runner_scope": "shared cgroup/tmpfs; not attributable to one PID or input"}
     try:
-        lines = membership.read_text().splitlines()
-        group = next(line[3:] for line in lines if line.startswith("0::"))
-        root = Path("/sys/fs/cgroup").resolve()
-        path = (root / group.lstrip("/")).resolve()
-        if not path.is_relative_to(root):
-            raise ValueError("cgroup path escapes mount")
+        path = runner_cgroup(membership)
         for name in ("memory.events", "memory.stat", "memory.current"):
             (directory / name).write_bytes((path / name).read_bytes())
     except (OSError, ValueError, StopIteration) as error:
@@ -65,6 +70,62 @@ def runner_context(directory, membership):
     except (OSError, AttributeError) as error:
         result["tmpfs_error"] = str(error)
     return result
+
+
+def observe_runner_memory(command, output, membership=Path("/proc/self/cgroup"),
+                          root=Path("/sys/fs/cgroup"), interval=5):
+    """Keep three bounded shared-runner samples even when the command fails."""
+    evidence = {"scope": "shared runner cgroup; no attribution to a PID or input",
+                "interval_seconds": interval}
+    try:
+        group = runner_cgroup(membership, root)
+        evidence["cgroup"] = str(group.relative_to(root.resolve()))
+    except (OSError, ValueError, StopIteration) as error:
+        group = None
+        evidence["cgroup_error"] = str(error) or "no cgroup v2 membership"
+
+    def sample():
+        observed = {"monotonic_ns": time.monotonic_ns(), "errors": {}}
+        if group is not None:
+            for name in ("memory.current", "memory.max", "memory.events", "memory.stat"):
+                try:
+                    value = (group / name).read_text().strip()
+                    observed[name] = int(value) if name == "memory.current" else value
+                except (OSError, ValueError) as error:
+                    observed["errors"][name] = str(error)
+        return observed
+
+    def save():
+        try:
+            temporary = output.with_suffix(".tmp")
+            temporary.write_text(json.dumps(evidence, indent=2) + "\n")
+            temporary.replace(output)
+        except OSError as error:
+            print(f"::warning::Checkpoint memory evidence unavailable: {error}", file=sys.stderr)
+
+    evidence["before"] = evidence["highest_sample"] = sample()
+    save()
+    try:
+        child = subprocess.Popen(command)
+    except OSError as error:
+        status = 127 if isinstance(error, FileNotFoundError) else 126
+        evidence["launch_error"] = str(error)
+        print(error, file=sys.stderr)
+    else:
+        with child as process:
+            while True:
+                try:
+                    status = process.wait(timeout=interval)
+                    break
+                except subprocess.TimeoutExpired:
+                    observed = sample()
+                    if observed.get("memory.current", -1) > evidence["highest_sample"].get("memory.current", -1):
+                        evidence["highest_sample"] = observed
+                        save()
+    evidence["after"] = sample()
+    evidence["exit_code"] = status if status >= 0 else 128 - status
+    save()
+    return evidence["exit_code"]
 
 
 def capture_owned(server, directory):
@@ -221,11 +282,19 @@ def replay(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cache", type=Path, required=True)
-    parser.add_argument("--target", choices=["FuzzSourceExecution", "FuzzStructuredSourceExecution"], required=True)
+    parser.add_argument("--cache", type=Path)
+    parser.add_argument("--target", choices=["FuzzSourceExecution", "FuzzStructuredSourceExecution"])
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seconds", type=int, default=60)
+    parser.add_argument("--observe-runner", action="store_true", help="capture runner memory around a command")
+    parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.observe_runner:
+        if args.command[:1] != ["--"] or len(args.command) < 2:
+            parser.error("--observe-runner requires -- followed by a command")
+        return observe_runner_memory(args.command[1:], args.output)
+    if args.cache is None or args.target is None or args.command:
+        parser.error("replay requires --cache and --target")
     if args.seconds < 5 or args.seconds > 90:
         parser.error("--seconds must be 5..90")
     return replay(args)
