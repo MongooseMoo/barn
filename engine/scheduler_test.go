@@ -17,6 +17,38 @@ func testTask(id int64, at time.Time) *Task {
 	return t
 }
 
+func TestReadyUsesWaitingOrderAndChecksFullDeadline(t *testing.T) {
+	s := newScheduler(1, func(*Task) bool { return false }, func(*Task) error { return nil })
+	t.Cleanup(s.Stop)
+	now := time.Now()
+	later := now.Add(time.Second)
+
+	startsLater := testTask(1, later)
+	startsLater.WakeTime = now.Add(-time.Second)
+	s.Enqueue(startsLater)
+	due := testTask(2, now)
+	s.Enqueue(due)
+	wakesLater := testTask(3, now)
+	wakesLater.WakeTime = later
+	s.Enqueue(wakesLater)
+
+	if ready := s.Ready(now, nil); len(ready) != 1 || ready[0] != due {
+		t.Fatalf("ready at initial scan = %v, want only task %d", ready, due.ID)
+	}
+	if s.waiting.Len() != 1 || s.waiting.Peek() != wakesLater {
+		t.Fatalf("waiting after initial scan = %v, want only task %d", s.waiting, wakesLater.ID)
+	}
+	if ready := s.Ready(now, nil); len(ready) != 0 {
+		t.Fatalf("ready at repeated scan = %v, want none", ready)
+	}
+	if wake := s.NextWake(now, nil); wake != later {
+		t.Fatalf("next wake = %v, want %v", wake, later)
+	}
+	if ready := s.Ready(later, nil); len(ready) != 2 || ready[0] != startsLater || ready[1] != wakesLater {
+		t.Fatalf("ready at deadline = %v, want tasks %d and %d", ready, startsLater.ID, wakesLater.ID)
+	}
+}
+
 func TestReadyBatchRetainsAdmittedTasksAheadOfNewCompletions(t *testing.T) {
 	s := newScheduler(1, func(*Task) bool { return false }, func(*Task) error { return nil })
 	t.Cleanup(s.Stop)
