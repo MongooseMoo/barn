@@ -7,8 +7,8 @@ import datetime  # noqa: E402
 from unittest import mock  # noqa: E402
 
 import conformance_suite_alarm  # noqa: E402
-from conformance_suite_alarm import (WEEK, investigate, issue, spread, step_seconds, test_count,  # noqa: E402
-                                     verdict, weeks)
+from conformance_suite_alarm import (WEEK, Sample, investigate, issue, parse_report, run_report,  # noqa: E402
+                                     runtime_report, spread, timed_sample, verdict, weeks)
 
 NOW = datetime.datetime(2026, 11, 15, 21, 0, tzinfo=datetime.timezone.utc)
 
@@ -17,7 +17,7 @@ STEADY = [662, 670, 675, 680, 683, 690, 701, 724]
 
 
 def job(conclusion="success", start="2026-11-11T08:00:00Z", end="2026-11-11T08:11:20Z"):
-    return {"name": "MOO conformance suite", "steps": [
+    return {"name": "MOO conformance suite", "run_id": 17, "html_url": "job/23", "runner_name": "barn-06", "steps": [
         {"name": "Build barn", "conclusion": "success",
          "started_at": "2026-11-11T07:59:00Z", "completed_at": "2026-11-11T08:00:00Z"},
         {"name": "Run conformance suite", "conclusion": conclusion, "started_at": start, "completed_at": end}]}
@@ -72,18 +72,54 @@ class WeekTests(unittest.TestCase):
 
 class SampleTests(unittest.TestCase):
     def test_step_seconds_reads_the_suite_step(self):
-        self.assertEqual(step_seconds([{"name": "Build & unit tests", "steps": []}, job()]), 680)
+        self.assertEqual(timed_sample([{"name": "Build & unit tests", "steps": []}, job()]),
+                         Sample(17, "job/23", "barn-06", 680))
 
     def test_skipped_or_failed_suite_has_no_time(self):
-        self.assertIsNone(step_seconds([job(conclusion="skipped")]))
-        self.assertIsNone(step_seconds([job(conclusion="failure")]))
-        self.assertIsNone(step_seconds([{"name": "MOO conformance suite", "steps": []}]))
-        self.assertIsNone(step_seconds([]))
+        self.assertIsNone(timed_sample([job(conclusion="skipped")]))
+        self.assertIsNone(timed_sample([job(conclusion="failure")]))
+        self.assertIsNone(timed_sample([{"name": "MOO conformance suite", "steps": []}]))
+        self.assertIsNone(timed_sample([]))
 
     def test_test_count_counts_cases_in_nested_suites(self):
         report = ('<testsuites><testsuite tests="3"><testcase name="a"/><testcase name="b">'
                   '<failure/></testcase><testcase name="c"/></testsuite></testsuites>')
-        self.assertEqual(test_count(report), 3)
+        parsed = parse_report(report)
+        self.assertEqual(parsed.count, 3)
+        self.assertIsNone(parsed.times)
+
+    def test_weekly_attribution_uses_all_runs_and_includes_removed_cases(self):
+        earlier = [Sample(1, "job/1", "one", 10), Sample(2, "job/2", "two", 14)]
+        recent = [Sample(3, "job/3", "two", 20)]
+        reports = {
+            1: parse_report('<testsuite><testcase name="removed" time="4"/></testsuite>'),
+            2: parse_report('<testsuite><testcase name="stayed" time="2"/></testsuite>'),
+            3: parse_report('<testsuite><testcase name="stayed" time="2"/><testcase name="test_yaml[a.yaml::b]" time="3"/>'
+                            '<testcase name="test_yaml[a.yaml::b]" time="4"/></testsuite>')}
+        body = issue(["runtime changed"], "alarm", runtime_report(earlier, recent, reports))["body"]
+        for line in ("3/3", "**+8.00 s**", "earlier week: +7.00 s", "including removals: -1.00 s",
+                     "outside JUnit case timers: +2.00 s", "`a.yaml`: +7.00 s", "[2](job/2) | `two` | 14 s"):
+            self.assertIn(line, body)
+
+    def test_missing_artifacts_are_named_and_do_not_become_zero_time(self):
+        earlier = [Sample(1, "job/1", "one", 10)]
+        recent = [Sample(2, "job/2", "two", 20)]
+        for artifacts, problem in (([], "artifact missing"), ([{"name": "conformance-results", "expired": True}],
+                                                              "artifact expired")):
+            with self.subTest(problem=problem), mock.patch.object(conformance_suite_alarm, "api",
+                                                                  return_value={"artifacts": artifacts}):
+                body = runtime_report(earlier, recent, {1: run_report("r", 1), 2: parse_report("<testsuite/>")})
+                self.assertIn("1/2", body)
+                self.assertIn(f"[1](job/1) | `one` | 10 s | {problem}", body)
+                self.assertNotIn("outside JUnit case timers:", body)
+
+    def test_damaged_zip_is_reported_as_unavailable(self):
+        artifact = {"name": "conformance-results", "expired": False, "id": 1}
+        with mock.patch.object(conformance_suite_alarm, "api", side_effect=[{"artifacts": [artifact]}, b"damaged"]):
+            report = run_report("r", 17)
+        self.assertIsNone(report.count)
+        self.assertIsNone(report.times)
+        self.assertEqual(report.problem, "unreadable JUnit report")
 
     def test_issue_carries_the_reasons_and_the_label(self):
         made = issue(["The suite ran 13790 tests; the run before it ran 13804."], "https://example.test/run/1")
