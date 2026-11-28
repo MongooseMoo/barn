@@ -348,7 +348,7 @@ func (s *scheduler) readyLocked(now time.Time, catalog []*Task) []*Task {
 	seen := make(map[int64]bool, len(s.pending))
 	for _, t := range s.pending {
 		if t.GetState() == task.TaskQueued && !seen[t.ID] {
-			if blocked[&t.State] || t.ReadyDeadline(now).IsZero() {
+			if deadline := t.ReadyDeadline(now); blocked[&t.State] || deadline.IsZero() || deadline.After(now) {
 				held = append(held, t)
 			} else {
 				admitted = append(admitted, t)
@@ -360,8 +360,7 @@ func (s *scheduler) readyLocked(now time.Time, catalog []*Task) []*Task {
 	var ready []*Task
 	for s.waiting.Len() > 0 {
 		t := s.waiting.Peek()
-		start, _, _ := t.SchedulingSnapshot()
-		if start.After(now) {
+		if s.waitingOrderLocked(t).After(now) {
 			break
 		}
 		heap.Pop(&s.waiting)
@@ -369,7 +368,7 @@ func (s *scheduler) readyLocked(now time.Time, catalog []*Task) []*Task {
 			t.waiting.Store(nil)
 		}
 		if t.GetState() == task.TaskQueued && !seen[t.ID] {
-			if blocked[&t.State] || t.ReadyDeadline(now).IsZero() {
+			if deadline := t.ReadyDeadline(now); blocked[&t.State] || deadline.IsZero() || deadline.After(now) {
 				s.pending = append(s.pending, t)
 			} else {
 				ready = append(ready, t)
