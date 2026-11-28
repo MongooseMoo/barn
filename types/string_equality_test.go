@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func BenchmarkStringEqual(b *testing.B) {
 	for _, tc := range []struct{ name, value string }{
@@ -37,6 +40,13 @@ func TestStringEqualityMatchesNormalizedComparison(t *testing.T) {
 				}
 			}
 		}
+	}
+	word := "shared text"
+	if !NewStr(word).Equal(NewStr(strings.Clone(word))) {
+		t.Fatal("short identical strings with separate storage should compare equal")
+	}
+	if NewStr(word).Equal(NewStr(word[:6])) {
+		t.Fatal("strings with the same starting address and different lengths should not compare equal")
 	}
 }
 

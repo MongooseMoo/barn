@@ -82,7 +82,10 @@ func equalFoldedASCII(a, b string) bool {
 }
 
 func equalStrings(a, b string) bool {
-	if a == b {
+	// Shared storage is already equal at the same length. For short
+	// strings with separate storage, compare once in the loop below.
+	// Keep the optimized byte comparison for longer identical strings.
+	if len(a) == len(b) && (unsafe.StringData(a) == unsafe.StringData(b) || len(a) >= 16 && a == b) {
 		return true
 	}
 	n := min(len(a), len(b))
