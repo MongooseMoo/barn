@@ -522,8 +522,10 @@ func (c *lowerer) compileExprStmt(n *ir.ExprStmt) error {
 			if bin, ok := assign.Value.(*ir.BinaryExpr); ok && bin.Operator == ir.BinaryAdd {
 				if leftIdent, ok := bin.Left.(*ir.IdentifierExpr); ok && canonicalIdentifier(leftIdent.Name) == canonicalIdentifier(ident.Name) {
 					idx := c.declareVariable(ident.Name)
-					c.emit(bytecode.OP_GET_VAR)
-					c.emitByte(byte(idx))
+					// A suspended right operand keeps the value of this read on the stack.
+					if err := c.compileNode(leftIdent); err != nil {
+						return err
+					}
 					if err := c.compileNode(bin.Right); err != nil {
 						return err
 					}
