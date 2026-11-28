@@ -1,4 +1,4 @@
-"""fuzz_ops parsing and verdicts against raw output captured on 2026-11-10."""
+"""fuzz_ops parsing and verdicts against captured workflow and runner output."""
 
 from datetime import datetime, timezone
 import json
@@ -37,6 +37,36 @@ class FuzzOpsTests(unittest.TestCase):
         self.assertEqual(c["running"][0], {"name": "FuzzWorldCheckpointEffects", "minutes": 18})
         self.assertIsNone(c["accept"])
         self.assertIsNone(c["idle_minutes"])
+
+    def test_differential_counts_as_a_discovery_lane(self):
+        run = {
+            "databaseId": 46116919675, "displayTitle": "Nightly fuzz / dedicated-continuous",
+            "status": "completed", "conclusion": "failure",
+            "createdAt": "2026-11-28T06:30:30Z", "updatedAt": "2026-11-28T09:43:51Z",
+        }
+        differential = {"name": "ToastDifferential", "status": "completed", "conclusion": "failure",
+                        "startedAt": "2026-11-28T08:42:53Z"}
+        routing = {"name": "Validate compute routing", "status": "completed", "conclusion": "success",
+                   "startedAt": "2026-11-28T06:30:34Z"}
+        running = fuzz_ops.summarize_cycle(
+            {**run, "status": "in_progress", "conclusion": ""},
+            [routing, {**differential, "status": "in_progress", "conclusion": ""}],
+            fuzz_ops.parse_time("2026-11-28T09:00:00Z"),
+        )
+        self.assertEqual((running["lanes_total"], running["lanes_done"]), (1, 0))
+        self.assertEqual(running["running"], [{"name": "ToastDifferential", "minutes": 17}])
+        self.assertIsNone(running["accept"])
+
+        completed = fuzz_ops.summarize_cycle(run, [
+            routing, differential,
+            {"name": "Accept discovery cycle", "status": "completed", "conclusion": "success",
+             "startedAt": "2026-11-28T09:41:53Z"},
+            {"name": "Submit continuous successor", "status": "completed", "conclusion": "success",
+             "startedAt": "2026-11-28T09:43:41Z"},
+        ], fuzz_ops.parse_time(run["updatedAt"]))
+        self.assertEqual((completed["lanes_total"], completed["lanes_done"]), (1, 1))
+        self.assertEqual(completed["red"], ["ToastDifferential"])
+        self.assertEqual(completed["accept"], "success")
 
     def test_real_guest_and_host_probe(self):
         # Slice installed, listeners not yet restarted into it (2026-11-10).
