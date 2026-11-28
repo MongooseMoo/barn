@@ -429,22 +429,14 @@ func (s *Runtime) ResumeReadingTask(player types.ObjID, line string) bool {
 	return true
 }
 
-// CleanupFinishedTasks removes completed and killed tasks from both the
-// runtime's own table and its task manager. Without this, every task
+// CleanupFinishedTasks removes settled tasks from the task manager. Without this, every task
 // (including unauthenticated pre-login do_login_command tasks) accumulates
 // forever — an unbounded-growth / DoS vector on the pre-auth path. Only
 // terminal tasks are removed; suspended/queued/running tasks are left intact.
 func (s *Runtime) CleanupFinishedTasks() {
-	for _, t := range s.taskManager.Snapshot() {
-		if t == nil {
-			continue
-		}
-		st := t.GetState()
-		if st == task.TaskCompleted || st == task.TaskKilled {
-			if ctx := t.ContextValue(); ctx != nil {
-				ctx.CommandDiagnostic.TaskFinished(t.ID, st.String())
-			}
-			s.taskManager.RemoveTaskIf(t.ID, t)
+	for _, t := range s.taskManager.cleanupCompletedTasks() {
+		if ctx := t.ContextValue(); ctx != nil {
+			ctx.CommandDiagnostic.TaskFinished(t.ID, t.GetState().String())
 		}
 	}
 }
