@@ -86,3 +86,24 @@ func BenchmarkMapTreeRange(b *testing.B) {
 		}
 	})
 }
+
+func TestMapOrderedRangeUnicodeFold(t *testing.T) {
+	pairs := [][2]Value{
+		{NewStr("z"), NewInt(1)},
+		{NewStr("K"), NewInt(2)},
+		{NewStr("m"), NewInt(3)},
+	}
+	for _, m := range []Value{NewMap(pairs), NewMap(pairs).MapSet(NewStr("k"), NewInt(4))} {
+		bound := NewStr("k")
+		want := int64(0)
+		for i, pair := range m.Pairs() {
+			if pair[0].Equal(bound) {
+				want = int64(i + 1)
+				break
+			}
+		}
+		if got := m.KeyPosition(bound); want == 0 || got != want {
+			t.Fatalf("lookup position = %d, want first Unicode fold match %d", got, want)
+		}
+	}
+}

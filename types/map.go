@@ -376,10 +376,11 @@ func (m *goMap) mayHoldFinalizable() bool {
 }
 
 type toastLookupNode struct {
-	entry mapEntry
-	red   bool
-	size  int
-	link  [2]*toastLookupNode
+	entry             mapEntry
+	red               bool
+	nonASCIIStringKey bool
+	size              int
+	link              [2]*toastLookupNode
 }
 
 func (n *toastLookupNode) subtreeSize() int {
@@ -394,7 +395,20 @@ func (n *toastLookupNode) countSubtree() int {
 		return 0
 	}
 	n.size = 1 + n.link[0].countSubtree() + n.link[1].countSubtree()
+	n.nonASCIIStringKey = n.entry.key.Type() == TYPE_STR && containsNonASCII(n.entry.key.Str())
+	for _, child := range n.link {
+		n.nonASCIIStringKey = n.nonASCIIStringKey || (child != nil && child.nonASCIIStringKey)
+	}
 	return n.size
+}
+
+func containsNonASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= 0x80 {
+			return true
+		}
+	}
+	return false
 }
 
 // toastTypeOrdinal returns Toast's RUNTIME type value for cross-type map key
@@ -963,11 +977,14 @@ func CompareMapKeys(a, b Value) int { return toastMapCompare(a, b, false) }
 // KeyPosition returns the 1-based position of key, or 0 if not found.
 func (v Value) KeyPosition(key Value) int64 {
 	root := v.goMap().toastRoot()
+	if root == nil {
+		return 0
+	}
 	if !IsValidMapKey(key) || key.Type() == TYPE_FLOAT || key.Type() == TYPE_ERR ||
-		(key.Type() == TYPE_STR && strings.IndexFunc(key.Str(), func(r rune) bool { return r < ' ' || r == '~' }) >= 0) {
-		// Range endpoints match by Equal. Escaped control characters may
-		// compare equal at a different position. Float comparison with NaN
-		// and extreme error-code differences can also break tree search.
+		(key.Type() == TYPE_STR && (root.nonASCIIStringKey || strings.IndexFunc(key.Str(), func(r rune) bool { return r < ' ' || r == '~' || r >= 0x80 }) >= 0)) {
+		// Range endpoints match by Equal. Unicode folding and escaped control
+		// characters can match a key outside the tree search path. Float
+		// comparison with NaN and extreme error codes can also break search.
 		return int64(root.equalPosition(key))
 	}
 	position := 0
