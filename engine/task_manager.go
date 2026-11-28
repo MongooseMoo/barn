@@ -134,11 +134,16 @@ func (m *TaskManager) noteFinished(t *Task, finished bool) {
 // does not put it back among the unfinished. The caller holds m.mu.
 func (m *TaskManager) forget(t *Task) {
 	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	m.forgetLocked(t)
+}
+
+// forgetLocked detaches t with both m.mu and t.Mu held.
+func (m *TaskManager) forgetLocked(t *Task) {
 	if t.catalog == m {
 		t.catalog = nil
 	}
 	m.noteFinished(t, true)
-	t.Mu.Unlock()
 }
 
 // RemoveTask removes a task from the manager
@@ -251,21 +256,26 @@ func (m *TaskManager) FindReadingTask(player types.ObjID) *Task {
 	return oldest
 }
 
-// CleanupCompletedTasks removes completed and killed tasks
-// Should be called periodically
+// CleanupCompletedTasks removes terminal tasks once their physical slices end.
 func (m *TaskManager) CleanupCompletedTasks() {
+	m.cleanupCompletedTasks()
+}
+
+func (m *TaskManager) cleanupCompletedTasks() []*Task {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	var removed []*Task
 	for id, candidate := range m.tasks {
-		state := candidate.GetState()
-		if state == task.TaskCompleted || state == task.TaskKilled {
-			// Keep tasks for a while for debugging, but eventually remove them
-			// For now, remove immediately
-			m.forget(candidate)
+		candidate.Mu.Lock()
+		if candidate.SettledLocked() {
+			m.forgetLocked(candidate)
 			delete(m.tasks, id)
+			removed = append(removed, candidate)
 		}
+		candidate.Mu.Unlock()
 	}
+	return removed
 }
 
 // FindTaskState exposes language-visible state to builtin consumers.

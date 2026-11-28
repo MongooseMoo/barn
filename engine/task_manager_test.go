@@ -208,6 +208,51 @@ func TestUnfinishedKeepsFinishedTaskUntilItsSliceEnds(t *testing.T) {
 	}
 }
 
+func TestCleanupKeepsTerminalTasksUntilTheirSlicesEnd(t *testing.T) {
+	manager := NewTaskManager()
+	runtime := &Runtime{taskManager: manager}
+	parent := NewTask(1, 2, 100, 5)
+	manager.RegisterTask(parent)
+	for id, final := range []task.TaskState{task.TaskKilled, task.TaskCompleted} {
+		child := NewTask(int64(id)+2, 2, 100, 5)
+		manager.RegisterTask(child)
+		child.SetReadier(&parent.State)
+		if !child.StartExecution() {
+			t.Fatal("child did not start")
+		}
+		child.SetState(final)
+
+		for _, cleanup := range []struct {
+			name string
+			run  func()
+		}{
+			{"manager", manager.CleanupCompletedTasks},
+			{"runtime", runtime.CleanupFinishedTasks},
+		} {
+			cleanup.run()
+			if manager.GetTask(child.ID) != child {
+				t.Fatalf("%s cleanup removed executing %s task", cleanup.name, final)
+			}
+			blocked := false
+			for _, candidate := range manager.Unfinished() {
+				if candidate.PendingReadier(time.Now()) == &parent.State {
+					blocked = true
+					break
+				}
+			}
+			if !blocked {
+				t.Fatalf("%s cleanup unblocked the readier of an executing %s task", cleanup.name, final)
+			}
+		}
+
+		child.SetExecutionActive(false)
+		runtime.CleanupFinishedTasks()
+		if manager.GetTask(child.ID) != nil {
+			t.Fatalf("runtime cleanup retained a settled %s task", final)
+		}
+	}
+}
+
 func TestFindReadingTaskBreaksEqualQueueSequenceByTaskID(t *testing.T) {
 	const player types.ObjID = 7
 	manager := NewTaskManager()
