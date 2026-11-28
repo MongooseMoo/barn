@@ -305,3 +305,54 @@ func TestEvalNestedAssignmentThroughNonCollectionRaisesType(t *testing.T) {
 		}
 	}
 }
+
+// locate_by_name() matches its needle as given (Toast objects.cc
+// locate_by_name_callback with utils.cc strindex): neither the needle nor the
+// object names are trimmed, and an empty needle occurs in every name, so ""
+// returns every valid object. Each expectation was observed on the Toast
+// oracle (ToastStunt 2.8.0_7). Issue #1207: the ToastDifferential program
+// below raised E_RANGE from locate_by_name("")[^] where Toast's
+// locate_by_name("") is nonempty, so the catch expression yields the list l
+// and the map literal raises E_TYPE for that list key.
+func TestEvalLocateByNameMatchesUntrimmedNeedle(t *testing.T) {
+	store := dbstore.NewStore()
+	names := []string{"System Object", " Trail ", "a b", "Wizard"}
+	for id := types.ObjID(0); id <= 3; id++ {
+		b := dbstore.NewObjectBuilder(id)
+		b.SetOwner(3)
+		b.SetLocation(types.ObjNothing)
+		b.SetName(names[id])
+		b.SetFlags(dbstore.FlagRead)
+		if id == 3 {
+			b.SetFlags(dbstore.FlagWizard | dbstore.FlagProgrammer | dbstore.FlagUser | dbstore.FlagRead)
+		}
+		if err := store.Add(b.Build()); err != nil {
+			t.Fatalf("add #%d: %v", id, err)
+		}
+	}
+	cases := []struct{ input, want string }{
+		{"n = 9223372036854775807;\nf = 1e-07;\ns = \"\\\\e\t$%\";\n" +
+			"l = {9223372036854775807, 9223372036854775807, \"\\\\$%1a\"};\n" +
+			"m = [\"b\" -> 10, 10 -> \"\t$%\"];\no = #-2;\n" +
+			"n = ([#0 -> l, \"\\\\1a\\\\a\\\\\" -> {2, 2}, `l ! E_INTRPT, locate_by_name(\"\")[^] => n' -> 131 ? E_TYPE | 1.5, " +
+			"1.5:initialize(255, 1.0) -> \"\"[2147483648..l]]) &. \"\t$%1\".owner ? abs() | n;\nn;\n", "Error: E_TYPE\n"},
+		{`return locate_by_name("");`, "=> {#0, #1, #2, #3}\n"},
+		{`return locate_by_name("", 1);`, "=> {#0, #1, #2, #3}\n"},
+		{`return locate_by_name("")[^];`, "=> #0\n"},
+		{`return locate_by_name(" ");`, "=> {#0, #1, #2}\n"},
+		{`return locate_by_name("  ");`, "=> {}\n"},
+		{`return locate_by_name(" trail");`, "=> {#1}\n"},
+		{`return locate_by_name(" Trail ", 1);`, "=> {#1}\n"},
+		{`return locate_by_name(" b");`, "=> {#2}\n"},
+		{`return locate_by_name(" wizard");`, "=> {}\n"},
+	}
+	for _, c := range cases {
+		out, errOut, err := runEval(t, store, c.input)
+		if err != nil {
+			t.Fatalf("EvalExpression(%q): %v\nstderr: %s", c.input, err, errOut)
+		}
+		if out != c.want {
+			t.Errorf("EvalExpression(%q) printed %q, want %q", c.input, out, c.want)
+		}
+	}
+}

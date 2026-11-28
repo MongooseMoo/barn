@@ -2,7 +2,6 @@ package builtins
 
 import (
 	"sort"
-	"strings"
 
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
@@ -463,10 +462,10 @@ func builtinLocateByName(ctx *Execution, args []types.Value) types.Result {
 	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	needleStr := strings.TrimSpace(args[0].Str())
-	if needleStr == "" {
-		return types.Ok(types.NewList([]types.Value{}))
-	}
+	// Toast objects.cc locate_by_name_callback matches the needle as given:
+	// no trimming, and strindex finds an empty needle in every name, so ""
+	// returns every valid object.
+	needleStr := args[0].Str()
 
 	caseSensitive := false
 	if len(args) == 2 {
