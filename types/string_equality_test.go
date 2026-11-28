@@ -2,6 +2,44 @@ package types
 
 import "testing"
 
+func BenchmarkStringEqual(b *testing.B) {
+	for _, tc := range []struct{ name, value string }{
+		{"equal_same_case", "item_499"},
+		{"equal_diff_case", "ITEM_499"},
+		{"unequal_same_len", "item_500"},
+		{"unequal_diff_len", "item_1"},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			left, right := NewStr("item_499"), NewStr(tc.value)
+			for b.Loop() {
+				left.Equal(right)
+			}
+		})
+	}
+}
+
+func TestStringEqualityMatchesNormalizedComparison(t *testing.T) {
+	// Compare the fast path to the same normalization and collation used
+	// before it, including mismatches after a common prefix.
+	inputs := []string{
+		"", "x", "AB", "Ab", "K~0a", "K\n", "~09", "~0a", "~0A", "~0G", "~0",
+		"\t", "\n", "~20", " ", "~~0A", "~\n", "\xc0A~09", "\xc0a\t", "\xe0a\t",
+		"\xff", "�", "À", "à", "KA\xff", "Ka\xff", "AB~01", "ab~02",
+	}
+	for _, prefix := range []string{"", "ab~09", "\xc0", "é", "~0"} {
+		for _, left := range inputs {
+			for _, right := range inputs {
+				a, b := prefix+left, prefix+right
+				want := compareFoldedASCII(normalizeBinaryString(a), normalizeBinaryString(b)) == 0
+				if got := NewStr(a).Equal(NewStr(b)); got != want {
+					t.Errorf("Equal(%q, %q) = %v, want %v", a, b, got, want)
+				}
+			}
+		}
+	}
+}
+
 func TestStringEqualityFoldsASCIIWithoutFoldingRawHighBytes(t *testing.T) {
 	if !NewStr("A").Equal(NewStr("a")) {
 		t.Fatal("ASCII case variants should compare equal")

@@ -133,11 +133,34 @@ func (vm *VM) executeGe() error {
 // listIndex is Toast's ismember(element, list, 0) for a list: the one-based
 // position of the first case-insensitively equal element, or 0.
 func (vm *VM) listIndex(element, list types.Value) int {
-	for i := 1; i <= list.Len(); i++ {
-		item := list.Get(i)
+	items := list.Elements()
+	switch element.Type() {
+	case types.TYPE_INT:
+		// Only 0 and 1 can match a boolean. Other integers can stay
+		// in the strict path when float promotion is disabled.
+		needle := element.Int()
+		if !vm.promoting() && needle != 0 && needle != 1 {
+			for i, item := range items {
+				if item.Type() == types.TYPE_INT && item.Int() == needle {
+					return i + 1
+				}
+			}
+			return 0
+		}
+	case types.TYPE_FLOAT, types.TYPE_BOOL:
+		// These types can participate in mixed-type equality below.
+	default:
+		for i, item := range items {
+			if element.Equal(item) {
+				return i + 1
+			}
+		}
+		return 0
+	}
+	for i, item := range items {
 		if eq, handled := types.BoolIntEqual(element, item); handled {
 			if eq {
-				return i
+				return i + 1
 			}
 			continue
 		}
@@ -145,12 +168,12 @@ func (vm *VM) listIndex(element, list types.Value) int {
 		// (mongoose utils.cc coercion; `1 in {1.0}` is 1 under promote).
 		if eq, handled := vm.promoteNumericEqual(element, item); handled {
 			if eq {
-				return i
+				return i + 1
 			}
 			continue
 		}
 		if element.Equal(item) {
-			return i
+			return i + 1
 		}
 	}
 	return 0

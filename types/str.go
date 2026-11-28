@@ -2,6 +2,7 @@ package types
 
 import (
 	"strings"
+	"unicode"
 	"unicode/utf8"
 	"unsafe"
 )
@@ -78,6 +79,66 @@ func equalFoldedASCII(a, b string) bool {
 		}
 	}
 	return true
+}
+
+func equalStrings(a, b string) bool {
+	if a == b {
+		return true
+	}
+	n := min(len(a), len(b))
+	if n == 0 {
+		return false
+	}
+	// Check both bounds once before the loop.
+	_ = a[n-1]
+	_ = b[n-1]
+	for i := range n {
+		left, right := a[i], b[i]
+		if left == right {
+			continue
+		}
+		lower := left | 0x20
+		if left^right == 0x20 && lower >= 'a' && lower <= 'z' {
+			continue
+		}
+		// A non-ASCII rune or control escape can match different bytes and
+		// can change the length. Check the original strings for UTF-8 validity.
+		if left|right >= utf8.RuneSelf || left == '~' || right == '~' {
+			return compareFoldedASCII(normalizeBinaryString(a), normalizeBinaryString(b)) == 0
+		}
+		return false
+	}
+	return len(a) == len(b)
+}
+
+// StringEqualityKey returns the same key for any two strings that compare
+// equal under Value.Equal. Callers must still use Equal to resolve collisions.
+func StringEqualityKey(value string) string {
+	value = normalizeBinaryString(value)
+	if !utf8.ValidString(value) {
+		return foldASCII(value)
+	}
+	for _, r := range value {
+		if canonicalFoldRune(r) != r {
+			var folded strings.Builder
+			folded.Grow(len(value))
+			for _, next := range value {
+				folded.WriteRune(canonicalFoldRune(next))
+			}
+			return folded.String()
+		}
+	}
+	return value
+}
+
+func canonicalFoldRune(r rune) rune {
+	canonical := r
+	for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
+		if next > canonical {
+			canonical = next
+		}
+	}
+	return canonical
 }
 
 func compareFoldedASCII(a, b string) int {
