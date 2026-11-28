@@ -1,6 +1,7 @@
 package command
 
 import (
+	"slices"
 	"strings"
 	"unicode"
 
@@ -33,27 +34,44 @@ func NewParsedCommand() *ParsedCommand {
 	}
 }
 
+type prepositionAlias struct {
+	prep      preposition.Spec
+	alias     string
+	remaining []string
+}
+
+// Index by first word, retaining table order for aliases with the same start.
+var prepositionAliases = func() map[string][]prepositionAlias {
+	index := make(map[string][]prepositionAlias)
+	for _, prep := range preposition.All() {
+		for _, alias := range prep.Aliases() {
+			words := strings.Fields(alias)
+			if len(words) != 0 {
+				index[words[0]] = append(index[words[0]], prepositionAlias{prep, alias, words[1:]})
+			}
+		}
+	}
+	return index
+}()
+
 // findPreposition finds a preposition in the word list
 // Returns the preposition, start and end indexes, and matched alias; none uses indexes -1.
 func findPreposition(words []string) (preposition.Spec, int, int, string) {
-	for i := range words {
-		for _, prep := range preposition.All() {
-			aliases := prep.Aliases()
-			for _, alias := range aliases {
-				aliasWords := strings.Fields(alias)
-				if len(aliasWords) == 0 || i+len(aliasWords) > len(words) {
-					continue
+	for i, word := range words {
+		for _, candidate := range prepositionAliases[strings.ToLower(word)] {
+			end := i + 1 + len(candidate.remaining)
+			if end > len(words) {
+				continue
+			}
+			match := true
+			for j, aliasWord := range candidate.remaining {
+				if strings.ToLower(words[i+1+j]) != aliasWord {
+					match = false
+					break
 				}
-				match := true
-				for j, aliasWord := range aliasWords {
-					if strings.ToLower(words[i+j]) != aliasWord {
-						match = false
-						break
-					}
-				}
-				if match {
-					return prep, i, i + len(aliasWords), alias
-				}
+			}
+			if match {
+				return candidate.prep, i, end, candidate.alias
 			}
 		}
 	}
@@ -62,12 +80,19 @@ func findPreposition(words []string) (preposition.Spec, int, int, string) {
 }
 
 func tokenizeCommandWords(input string) []string {
-	words := make([]string, 0)
+	var shortCommand [9]string
+	words := shortCommand[:0]
 	var current strings.Builder
+	start := 0
+	transformed := false
 	inQuotes := false
 	i := 0
 	for i < len(input) {
 		ch := input[i]
+		if !transformed && (ch == '\\' || ch == '"') {
+			current.WriteString(input[start:i])
+			transformed = true
+		}
 		if ch == '\\' {
 			if i+1 < len(input) {
 				current.WriteByte(input[i+1])
@@ -84,20 +109,32 @@ func tokenizeCommandWords(input string) []string {
 			continue
 		}
 		if unicode.IsSpace(rune(ch)) && !inQuotes {
-			if current.Len() > 0 {
-				words = append(words, current.String())
+			if transformed {
+				if current.Len() > 0 {
+					words = append(words, current.String())
+				}
 				current.Reset()
+				transformed = false
+			} else if start < i {
+				words = append(words, input[start:i])
 			}
 			i++
+			start = i
 			continue
 		}
-		current.WriteByte(ch)
+		if transformed {
+			current.WriteByte(ch)
+		}
 		i++
 	}
-	if current.Len() > 0 {
-		words = append(words, current.String())
+	if transformed {
+		if current.Len() > 0 {
+			words = append(words, current.String())
+		}
+	} else if start < i {
+		words = append(words, input[start:i])
 	}
-	return words
+	return append(make([]string, 0, len(words)), words...)
 }
 
 func CommandWordList(input string) []string {
@@ -117,53 +154,39 @@ func CommandWordList(input string) []string {
 
 // ParseCommand parses player input into a structured command
 func ParseCommand(input string) *ParsedCommand {
-	return parseCommand(input, CommandWordList(input))
-}
-
-func parseCommand(input string, originalWords []string) *ParsedCommand {
+	originalWords := CommandWordList(input)
 	cmd := NewParsedCommand()
 	cmd.Words = originalWords
 
-	// Handle empty input
+	if len(originalWords) == 0 {
+		return cmd
+	}
 	input = strings.TrimLeftFunc(input, unicode.IsSpace)
-	if input == "" {
-		return cmd
+
+	cmd.Verb = originalWords[0]
+	verbEnd := 1
+	switch input[0] {
+	case '"':
+		cmd.Verb = "say"
+	case ':':
+		cmd.Verb = "emote"
+	case ';':
+		cmd.Verb = "eval"
+	default:
+		verbEnd = len(cmd.Verb)
+		for verbEnd < len(input) && !unicode.IsSpace(rune(input[verbEnd])) {
+			verbEnd++
+		}
 	}
 
-	// Handle special prefixes
-	if strings.HasPrefix(input, "\"") {
-		return parseCommand("say "+input[1:], originalWords)
-	}
-
-	if strings.HasPrefix(input, ":") {
-		return parseCommand("emote "+input[1:], originalWords)
-	}
-
-	if strings.HasPrefix(input, ";") {
-		return parseCommand("eval "+input[1:], originalWords)
-	}
-
-	// Tokenize - normalize whitespace while preserving quoted multiword tokens.
-	words := tokenizeCommandWords(input)
-	if len(words) == 0 {
-		return cmd
-	}
-
-	// First word is the verb
-	cmd.Verb = words[0]
-
-	if len(words) == 1 {
+	if len(originalWords) == 1 {
 		return cmd
 	}
 
 	// Rest are arguments
-	restWords := words[1:]
+	restWords := slices.Clone(originalWords[1:])
 	cmd.Args = restWords
 
-	verbEnd := len(words[0])
-	for verbEnd < len(input) && !unicode.IsSpace(rune(input[verbEnd])) {
-		verbEnd++
-	}
 	argStart := verbEnd
 	for argStart < len(input) && unicode.IsSpace(rune(input[argStart])) {
 		argStart++
