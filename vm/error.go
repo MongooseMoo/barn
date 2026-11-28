@@ -299,6 +299,42 @@ func (vm *VM) sourceLineForFrame(frame *StackFrame, line int) string {
 	return strings.TrimSpace(frame.Program.Source[line-1])
 }
 
+// typeMismatchError is Toast's RAISE_TYPE_MISMATCH/PUSH_TYPE_MISMATCH: E_TYPE
+// with type_mismatch_string's message and type_mismatch_value's value,
+// {{expected runtime type codes...}, got type code}. The expected codes keep
+// Toast's TYPE_COMPLEX_FLAG (a string is 130); the got code is masked.
+func typeMismatchError(got types.TypeCode, expected ...types.TypeCode) MooError {
+	var msg strings.Builder
+	msg.WriteString("Type mismatch (expected ")
+	codes := make([]types.Value, len(expected))
+	for i, t := range expected {
+		if i > 0 {
+			if i == len(expected)-1 {
+				msg.WriteString(" or ")
+			} else {
+				msg.WriteString(", ")
+			}
+		}
+		msg.WriteString(t.ToastName())
+		codes[i] = types.NewInt(int64(toastRuntimeType(t)))
+	}
+	msg.WriteString("; got ")
+	msg.WriteString(got.ToastName())
+	msg.WriteString(")")
+	value := types.NewList([]types.Value{types.NewList(codes), types.NewInt(int64(got))})
+	return newMooError(types.E_TYPE, msg.String()).withMessage().withValue(value)
+}
+
+// toastRuntimeType is Toast's in-memory var_type: the pointer-carrying types
+// have TYPE_COMPLEX_FLAG (0x80) set on their database code.
+func toastRuntimeType(t types.TypeCode) int {
+	switch t {
+	case types.TYPE_STR, types.TYPE_LIST, types.TYPE_MAP, types.TYPE_ANON, types.TYPE_WAIF:
+		return int(t) | 0x80
+	}
+	return int(t)
+}
+
 // typeMismatchMessage renders Toast's type_mismatch_string for one expected
 // type: "Type mismatch (expected list; got string)".
 func typeMismatchMessage(expected, got types.TypeCode) string {
