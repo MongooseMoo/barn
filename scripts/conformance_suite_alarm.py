@@ -1,9 +1,8 @@
 """Alarm when the conformance suite loses tests or its run time moves 10% in a week.
 
-The suite's wall time on the CI runners is steady (47 runs on 2026-11-11: 662-724 s,
-1.9% spread), because fixed waits in the tests dominate it. A 10% move in the weekly
-average therefore means a hang, a new timeout, or ordinary commands several times
-slower; it does not see smaller engine slowdowns or anything about many players.
+For a runtime alarm, compare the sampled JUnit reports to show how much of the
+weekly wall-time change came from new cases, previously seen cases and time
+outside case timers. These jobs do not measure workstation load.
 
 Samples are merge queue runs of ci.yml, the runs whose tree lands on master: the
 seconds its "Run conformance suite" step took, and for the two newest the number of
@@ -20,9 +19,12 @@ stopped or switched off. Without it, the reasons are printed and the exit code i
 """
 
 import argparse
+from collections import Counter
+from dataclasses import dataclass
 import datetime
 import io
 import json
+import math
 import statistics
 import subprocess
 import sys
@@ -49,20 +51,48 @@ def spread(runs, count):
     return [runs[round(i * (len(runs) - 1) / (count - 1))] for i in range(count)]
 
 
-def step_seconds(jobs):
-    """Seconds the suite step took in a run's jobs, or None when it did not run and pass."""
+@dataclass(frozen=True)
+class Sample:
+    run_id: int
+    job_url: str
+    runner: str
+    seconds: float
+
+
+def timed_sample(jobs):
+    """The job whose suite step ran and passed."""
     for job in jobs:
         if job["name"] != JOB:
             continue
         for step in job.get("steps", []):
             if step["name"] == STEP and step["conclusion"] == "success":
-                return (when(step["completed_at"]) - when(step["started_at"])).total_seconds()
+                seconds = (when(step["completed_at"]) - when(step["started_at"])).total_seconds()
+                return Sample(job["run_id"], job["html_url"], job["runner_name"], seconds)
     return None
 
 
-def test_count(junit_xml):
-    """Number of test cases a junit report holds."""
-    return sum(1 for _ in ET.fromstring(junit_xml).iter("testcase"))
+@dataclass
+class Report:
+    count: int | None
+    times: Counter | None
+    problem: str = ""
+
+
+def parse_report(junit_xml):
+    root = ET.fromstring(junit_xml)
+    if root.tag not in ("testsuite", "testsuites"):
+        return Report(None, None, "unreadable JUnit report")
+    cases = list(root.iter("testcase"))
+    times = Counter()
+    for case in cases:
+        try:
+            seconds = float(case.attrib["time"])
+            if not math.isfinite(seconds) or seconds < 0:
+                raise ValueError
+            times[case.get("classname", ""), case.attrib["name"]] += seconds
+        except (KeyError, ValueError):
+            return Report(len(cases), None, "missing or invalid case name or duration")
+    return Report(len(cases), times)
 
 
 def verdict(recent, earlier, newest_tests, previous_tests):
@@ -70,19 +100,25 @@ def verdict(recent, earlier, newest_tests, previous_tests):
     reasons = []
     if newest_tests is not None and previous_tests is not None and newest_tests < previous_tests:
         reasons.append(f"The suite ran {newest_tests} tests; the run before it ran {previous_tests}.")
+    return reasons + runtime_verdict(recent, earlier)
+
+
+def runtime_verdict(recent, earlier):
     if len(recent) >= ENOUGH and len(earlier) >= ENOUGH:
         now, before = statistics.mean(recent), statistics.mean(earlier)
         change = (now - before) / before
         if abs(change) > LIMIT:
-            reasons.append(f"The suite's average run time moved {change:+.1%} in a week: {before:.0f} s over "
-                           f"{len(earlier)} runs, then {now:.0f} s over {len(recent)} runs.")
-    return reasons
+            return [f"The suite's average run time moved {change:+.1%} in a week: {before:.0f} s over "
+                    f"{len(earlier)} runs, then {now:.0f} s over {len(recent)} runs."]
+    return []
 
 
-def issue(reasons, run_url):
+def issue(reasons, run_url, report=""):
     """The issue an alarm opens."""
     lines = ["The conformance suite's test count or run time changed:", ""]
     lines += [f"- {reason}" for reason in reasons]
+    if report:
+        lines += ["", report]
     lines += ["", f"Measured by {run_url} from merge queue runs of ci.yml.",
               "Nothing has been stopped. Close this issue when the change is explained; "
               "no new one is opened while it is open."]
@@ -137,13 +173,64 @@ def merged_runs(repo, since, until):
         page += 1
 
 
-def run_tests(repo, run_id):
-    """Test count from a run's conformance-results artifact, or None when it has none."""
-    for artifact in api(f"repos/{repo}/actions/runs/{run_id}/artifacts")["artifacts"]:
-        if artifact["name"] == "conformance-results" and not artifact["expired"]:
-            archive = zipfile.ZipFile(io.BytesIO(api(f"repos/{repo}/actions/artifacts/{artifact['id']}/zip", raw=True)))
-            return test_count(archive.read("conformance-results.xml"))
-    return None
+def run_report(repo, run_id):
+    try:
+        artifacts = api(f"repos/{repo}/actions/runs/{run_id}/artifacts?name=conformance-results")["artifacts"]
+        for artifact in artifacts:
+            if artifact["name"] == "conformance-results" and not artifact["expired"]:
+                data = api(f"repos/{repo}/actions/artifacts/{artifact['id']}/zip", raw=True)
+                with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                    return parse_report(archive.read("conformance-results.xml"))
+        return Report(None, None, "artifact expired" if artifacts else "artifact missing")
+    except subprocess.CalledProcessError as exc:
+        print(f"Run {run_id} artifact request failed: {exc.stderr.decode(errors='replace')}", file=sys.stderr)
+        return Report(None, None, "artifact request failed")
+    except (zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+        print(f"Run {run_id} has unreadable JUnit data: {exc}", file=sys.stderr)
+        return Report(None, None, "unreadable JUnit report")
+
+
+def runtime_report(earlier, recent, reports):
+    rows = ["| Week | Sampled job | Runner | Wall time | JUnit |",
+            "| --- | --- | --- | ---: | --- |"]
+    for week, samples in (("Earlier", earlier), ("Newest", recent)):
+        for s in samples:
+            status = reports[s.run_id].problem or "available"
+            rows.append(f"| {week} | [{s.run_id}]({s.job_url}) | `{s.runner}` | {s.seconds:.0f} s | {status} |")
+
+    samples = earlier + recent
+    available = sum(reports[s.run_id].times is not None for s in samples)
+    lines = [f"JUnit timings available for {available}/{len(samples)} sampled jobs."]
+    if available == len(samples):
+        means = []
+        for week in (earlier, recent):
+            total = Counter()
+            for s in week:
+                total.update(reports[s.run_id].times)
+            means.append({key: value / len(week) for key, value in total.items()})
+        before, after = means
+        added = sum(value for key, value in after.items() if key not in before)
+        seen = sum(after.get(key, 0) - value for key, value in before.items())
+        wall = statistics.mean(s.seconds for s in recent) - statistics.mean(s.seconds for s in earlier)
+        share = f" ({added / wall:.0%} of the increase)" if wall > 0 else ""
+        lines += ["", f"Average wall-time change per run: **{wall:+.2f} s**.",
+                  f"- Cases absent from the earlier week: {added:+.2f} s{share}.",
+                  f"- Previously seen cases, including removals: {seen:+.2f} s.",
+                  f"- Time outside JUnit case timers: {wall - added - seen:+.2f} s."]
+        files = Counter()
+        for key in before.keys() | after.keys():
+            classname, name = key
+            # The conformance suite embeds the YAML path in its pytest parameter ID.
+            path, sep, _ = name.partition("[")[2].partition(".yaml::")
+            group = path + ".yaml" if sep else classname or name
+            files[group] += after.get(key, 0) - before.get(key, 0)
+        lines += ["", "Largest changes in mean case time per run:"]
+        for group, delta in sorted(files.items(), key=lambda item: (-abs(item[1]), item[0]))[:5]:
+            lines.append(f"- `{group}`: {delta:+.2f} s")
+        lines += ["", "Workstation load was not measured."]
+    else:
+        lines.append("The full weekly change cannot be attributed with incomplete JUnit timings.")
+    return "\n".join(lines + [""] + rows)
 
 
 def main():
@@ -161,29 +248,42 @@ def main():
         timed = []
         runs = merged_runs(args.repo, start, end) if start < end else []
         for run in spread(runs, PER_WEEK):
-            seconds = step_seconds(api(f"repos/{args.repo}/actions/runs/{run['id']}/jobs?per_page=100")["jobs"])
-            if seconds is not None:  # the suite is skipped when the same tree already passed
-                timed.append((run["id"], seconds))
+            sample = timed_sample(api(f"repos/{args.repo}/actions/runs/{run['id']}/jobs?per_page=100")["jobs"])
+            if sample:  # the suite is skipped when the same tree already passed
+                timed.append(sample)
         sampled.append(timed)
     recent, earlier = sampled
-    print(f"newest week: {[round(s) for _, s in recent]}")
-    print(f"week before: {[round(s) for _, s in earlier]}")
+    recent_seconds = [s.seconds for s in recent]
+    earlier_seconds = [s.seconds for s in earlier]
+    print(f"newest week: {[round(s) for s in recent_seconds]}")
+    print(f"week before: {[round(s) for s in earlier_seconds]}")
 
-    counts = [run_tests(args.repo, run_id) for run_id, _ in (earlier + recent)[-2:]]
+    latest = (earlier + recent)[-2:]
+    reports = {s.run_id: run_report(args.repo, s.run_id) for s in latest}
+    counts = [reports[s.run_id].count for s in latest]
     previous_tests, newest_tests = ([None, None] + counts)[-2:]
     print(f"test counts, previous then newest: {previous_tests}, {newest_tests}")
 
-    reasons = verdict([s for _, s in recent], [s for _, s in earlier], newest_tests, previous_tests)
+    reasons = verdict(recent_seconds, earlier_seconds, newest_tests, previous_tests)
     for reason in reasons:
         print(reason)
-    if not reasons or not args.open_issue:
-        return 1 if reasons else 0
-    if api(f"repos/{args.repo}/issues?state=open&labels={LABEL}&per_page=1"):
+    if not reasons:
+        return 0
+    if args.open_issue and api(f"repos/{args.repo}/issues?state=open&labels={LABEL}&per_page=1"):
         print("An alarm issue is already open; not opening another.")
-    else:
-        opened = api(f"repos/{args.repo}/issues", post=issue(reasons, args.open_issue))
-        print("Opened", opened["html_url"])
-        investigate(args.repo, opened["number"])
+        return 0
+    report = ""
+    if runtime_verdict(recent_seconds, earlier_seconds):
+        for sample in earlier + recent:
+            if sample.run_id not in reports:
+                reports[sample.run_id] = run_report(args.repo, sample.run_id)
+        report = runtime_report(earlier, recent, reports)
+        print(report)
+    if not args.open_issue:
+        return 1
+    opened = api(f"repos/{args.repo}/issues", post=issue(reasons, args.open_issue, report))
+    print("Opened", opened["html_url"])
+    investigate(args.repo, opened["number"])
     return 0
 
 
