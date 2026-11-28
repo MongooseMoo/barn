@@ -7,9 +7,9 @@ name: Goodput series
 # only reports: it stops nothing and switches nothing off.
 #
 # The database is a dump of the live world and holds real players' data, and
-# this repository's logs are public. The harness's output therefore stays in
-# the runner's temporary directory; the log and the artifact carry numbers
-# only.
+# this repository's logs are public. Failed harness output stays in the
+# workstation runner's private state directory. Public logs and artifacts
+# carry measurements and test verdicts only.
 #
 # The push to master is what produces the points. GitHub delays and drops
 # scheduled runs under load: the first two hourly slots after this workflow
@@ -116,8 +116,28 @@ jobs:
           BARN_MONGOOSE_GOGC: '400'
         run: |
           set -uo pipefail
+          umask 077
           export BARN_MONGOOSE_DB="$RUNNER_TEMP/goodput/mongoose.db"
           export BARN_MONGOOSE_SOUND_DB="$RUNNER_TEMP/goodput/sound.sqlite"
+          keep_failure() (
+            local store="$HOME/.local/state/barn/goodput-failures"
+            local stage bundle
+            install -d -m 0700 -- "$store" || return
+            stage=$(mktemp -d "$RUNNER_TEMP/goodput/failure-XXXXXX") || return
+            bundle=$(mktemp "$store/.failure-XXXXXX") || return
+            trap 'rm -f -- "$bundle"' EXIT
+            tail -c 16M -- "$out" > "$stage/harness.txt" || return
+            if [ -n "${BARN_MONGOOSE_LOG_DIR:-}" ] && [ -f "$BARN_MONGOOSE_LOG_DIR/latest.jsonl" ]; then
+              tail -c 16M -- "$BARN_MONGOOSE_LOG_DIR/latest.jsonl" > "$stage/latest.jsonl" || return
+            fi
+            printf 'commit=%s\nsample=%s\nexit=%s\nfixture_sha256=%s\nsound_db_sha256=%s\nmax_bytes_per_log=16777216\n' \
+              "$GITHUB_SHA" "$run" "$status" "$FIXTURE_SHA256" "$SOUND_DB_SHA256" > "$stage/run.txt" || return
+            tar -czf "$bundle" -C "$stage" . || return
+            mv -T -- "$bundle" "$store/run-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tar.gz" || return
+            find "$store" -maxdepth 1 -type f -name 'run-*.tar.gz' -printf '%T@ %f\n' \
+              | sort -nr | tail -n +11 | cut -d ' ' -f2- \
+              | while IFS= read -r archive; do rm -- "$store/$archive" || exit; done
+          )
           idle() {
             for _ in $(seq $((IDLE_WAIT_MINUTES * 2))); do
               load=$(cut -d' ' -f1 /proc/loadavg)
@@ -133,6 +153,10 @@ jobs:
             fi
             echo "run $run: load $(cut -d' ' -f1 /proc/loadavg) before it"
             out="$RUNNER_TEMP/goodput/run-$run.txt"
+            # An opt-in diagnostic run gets its own temporary JSON collector.
+            if [ -n "${BARN_MONGOOSE_LOG_DIR:-}" ]; then
+              export BARN_MONGOOSE_LOG_DIR="$RUNNER_TEMP/goodput/run-$run-logs"
+            fi
             started=$(date +%s)
             # The step's shell is `bash -e`: a failing command outside a
             # condition ends the step on the spot, so the harness's status and
@@ -140,13 +164,21 @@ jobs:
             status=0
             "$RUNNER_TEMP/goodput/engine.test" -test.run '^TestMongooseRealWorkload$' -test.v -test.timeout 20m > "$out" 2>&1 || status=$?
             # Numbers and the test's verdict only; the rest can name players.
-            grep -oE 'players=[0-9]+ goodput=.*$|^(--- (PASS|FAIL): [A-Za-z]+|PASS$|FAIL$|panic:)' "$out" | sed "s/^/run $run: /" || true
+            measures='players=[0-9]+ goodput=[0-9]+/s failed=[0-9]+ uncaught=[0-9]+ abort=[0-9.]+% elided=[0-9]+'
+            timings='p50=[0-9.]+(us|ms|s) p99=[0-9.]+(us|ms|s) p999=[0-9.]+(us|ms|s) max=[0-9.]+(us|ms|s)'
+            allocs='allocs/op=[0-9]+ bytes/op=[0-9]+ GCs=[0-9]+'
+            verdict='^(--- (PASS|FAIL): TestMongooseRealWorkload|PASS$|FAIL$|panic:)'
+            grep -oE "$measures $timings $allocs\$|$verdict" "$out" | sed "s/^/run $run: /" || true
             load_after=$(cut -d' ' -f1 /proc/loadavg)
             echo "load_after=$load_after" >> "$out"
             echo "run $run: exit $status after $(( $(date +%s) - started )) s, load $load_after"
             if [ "$status" -ne 0 ]; then
-              echo "::error::Harness run $run failed; its output is not shown because it can name players. Reproduce on the workstation."
-              exit 1
+              if keep_failure >/dev/null 2>&1; then
+                echo "::error::Harness run $run failed. Private evidence: ~/.local/state/barn/goodput-failures/run-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tar.gz on $RUNNER_NAME."
+              else
+                echo "::error::Harness run $run failed, and private evidence could not be saved on $RUNNER_NAME."
+              fi
+              exit "$status"
             fi
           done
           echo "complete=true" >> "$GITHUB_OUTPUT"
