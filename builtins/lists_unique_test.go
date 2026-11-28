@@ -51,6 +51,45 @@ func TestBuiltinUniquePreservesValueEquality(t *testing.T) {
 	}
 }
 
+func TestBuiltinUniqueBinaryEscapeStrings(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"~0A", "\n"},
+		{"~09", "\t"},
+		{"~0a", "~0A"},
+		{"K~0a", "K\n"},
+		{"\xffA~09", "\xffa\t"},
+	} {
+		first, second := types.NewStr(pair[0]), types.NewStr(pair[1])
+		if !first.Equal(second) {
+			t.Fatalf("%q and %q must compare equal", pair[0], pair[1])
+		}
+		result := admitTestBuiltin("unique", reviewDataCtx(), []types.Value{types.NewList([]types.Value{first, second})})
+		if !result.IsNormal() || result.Val.Len() != 1 || !result.Val.Get(1).Identical(first) {
+			t.Errorf("unique(%q, %q) = %v, want a list containing only the first string", pair[0], pair[1], result)
+		}
+	}
+}
+
+func TestBuiltinIsMemberStringCaseFlag(t *testing.T) {
+	list := types.NewList([]types.Value{
+		types.NewInt(1), types.NewStr("A~09"), types.NewStr("a\t"),
+	})
+	for _, tc := range []struct {
+		flags []types.Value
+		index int64
+	}{
+		{nil, 3},
+		{[]types.Value{types.NewInt(1)}, 3},
+		{[]types.Value{types.NewInt(0)}, 2},
+	} {
+		args := append([]types.Value{types.NewStr("a\t"), list}, tc.flags...)
+		got := admitTestBuiltin("is_member", reviewDataCtx(), args)
+		if !got.IsNormal() || !got.Val.Identical(types.NewInt(tc.index)) {
+			t.Errorf("is_member with flags %v = %v, want %d", tc.flags, got, tc.index)
+		}
+	}
+}
+
 func TestBuiltinUniqueDistinctScalarsDoesNotScaleQuadratically(t *testing.T) {
 	const (
 		smallSize = 1_000
