@@ -233,7 +233,21 @@ def managed_proof(number, head, suite_head, destination):
     if not isinstance(run_id, int):
         raise ValueError("GitHub did not return a managed proof run id")
     print(f"Repair #{number}: managed proof https://github.com/{BARN}/actions/runs/{run_id}", flush=True)
-    run("gh", "run", "watch", str(run_id), "--repo", BARN, "--exit-status", timeout=7200)
+    # Each request can renew its installation token while the accepted run
+    # waits for a runner or executes. The receipt remains the same.
+    deadline = time.monotonic() + 7200
+    while True:
+        result = api(f"repos/{BARN}/actions/runs/{run_id}")
+        status = result["status"]
+        if status == "completed":
+            conclusion = result["conclusion"]
+            if conclusion != "success":
+                raise ValueError(f"Managed proof run {run_id} completed with {conclusion}")
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError(f"Managed proof run {run_id} was still {status} after two hours")
+        time.sleep(min(30, remaining))
     run("gh", "run", "download", str(run_id), "--repo", BARN, "--name", "conformance-evidence",
         "--dir", str(destination))
     evidence = destination / "conformance-evidence.json"
@@ -268,7 +282,10 @@ def queue_repair(root, pr, suite_pr=None):
                 evidence = managed_proof(number, head, suite_head, workspace)
                 run("python3", str(root / "scripts" / "automatic_fix_scope.py"), *scope_args,
                     "--suite-head", suite_head, "--conformance-evidence", str(evidence), cwd=directory)
-            except (ValueError, subprocess.SubprocessError):
+            except ValueError as error:
+                print(f"Repair #{number}: {error}", flush=True)
+                return False
+            except subprocess.SubprocessError:
                 print(f"Repair #{number}: no accepted managed proof", flush=True)
                 return False
             companion = companion_pull(api, number)

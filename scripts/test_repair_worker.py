@@ -1,5 +1,7 @@
 from pathlib import Path
+import json
 import subprocess
+import tempfile
 import types
 import unittest
 from unittest import mock
@@ -50,6 +52,60 @@ class PolicyBlockTest(unittest.TestCase):
     def test_conformance_policy_block_dispatches_the_conformance_stage(self):
         _, _, dispatches = self.process(["codex-conformance"], stage="conformance")
         self.assertIn("inputs[stage]=conformance", dispatches[0])
+
+
+class ManagedProofTest(unittest.TestCase):
+    DISPATCH = f"repos/{repair_worker.BARN}/actions/workflows/repair-proof.yml/dispatches"
+    RUN = f"repos/{repair_worker.BARN}/actions/runs/42"
+
+    def test_polling_uses_a_fresh_token_without_dispatching_again(self):
+        requests = []
+        publisher = mock.Mock()
+        publisher.get.side_effect = ("first", "first", "renewed", "renewed")
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(repair_worker, "PUBLISHER_TOKEN", publisher), \
+                mock.patch.object(repair_worker.time, "sleep"), \
+                mock.patch.object(repair_worker.subprocess, "run") as subprocess_run:
+            destination = Path(directory)
+            evidence = destination / "conformance-evidence.json"
+            replies = iter(({"workflow_run_id": 42}, {"status": "queued"}, {"status": "completed", "conclusion": "success"}))
+
+            def reply(command, **kwargs):
+                requests.append((command[1:3], kwargs["env"]["GH_TOKEN"], kwargs["timeout"]))
+                if command[1:3] == ("run", "download"):
+                    self.assertEqual(command[3], "42")
+                    evidence.write_text("{}", encoding="utf-8")
+                    return types.SimpleNamespace(stdout="")
+                self.assertEqual(command[1], "api")
+                return types.SimpleNamespace(stdout=json.dumps(next(replies)))
+
+            subprocess_run.side_effect = reply
+            self.assertEqual(repair_worker.managed_proof(1216, "barn-head", "suite-head", destination), evidence)
+        self.assertEqual(requests, [
+            (("api", self.DISPATCH), "first", 120),
+            (("api", self.RUN), "first", 120),
+            (("api", self.RUN), "renewed", 120),
+            (("run", "download"), "renewed", 120),
+        ])
+
+    def test_unsuccessful_terminal_run_preserves_the_reason_without_downloading(self):
+        with mock.patch.object(repair_worker, "api", side_effect=(
+                {"workflow_run_id": 42}, {"status": "completed", "conclusion": "cancelled"},
+        )) as api, mock.patch.object(repair_worker, "run") as run:
+            with self.assertRaisesRegex(ValueError, "run 42 completed with cancelled"):
+                repair_worker.managed_proof(1216, "barn-head", "suite-head", Path("."))
+        self.assertEqual([call.args[0] for call in api.call_args_list], [self.DISPATCH, self.RUN])
+        run.assert_not_called()
+
+    def test_poll_deadline_preserves_the_pending_state_without_dispatching_again(self):
+        with mock.patch.object(repair_worker, "api", side_effect=(
+                {"workflow_run_id": 42}, {"status": "queued"},
+        )) as api, mock.patch.object(repair_worker.time, "monotonic", side_effect=(0, 7200)), \
+                mock.patch.object(repair_worker, "run") as run:
+            with self.assertRaisesRegex(ValueError, "run 42 was still queued after two hours"):
+                repair_worker.managed_proof(1216, "barn-head", "suite-head", Path("."))
+        self.assertEqual([call.args[0] for call in api.call_args_list], [self.DISPATCH, self.RUN])
+        run.assert_not_called()
 
 
 class QueueRepairTest(unittest.TestCase):

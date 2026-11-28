@@ -12,6 +12,8 @@ The closed-repair path and Codex worker share suite completion. The code checks 
 
 The focused completion, worker, and scope suites returned `OK`. The managed proof shell passed `bash -n`. Actionlint found identical diagnostics on the original and changed automatic repair workflow for its existing local-action spelling. The new proof workflow passed without diagnostics.
 
+Proof observation uses bounded API calls against one accepted run receipt. Each request can renew the installation token. Cancellation and poll-deadline messages retain the run ID and last verdict, and only a successful terminal run reaches the artifact download.
+
 ## Decisions and why
 
 The proof is bound to the Barn base, Barn head, and exact published suite head. Running the candidate in the publisher process would expose a different trust boundary from ordinary CI. Keep execution on the existing proof runner.
@@ -23,6 +25,10 @@ Preserve the suite's strict protection and required checks. An already-current g
 GitHub exposes an exact expected head on the auto-merge mutation and the rejected merge-group commit on its dequeue timeline event. The branch update API acknowledges a request before changing the head. The companion PR list response omits the changed-file count, so fetch the individual PR before checking its files.
 
 The manually refreshed suite companion #301 reported `MERGED` at 10:21:52 UTC. Its strict requirements and fresh CI corroborate the supported path. The suite's admin-enforcement endpoint still returns `false`; ordinary API merge requires a known non-admin credential in that configuration.
+
+The verifier caught an installation-token lifetime mismatch before publication. The previous two-hour `gh run watch` inherited one token, including when it had less than an hour remaining. The regression failed on that watch and returned `OK` after it was replaced with bounded read calls using the refreshable publisher client.
+
+Independent verification found that the long managed-proof watcher retains one installation credential for the entire subprocess. GitHub installation credentials can expire while the proof remains queued or running. The verification verdict is recorded in the parent workspace report.
 
 ## Next step
 
