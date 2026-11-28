@@ -1,0 +1,77 @@
+name: Prove a repair with managed conformance
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Barn repair pull request
+        required: true
+        type: string
+      barn_head:
+        description: Exact Barn repair commit
+        required: true
+        type: string
+      suite_head:
+        description: Exact published conformance commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    # The worker hands candidate execution to the same CI runners as Claude.
+    # The job receives neither the publisher token nor model credentials.
+    if: github.actor == 'mongoosemoo-barn-repair-worker[bot]' && github.ref == 'refs/heads/master'
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the exact published candidates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          BARN_HEAD: ${{ inputs.barn_head }}
+          SUITE_HEAD: ${{ inputs.suite_head }}
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[1-9][0-9]*$ && "$BARN_HEAD" =~ ^[0-9a-f]{40}$ && "$SUITE_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq \
+            '. | select(.state == "open" and .base.ref == "master" and .head.repo.full_name == .base.repo.full_name and any(.labels[]; .name == "automatic-fix")) | .head.sha' |
+            grep -Fx "$BARN_HEAD"
+          gh api "repos/MongooseMoo/moo-conformance-tests/pulls?state=open&head=MongooseMoo:barn-fix/pr-$PR&base=main" \
+            --jq '.[0].head.sha // empty' | grep -Fx "$SUITE_HEAD"
+          git fetch --no-tags origin "refs/pull/$PR/head"
+          [ "$(git rev-parse FETCH_HEAD)" = "$BARN_HEAD" ]
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: MongooseMoo/moo-conformance-tests
+          ref: ${{ inputs.suite_head }}
+          path: moo-conformance-tests
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - name: Produce managed conformance evidence
+        env:
+          BARN_HEAD: ${{ inputs.barn_head }}
+          SUITE_HEAD: ${{ inputs.suite_head }}
+        run: |
+          set -euo pipefail
+          base=$(git merge-base HEAD "$BARN_HEAD")
+          bash scripts/repair-conformance-proof.sh "$base" "$BARN_HEAD" "$SUITE_HEAD" moo-conformance-tests
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: conformance-evidence
+          path: ${{ runner.temp }}/conformance-evidence.json
+          if-no-files-found: error
