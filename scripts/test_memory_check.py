@@ -28,6 +28,53 @@ class MemoryEvidenceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 mc.leak_count(text)
 
+    def test_checkpoint_runner_memory_preserves_sample_before_child_failure(self):
+        membership = self.root / "membership"
+        membership.write_text("0::/runner\n")
+        group = self.root / "cgroup/runner"
+        group.mkdir(parents=True)
+        output = self.root / "runner-memory-001.log"
+        (group / "memory.max").write_text("100\n")
+        (group / "memory.events").write_text("oom_kill 3\n")
+        (group / "memory.current").write_text("20\n")
+        (group / "memory.stat").write_text("anon 10\n")
+
+        def wait_for_child(*, timeout):
+            self.assertEqual(timeout, 5)
+            current = json.loads(output.read_text())["highest_sample"]["memory.current"]
+            if current == 20:
+                (group / "memory.current").write_text("95\n")
+                (group / "memory.stat").write_text("anon 80\n")
+                raise subprocess.TimeoutExpired("child", timeout)
+            self.assertEqual(current, 95)
+            (group / "memory.current").write_text("15\n")
+            (group / "memory.stat").write_text("anon 5\n")
+            (group / "memory.events").write_text("oom_kill 4\n")
+            return -9
+
+        with patch.object(mc.subprocess, "Popen") as launch:
+            launch.return_value.__enter__.return_value.wait.side_effect = wait_for_child
+            status = mc.observe_runner_memory(["child"], output, membership, group.parent)
+        launch.assert_called_once_with(["child"])
+        evidence = json.loads(output.read_text())
+        self.assertEqual((status, evidence["exit_code"]), (137, 137))
+        self.assertIn("shared runner cgroup", evidence["scope"])
+        self.assertNotIn("pid", evidence)
+        self.assertEqual(evidence["before"]["memory.events"], "oom_kill 3")
+        self.assertEqual(evidence["highest_sample"]["memory.stat"], "anon 80")
+        self.assertEqual(evidence["after"]["memory.events"], "oom_kill 4")
+        self.assertEqual(evidence["after"]["memory.max"], "100")
+
+    def test_checkpoint_runner_memory_reports_unavailable_without_changing_exit(self):
+        output = self.root / "runner-memory-001.log"
+        with patch.object(mc.subprocess, "Popen") as launch:
+            launch.return_value.__enter__.return_value.wait.return_value = 1
+            status = mc.observe_runner_memory(["child"], output, self.root / "missing", self.root)
+        evidence = json.loads(output.read_text())
+        self.assertEqual((status, evidence["exit_code"]), (1, 1))
+        self.assertIn("cgroup_error", evidence)
+        self.assertNotIn("memory.events", evidence["before"])
+
     def test_negative_correctness_exit_cannot_hide_memory_failures(self):
         for boundary in ("before", "after"):
             directory = self.root / "process-42" / boundary
