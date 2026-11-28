@@ -376,9 +376,39 @@ func (m *goMap) mayHoldFinalizable() bool {
 }
 
 type toastLookupNode struct {
-	entry mapEntry
-	red   bool
-	link  [2]*toastLookupNode
+	entry             mapEntry
+	red               bool
+	nonASCIIStringKey bool
+	size              int
+	link              [2]*toastLookupNode
+}
+
+func (n *toastLookupNode) subtreeSize() int {
+	if n == nil {
+		return 0
+	}
+	return n.size
+}
+
+func (n *toastLookupNode) countSubtree() int {
+	if n == nil {
+		return 0
+	}
+	n.size = 1 + n.link[0].countSubtree() + n.link[1].countSubtree()
+	n.nonASCIIStringKey = n.entry.key.Type() == TYPE_STR && containsNonASCII(n.entry.key.Str())
+	for _, child := range n.link {
+		n.nonASCIIStringKey = n.nonASCIIStringKey || (child != nil && child.nonASCIIStringKey)
+	}
+	return n.size
+}
+
+func containsNonASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= 0x80 {
+			return true
+		}
+	}
+	return false
 }
 
 // toastTypeOrdinal returns Toast's RUNTIME type value for cross-type map key
@@ -569,6 +599,7 @@ func (m *goMap) toastRoot() *toastLookupNode {
 		for _, entry := range m.insertionEntries() {
 			m.root = toastLookupInsert(m.root, entry)
 		}
+		m.root.countSubtree()
 	})
 	return m.root
 }
@@ -798,11 +829,58 @@ func (v Value) MapSet(key, val Value) Value { return mapValue(v.goMap().set(key,
 // MapDelete returns a new map with key removed (COW).
 func (v Value) MapDelete(key Value) Value { return mapValue(v.goMap().delete(key)) }
 
-// Keys returns all keys in insertion order.
+// Keys returns all keys in tree traversal order.
 func (v Value) Keys() []Value { return v.goMap().keys() }
 
-// Pairs returns all key-value pairs in insertion order.
+// Pairs returns all key-value pairs in tree traversal order.
 func (v Value) Pairs() [][2]Value { return v.goMap().pairsList() }
+
+// MapBoundaryKey returns the first or last key in tree traversal order.
+func (v Value) MapBoundaryKey(last bool) (Value, bool) {
+	node := v.goMap().toastRoot()
+	if node == nil {
+		return None, false
+	}
+	direction := 0
+	if last {
+		direction = 1
+	}
+	for node.link[direction] != nil {
+		node = node.link[direction]
+	}
+	return node.entry.key, true
+}
+
+// AppendMapPairs appends an inclusive interval of 1-based tree positions.
+func (v Value) AppendMapPairs(pairs [][2]Value, first, last int) [][2]Value {
+	if first > last {
+		return pairs
+	}
+	root := v.goMap().toastRoot()
+	first, last = max(first, 1), min(last, root.subtreeSize())
+	if first > last {
+		return pairs
+	}
+	pairs = slices.Grow(pairs, last-first+1)
+	return root.appendPairs(pairs, first, last)
+}
+
+func (n *toastLookupNode) appendPairs(pairs [][2]Value, first, last int) [][2]Value {
+	if n == nil || first > last {
+		return pairs
+	}
+	position := n.link[0].subtreeSize() + 1
+	if first < position {
+		pairs = n.link[0].appendPairs(pairs, first, min(last, position-1))
+	}
+	if first <= position && position <= last {
+		pairs = append(pairs, [2]Value{n.entry.key, n.entry.val})
+	}
+	if last > position {
+		pairs = n.link[1].appendPairs(pairs, max(first-position, 1), last-position)
+	}
+	return pairs
+}
 
 // MapColumns returns fresh value and key slices in the same tree
 // order as Pairs. Iterators can retain these snapshots without allocating a
@@ -889,10 +967,46 @@ func CompareMapKeys(a, b Value) int { return toastMapCompare(a, b, false) }
 
 // KeyPosition returns the 1-based position of key, or 0 if not found.
 func (v Value) KeyPosition(key Value) int64 {
-	for i, p := range v.goMap().pairsList() {
-		if p[0].Equal(key) {
-			return int64(i + 1)
+	root := v.goMap().toastRoot()
+	if root == nil {
+		return 0
+	}
+	if !IsValidMapKey(key) || key.Type() == TYPE_FLOAT || key.Type() == TYPE_ERR ||
+		(key.Type() == TYPE_STR && (root.nonASCIIStringKey || strings.IndexFunc(key.Str(), func(r rune) bool { return r < ' ' || r == '~' || r >= 0x80 }) >= 0)) {
+		// Range endpoints match by Equal. Unicode folding and escaped control
+		// characters can match a key outside the tree search path. Float
+		// comparison with NaN and extreme error codes can also break search.
+		return int64(root.equalPosition(key))
+	}
+	position := 0
+	for node := root; node != nil; {
+		difference := toastMapCompare(key, node.entry.key, false)
+		if difference < 0 {
+			node = node.link[0]
+			continue
 		}
+		position += node.link[0].subtreeSize() + 1
+		if difference == 0 {
+			return int64(position)
+		}
+		node = node.link[1]
+	}
+	return 0
+}
+
+func (n *toastLookupNode) equalPosition(key Value) int {
+	if n == nil {
+		return 0
+	}
+	if position := n.link[0].equalPosition(key); position != 0 {
+		return position
+	}
+	position := n.link[0].subtreeSize() + 1
+	if n.entry.key.Equal(key) {
+		return position
+	}
+	if right := n.link[1].equalPosition(key); right != 0 {
+		return position + right
 	}
 	return 0
 }
