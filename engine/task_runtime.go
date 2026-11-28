@@ -154,7 +154,7 @@ func (s *Runtime) runTaskAdmitted(t *Task, scope *admission.Scope, ownsScope boo
 		return completion.result, nil
 	}
 	if retErr == nil && completion.callback != nil {
-		completion.callback(t.Result)
+		completion.callback(completion.result)
 	}
 	return completion.result, retErr
 }
