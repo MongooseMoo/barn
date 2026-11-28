@@ -100,10 +100,16 @@ func validateFunctionArgs(sig Signature, args []types.Value) types.ErrorCode {
 }
 
 func functionArgError(sig Signature, args []types.Value, code types.ErrorCode) types.Result {
-	if code != types.E_ARGS || sig.MinArgs != sig.MaxArgs || sig.PlainArityError {
+	if code != types.E_ARGS || sig.PlainArityError {
 		return types.Err(code)
 	}
-	message := fmt.Sprintf("Incorrect number of arguments (expected %d; got %d)", sig.MinArgs, len(args))
+	// functions.cc call_bi_func: "expected MIN-MAX" whenever the bounds differ
+	// (a variadic MAX of -1 prints as "MIN--1"), "expected N" otherwise.
+	expected := fmt.Sprintf("%d", sig.MinArgs)
+	if sig.MinArgs != sig.MaxArgs {
+		expected = fmt.Sprintf("%d-%d", sig.MinArgs, sig.MaxArgs)
+	}
+	message := fmt.Sprintf("Incorrect number of arguments (expected %s; got %d)", expected, len(args))
 	return types.Result{
 		Flow:  types.FlowException,
 		Error: code,

@@ -256,7 +256,7 @@ func (v Value) Equal(other Value) bool {
 	case TYPE_BOOL:
 		return other.tag == TYPE_BOOL && v.n == other.n
 	case TYPE_STR:
-		return other.tag == TYPE_STR && compareFoldedASCII(normalizeBinaryString(v.strRep().str()), normalizeBinaryString(other.strRep().str())) == 0
+		return other.tag == TYPE_STR && equalStrings(v.strRep().str(), other.strRep().str())
 	case TYPE_LIST:
 		return other.tag == TYPE_LIST && v.sliceList().equal(other.sliceList())
 	case TYPE_MAP:

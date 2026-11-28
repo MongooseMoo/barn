@@ -5,8 +5,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/types"
@@ -223,18 +221,34 @@ func builtinIsMember(ctx *Execution, args []types.Value) types.Result {
 
 	switch args[1].Type() {
 	case types.TYPE_LIST:
-		collection := args[1]
+		items := args[1].Elements()
+		if value.Type() == types.TYPE_STR {
+			if caseMatters {
+				needle := value.Str()
+				for i, item := range items {
+					if item.Type() == types.TYPE_STR && item.Str() == needle {
+						return types.Ok(types.NewInt(int64(i + 1)))
+					}
+				}
+			} else {
+				for i, item := range items {
+					if value.Equal(item) {
+						return types.Ok(types.NewInt(int64(i + 1)))
+					}
+				}
+			}
+			return types.Ok(types.NewInt(0))
+		}
 		// Find value in list (case-sensitive for strings)
-		for i := 1; i <= collection.Len(); i++ {
-			item := collection.Get(i)
+		for i, item := range items {
 			if eq, handled := promoteMemberEqual(ctx, value, item); handled {
 				if eq {
-					return types.Ok(types.NewInt(int64(i)))
+					return types.Ok(types.NewInt(int64(i + 1)))
 				}
 				continue
 			}
 			if memberEqual(item, value, caseMatters) {
-				return types.Ok(types.NewInt(int64(i)))
+				return types.Ok(types.NewInt(int64(i + 1)))
 			}
 		}
 		return types.Ok(types.NewInt(0))
@@ -564,7 +578,7 @@ func uniqueKey(value types.Value, position int) uniqueBucketKey {
 		}
 	case types.TYPE_STR:
 		key.kind = uniqueString
-		key.text = foldUniqueString(value.Str())
+		key.text = types.StringEqualityKey(value.Str())
 	case types.TYPE_WAIF:
 		key.kind = uniqueReference
 		key.reference = value.WaifIdentity()
@@ -576,47 +590,6 @@ func uniqueKey(value types.Value, position int) uniqueBucketKey {
 		key.scalar = uint64(position)
 	}
 	return key
-}
-
-func foldUniqueString(value string) string {
-	if !utf8.ValidString(value) {
-		return foldUniqueASCII(value)
-	}
-	for _, r := range value {
-		if canonicalFoldRune(r) != r {
-			var folded strings.Builder
-			folded.Grow(len(value))
-			for _, next := range value {
-				folded.WriteRune(canonicalFoldRune(next))
-			}
-			return folded.String()
-		}
-	}
-	return value
-}
-
-func canonicalFoldRune(r rune) rune {
-	canonical := r
-	for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
-		if next > canonical {
-			canonical = next
-		}
-	}
-	return canonical
-}
-
-func foldUniqueASCII(value string) string {
-	for i := range len(value) {
-		if lower := asciiLower(value[i]); lower != value[i] {
-			folded := []byte(value)
-			folded[i] = lower
-			for j := i + 1; j < len(folded); j++ {
-				folded[j] = asciiLower(folded[j])
-			}
-			return string(folded)
-		}
-	}
-	return value
 }
 
 // ============================================================================
