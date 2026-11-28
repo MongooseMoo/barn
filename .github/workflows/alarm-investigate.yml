@@ -42,7 +42,18 @@ env:
   IDLE_LOAD: 8
 
 jobs:
+  authorize:
+    uses: $/.github/workflows/repair-authorize.yml
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    with:
+      mode: investigation
+
   investigate:
+    needs: authorize
+    if: needs.authorize.outputs.authorized == 'true'
     # FIXTURE and SOUND_DB live on the workstation's C: drive.
     runs-on: ${{ fromJSON(vars.WORKSTATION_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 300
@@ -60,6 +71,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Read the authorized alarm and comments
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/repair_authority.py investigation --snapshot "$RUNNER_TEMP/repair-issue.json"
 
       - name: Route the investigation
         id: route
@@ -95,8 +111,8 @@ jobs:
           prompt: |
             Investigate alarm issue #${{ env.ISSUE }} in ${{ github.repository }} and leave a verdict on it.
 
-            Read CLAUDE.md and AGENTS.md first and follow them. Read the issue with
-            `gh issue view ${{ env.ISSUE }} --comments`, the script that opened it
+            Read CLAUDE.md and AGENTS.md first and follow them. Read the authorized issue and comments in
+            `${{ runner.temp }}/repair-issue.json`, the script that opened it
             (scripts/goodput_series.py for goodput-alarm, scripts/conformance_suite_alarm.py for
             conformance-suite-alarm) and the workflow run it links (`gh run view <id> --log`), which prints
             the series it judged. State nothing you have not checked against a run, an artifact, a commit or

@@ -190,20 +190,7 @@ jobs:
       # Managed mode: run the one supported default Linux/Test.db profile.
       # The suite owns the working DB copy and switches to bundled startup DBs.
       - name: Run conformance suite
-        run: |
-          uv run --project moo-conformance-tests --frozen moo-conformance \
-            -m "admission or conformance" \
-            --server-command "${{ github.workspace }}/bin/barn serve --db {db} --listen tcp://127.0.0.1:{port} --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest} --log-dir=${{ github.workspace }}/conformance-logs" \
-            --server-db="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/Test.db" \
-            --server-db-dir="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/startup" \
-            --moo-host=127.0.0.1 \
-            --oracle-profile-manifest="${{ github.workspace }}/profiles/toast/stock-wsl-testdb.json" \
-            --fail-on-unexpected-skip \
-            --strict-markers \
-            --admission-evidence-output="${{ github.workspace }}/conformance-admission.json" \
-            --admission-evidence-context="barn-ci:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${GITHUB_SHA}:barn-linux-testdb-outbound-on" \
-            -q \
-            --junitxml="${{ github.workspace }}/conformance-results.xml"
+        run: bash scripts/run-packaged-conformance.sh "barn-ci:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${GITHUB_SHA}:barn-linux-testdb-outbound-on"
 
       - name: Repeat issue 423 under CPU load
         timeout-minutes: 10

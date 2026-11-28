@@ -69,7 +69,7 @@ runs:
           jobs' tests too. Start potentially hanging commands with timeout, and clean up only
           PIDs you started. The Bash hook blocks process-name kills; do not bypass it.
 
-          1. Read the PR and the issue it fixes: `gh pr view ${{ inputs.pr }} --comments`, `gh pr diff ${{ inputs.pr }}`.
+          1. Read the PR description and diff: `gh pr view ${{ inputs.pr }}`, `gh pr diff ${{ inputs.pr }}`.
           2. Decide whether a MOO program can observe the fixed behaviour (a result, an error, output, a
              listing, a stored value). Some fixes cannot be observed from MOO, for example a panic in a Go-only
              path such as snapshot restore. Check whether the suite already covers it.

@@ -1,0 +1,16 @@
+[Unit]
+Description=Dispatch Barn tests for new MOO conformance revisions
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+StateDirectory=barn-conformance-watch
+StateDirectoryMode=0700
+UMask=0077
+WorkingDirectory=/opt/barn-repair
+ExecStart=/usr/bin/python3 /opt/barn-repair/scripts/conformance_watch.py --state /var/lib/barn-conformance-watch
+TimeoutStartSec=10min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict

@@ -16,7 +16,7 @@ class PolicyBlockTest(unittest.TestCase):
             calls.append((path, args))
             if path.endswith("/labels") and not args:
                 return [{"name": name} for name in labels]
-            if "/pulls?" in path or path.endswith("/comments"):
+            if "/pulls?" in path or "/comments?" in path:
                 return []
             return None
 
