@@ -43,14 +43,14 @@ const mapFlatLimit = 16
 // the index.
 //
 // Indexed (index != nil): keys use a typed, comparable hash into 'index' and
-// insertion order is tracked in 'order'. A flat map becomes indexed when a set
+// insertion order is tracked by each entry's sequence. A flat map becomes indexed when a set
 // would take it past mapFlatLimit, and a bulk map on its first set or delete;
 // an indexed map never goes back, except that deleting its last pair leaves
 // the empty flat form.
 type goMap struct {
 	flat     []flatEntry
 	bulk     *bulkIndex
-	order    *mapOrder
+	nextSeq  uint64
 	index    *mapIndex
 	count    int
 	rootOnce sync.Once
@@ -338,9 +338,9 @@ func (m *goMap) buildIndexed(added *mapEntry) *goMap {
 			entry = *added
 		}
 		hash := keyHash(entry.key)
-		builder.put(&p.index, hash, entry, maphash.Comparable(mapIndexSeed, hash))
-		p.order = builder.order(hash, p.order)
+		builder.put(&p.index, hash, indexedMapEntry{mapEntry: entry, seq: uint64(i)}, maphash.Comparable(mapIndexSeed, hash))
 	}
+	p.nextSeq = uint64(p.count)
 	return p
 }
 
@@ -618,9 +618,10 @@ func (m *goMap) set(k, v Value) *goMap {
 	hash := keyHash(k)
 	bits := maphash.Comparable(mapIndexSeed, hash)
 	old, exists := mapIndexGet(m.index, hash, bits)
-	order, count := m.order, m.count
+	seq, nextSeq, count := old.seq, m.nextSeq, m.count
 	if !exists {
-		order = &mapOrder{hash: hash, previous: order}
+		seq = nextSeq
+		nextSeq++
 		count++
 	}
 
@@ -629,7 +630,8 @@ func (m *goMap) set(k, v Value) *goMap {
 	if exists {
 		bytes -= ValueBytes(old.key) + ValueBytes(old.val)
 	}
-	return &goMap{order: order, index: mapIndexSet(m.index, hash, mapEntry{key: k, val: v}, bits, 0, true), count: count, finalizable: fin, byteSize: bytes}
+	entry := indexedMapEntry{mapEntry: mapEntry{key: k, val: v}, seq: seq}
+	return &goMap{nextSeq: nextSeq, index: mapIndexSet(m.index, hash, entry, bits, 0, true), count: count, finalizable: fin, byteSize: bytes}
 }
 
 func (m *goMap) delete(k Value) *goMap {
@@ -657,20 +659,8 @@ func (m *goMap) delete(k Value) *goMap {
 		return m
 	}
 
-	// Copy only the newer prefix of the order chain; the older suffix is
-	// still valid and can be shared. No deleted-key tombstones accumulate.
-	var prefix []mapHash
-	node := m.order
-	for node.hash != hash {
-		prefix = append(prefix, node.hash)
-		node = node.previous
-	}
-	order := node.previous
-	for i := len(prefix) - 1; i >= 0; i-- {
-		order = &mapOrder{hash: prefix[i], previous: order}
-	}
 	bytes := m.mapBytes() - ValueBytes(old.key) - ValueBytes(old.val)
-	return &goMap{order: order, index: mapIndexDelete(m.index, hash, bits), count: m.count - 1, finalizable: finalizableAfterRemove(m.finalizableState()), byteSize: bytes}
+	return &goMap{nextSeq: m.nextSeq, index: mapIndexDelete(m.index, hash, bits), count: m.count - 1, finalizable: finalizableAfterRemove(m.finalizableState()), byteSize: bytes}
 }
 
 func (m *goMap) keys() []Value {
@@ -779,10 +769,11 @@ func NewMap(pairs [][2]Value) Value {
 	for _, p := range pairs {
 		hash := keyHash(p[0])
 		bits := maphash.Comparable(mapIndexSeed, hash)
-		if old, exists := builder.put(&m.index, hash, mapEntry{key: p[0], val: p[1]}, bits); exists {
+		entry := indexedMapEntry{mapEntry: mapEntry{key: p[0], val: p[1]}, seq: m.nextSeq}
+		if old, exists := builder.put(&m.index, hash, entry, bits); exists {
 			m.byteSize -= ValueBytes(old.key) + ValueBytes(old.val)
 		} else {
-			m.order = builder.order(hash, m.order)
+			m.nextSeq++
 			m.count++
 		}
 		m.byteSize += ValueBytes(p[0]) + ValueBytes(p[1])
@@ -854,14 +845,14 @@ func (m *goMap) valueColumn(keys []Value) []Value {
 func (v Value) PairsInInsertionOrder() [][2]Value {
 	m := v.goMap()
 	pairs := make([][2]Value, m.count)
-	for i, e := range m.flat {
-		pairs[i] = [2]Value{e.key, e.val}
-	}
-	i := len(pairs)
-	for node := m.order; node != nil; node = node.previous {
-		i--
-		e, _ := m.entry(node.hash)
-		pairs[i] = [2]Value{e.key, e.val}
+	if m.index == nil {
+		for i, e := range m.flat {
+			pairs[i] = [2]Value{e.key, e.val}
+		}
+	} else {
+		for i, e := range m.insertionEntries() {
+			pairs[i] = [2]Value{e.key, e.val}
+		}
 	}
 	return pairs
 }

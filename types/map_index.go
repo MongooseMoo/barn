@@ -1,12 +1,12 @@
 package types
 
-import "hash/maphash"
+import (
+	"cmp"
+	"hash/maphash"
+	"slices"
+)
 
 var mapIndexSeed = maphash.MakeSeed()
-
-func (m *goMap) entry(hash mapHash) (mapEntry, bool) {
-	return mapIndexGet(m.index, hash, maphash.Comparable(mapIndexSeed, hash))
-}
 
 // mapIndex is an immutable hash trie. An update copies only the path to its
 // leaf; older MOO values can keep sharing every untouched branch safely.
@@ -73,10 +73,15 @@ func mapIndexBytes(n *mapIndex) int {
 
 type mapIndexEntry struct {
 	hash  mapHash
-	entry mapEntry
+	entry indexedMapEntry
 }
 
-// The bulk constructor packs leaves and order records in small blocks to
+type indexedMapEntry struct {
+	mapEntry
+	seq uint64
+}
+
+// The bulk constructor packs leaves in small blocks to
 // avoid allocating several heap objects per pair. Branches deliberately have
 // separate allocations: putting a root in an arena with its descendants could
 // keep the entire old trie alive when just one shared descendant survives.
@@ -88,11 +93,10 @@ type mapBuildLeaf struct {
 
 type mapBuilder struct {
 	leaves    []mapBuildLeaf
-	orders    []mapOrder
 	blockSize int
 }
 
-func (b *mapBuilder) leaf(hash mapHash, entry mapEntry) *mapIndex {
+func (b *mapBuilder) leaf(hash mapHash, entry indexedMapEntry) *mapIndex {
 	if len(b.leaves) == 0 {
 		b.leaves = make([]mapBuildLeaf, b.blockSize)
 	}
@@ -103,35 +107,26 @@ func (b *mapBuilder) leaf(hash mapHash, entry mapEntry) *mapIndex {
 	return &leaf.node
 }
 
-func (b *mapBuilder) order(hash mapHash, previous *mapOrder) *mapOrder {
-	if len(b.orders) == 0 {
-		b.orders = make([]mapOrder, b.blockSize)
-	}
-	order := &b.orders[0]
-	b.orders = b.orders[1:]
-	*order = mapOrder{hash: hash, previous: previous}
-	return order
-}
-
 // put mutates only a constructor's unpublished trie and returns the replaced
 // entry, if any. Splitting a leaf reuses that leaf instead of copying it.
-func (b *mapBuilder) put(root **mapIndex, hash mapHash, entry mapEntry, bits uint64) (mapEntry, bool) {
+func (b *mapBuilder) put(root **mapIndex, hash mapHash, entry indexedMapEntry, bits uint64) (indexedMapEntry, bool) {
 	for depth := uint(0); ; depth++ {
 		n := *root
 		if n == nil {
 			*root = b.leaf(hash, entry)
-			return mapEntry{}, false
+			return indexedMapEntry{}, false
 		}
 		if n.entries != nil {
 			for i, existing := range n.entries {
 				if existing.hash == hash {
+					entry.seq = existing.entry.seq
 					n.entries[i].entry = entry
 					return existing.entry, true
 				}
 			}
 			if depth == 16 {
 				n.entries = append(n.entries, mapIndexEntry{hash, entry})
-				return mapEntry{}, false
+				return indexedMapEntry{}, false
 			}
 			branch := newMapIndexBranch()
 			oldBits := maphash.Comparable(mapIndexSeed, n.entries[0].hash) >> (depth * 4)
@@ -144,7 +139,7 @@ func (b *mapBuilder) put(root **mapIndex, hash mapHash, entry mapEntry, bits uin
 	}
 }
 
-func mapIndexGet(n *mapIndex, hash mapHash, bits uint64) (mapEntry, bool) {
+func mapIndexGet(n *mapIndex, hash mapHash, bits uint64) (indexedMapEntry, bool) {
 	for n != nil {
 		if n.entries != nil {
 			for _, e := range n.entries {
@@ -152,17 +147,17 @@ func mapIndexGet(n *mapIndex, hash mapHash, bits uint64) (mapEntry, bool) {
 					return e.entry, true
 				}
 			}
-			return mapEntry{}, false
+			return indexedMapEntry{}, false
 		}
 		n = n.children[bits&15]
 		bits >>= 4
 	}
-	return mapEntry{}, false
+	return indexedMapEntry{}, false
 }
 
 // shared must be true for every published map. Only NewMap's private builder
 // and freshly split leaves can edit nodes in place.
-func mapIndexSet(n *mapIndex, hash mapHash, entry mapEntry, bits uint64, depth uint, shared bool) *mapIndex {
+func mapIndexSet(n *mapIndex, hash mapHash, entry indexedMapEntry, bits uint64, depth uint, shared bool) *mapIndex {
 	if n == nil {
 		return &mapIndex{entries: []mapIndexEntry{{hash, entry}}}
 	}
@@ -225,24 +220,33 @@ func mapIndexDelete(n *mapIndex, hash mapHash, bits uint64) *mapIndex {
 	return nil
 }
 
-// mapOrder is a persistent reverse insertion-order chain. Replacement shares
-// it unchanged; appending a new key allocates one node instead of copying all
-// previous keys. Deletion rebuilds the surviving chain to avoid tombstones.
-type mapOrder struct {
-	hash     mapHash
-	previous *mapOrder
+func appendMapIndexEntries(entries []*indexedMapEntry, n *mapIndex) []*indexedMapEntry {
+	if n != nil {
+		for i := range n.entries {
+			entries = append(entries, &n.entries[i].entry)
+		}
+		if n.children != nil {
+			for _, child := range n.children {
+				entries = appendMapIndexEntries(entries, child)
+			}
+		}
+	}
+	return entries
 }
 
 // insertionEntries returns the pairs in insertion order.
 func (m *goMap) insertionEntries() []mapEntry {
 	entries := make([]mapEntry, m.count)
+	if m.index != nil {
+		ordered := appendMapIndexEntries(make([]*indexedMapEntry, 0, m.count), m.index)
+		slices.SortFunc(ordered, func(a, b *indexedMapEntry) int { return cmp.Compare(a.seq, b.seq) })
+		for i, e := range ordered {
+			entries[i] = e.mapEntry
+		}
+		return entries
+	}
 	for i := range m.flat {
 		entries[i] = m.flat[i].mapEntry
-	}
-	i := len(entries)
-	for node := m.order; node != nil; node = node.previous {
-		i--
-		entries[i], _ = mapIndexGet(m.index, node.hash, maphash.Comparable(mapIndexSeed, node.hash))
 	}
 	return entries
 }

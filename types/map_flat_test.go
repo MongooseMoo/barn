@@ -48,7 +48,7 @@ func TestSmallMapsAreFlatAndLargeMapsAreIndexed(t *testing.T) {
 	}
 
 	small := NewMap(pairs[:mapFlatLimit])
-	if small.goMap().index != nil || small.goMap().order != nil {
+	if small.goMap().index != nil {
 		t.Fatalf("a map of %d pairs is indexed, want flat", mapFlatLimit)
 	}
 	// A larger map built whole is flat with a sorted hash index, and becomes

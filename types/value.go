@@ -300,6 +300,9 @@ func (v Value) Identical(other Value) bool {
 		return true
 	case TYPE_MAP:
 		a, b := v.goMap(), other.goMap()
+		if a == b {
+			return true
+		}
 		if a.count != b.count {
 			return false
 		}
@@ -311,22 +314,9 @@ func (v Value) Identical(other Value) bool {
 			}
 			return true
 		}
-		if a.index == nil || b.index == nil {
-			ae, be := a.insertionEntries(), b.insertionEntries()
-			for i := range ae {
-				if !ae[i].key.Identical(be[i].key) || !ae[i].val.Identical(be[i].val) {
-					return false
-				}
-			}
-			return true
-		}
-		for an, bn := a.order, b.order; an != nil; an, bn = an.previous, bn.previous {
-			if an.hash != bn.hash {
-				return false
-			}
-			ae, _ := a.entry(an.hash)
-			be, _ := b.entry(bn.hash)
-			if !ae.key.Identical(be.key) || !ae.val.Identical(be.val) {
+		ae, be := a.insertionEntries(), b.insertionEntries()
+		for i := range ae {
+			if !ae[i].key.Identical(be[i].key) || !ae[i].val.Identical(be[i].val) {
 				return false
 			}
 		}
