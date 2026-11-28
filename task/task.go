@@ -1280,17 +1280,20 @@ func (t *State) toQueuedTaskInfoLocked(includeVariables bool) types.Value {
 		types.NewInt(bytes),             // [10] bytes
 	}
 	if includeVariables {
-		var variablePairs [][2]types.Value
-		if t.ForkInfo != nil {
-			variablePairs = make([][2]types.Value, 0, len(t.ForkInfo.Variables))
+		// Before its first yield a fork has only its creation environment.
+		// Once it yields, the selected activation has the locals for this row.
+		if t.ForkInfo != nil && topFrame.RuntimeVariableSnapshot == nil && topFrame.RuntimeVariables.Type() != types.TYPE_MAP {
+			variablePairs := make([][2]types.Value, 0, len(t.ForkInfo.Variables))
 			for name, value := range t.ForkInfo.Variables {
 				variablePairs = append(variablePairs, [2]types.Value{
 					types.NewStr(name),
 					value,
 				})
 			}
+			values = append(values, types.NewMap(variablePairs))
+		} else {
+			values = append(values, topFrame.RuntimeVariableMap())
 		}
-		values = append(values, types.NewMap(variablePairs))
 	}
 	return types.NewList(values)
 }
