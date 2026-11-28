@@ -12,8 +12,8 @@ REJECTED = {"failure", "timed_out", "cancelled", "action_required"}
 
 
 def required_check_state(api, repository, branch, head):
-    protection = api(f"repos/{repository}/branches/{branch}/protection/required_status_checks")
-    required = protection["checks"]
+    branch_info = api(f"repos/{repository}/branches/{branch}")
+    required = branch_info.get("protection", {}).get("required_status_checks", {}).get("checks", [])
     if not required:
         raise ValueError(f"{repository} has no required checks to verify")
     checks = api(f"repos/{repository}/commits/{head}/check-runs?per_page=100&filter=latest")["check_runs"]
@@ -33,11 +33,86 @@ def companion_pull(api, number):
     return pulls[0] if pulls else None
 
 
-def auto_merge(api, pr):
-    return api("graphql", "-f",
-               "query=mutation($id:ID!,$head:GitObjectID!){enablePullRequestAutoMerge(input:"
-               "{pullRequestId:$id,expectedHeadOid:$head,mergeMethod:MERGE}){clientMutationId}}",
-               "-f", f"id={pr['node_id']}", "-f", f"head={pr['head']['sha']}")
+def wait_for_repair_checks(api, number, head, suite_head=None, timeout=10800):
+    endpoint = f"repos/{BARN}/pulls/{number}"
+    deadline = time.monotonic() + timeout
+    while True:
+        pr = api(endpoint)
+        if pr["head"]["sha"] != head:
+            raise ValueError(f"Repair #{number}: the Barn head moved after validation")
+        if pr["merged"]:
+            return "merged"
+        if pr["state"] != "open":
+            raise ValueError(f"Repair #{number} closed without merging")
+        failures, pending = required_check_state(api, BARN, "master", head)
+        if failures:
+            raise ValueError(f"Repair #{number}: required checks failed on {head}: " + ", ".join(failures))
+        if not pending:
+            if suite_head:
+                companion = companion_pull(api, number)
+                if companion is None or companion["head"]["sha"] != suite_head:
+                    raise ValueError(f"Repair #{number}: the companion head moved after validation")
+            response = api("graphql", "-f", f"id={pr['node_id']}", "-f",
+                           "query=query($id:ID!){node(id:$id){... on PullRequest{headRefOid state isInMergeQueue}}}")
+            current = response["data"]["node"]
+            if current["headRefOid"] != head:
+                raise ValueError(f"Repair #{number}: the Barn head moved after validation")
+            if current["state"] == "MERGED":
+                return "merged"
+            if current["state"] != "OPEN":
+                raise ValueError(f"Repair #{number} closed without merging")
+            if current["isInMergeQueue"]:
+                return "queued"
+            return "ready"
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError(f"Repair #{number}: required checks on {head} are still pending")
+        time.sleep(min(30, remaining))
+
+
+def check_companion_diff(api, endpoint, pr):
+    allow = "src/moo_conformance/_db/startup/startup-fixtures.sha256"
+    files = api(f"{endpoint}/files?per_page=100")
+    if len(files) != pr["changed_files"] or any(
+        not (change["filename"] == allow and change["status"] == "modified") and (
+            change["status"] != "added" or
+            not change["filename"].startswith(("src/moo_conformance/_tests/", "src/moo_conformance/_db/"))
+        ) for change in files
+    ):
+        raise ValueError(f"Suite #{pr['number']} has changes outside the allowed test additions")
+    if api(endpoint)["head"]["sha"] != pr["head"]["sha"]:
+        raise ValueError(f"Suite #{pr['number']} changed during the file check")
+
+
+def merge_checked_companion(api, endpoint, pr, deadline):
+    number = pr["number"]
+    head = pr["head"]["sha"]
+    response = api("graphql", "-f", f"id={pr['node_id']}", "-f",
+                   "query=query($id:ID!){node(id:$id){... on PullRequest{headRefOid viewerCanMergeAsAdmin}}}")
+    access = response["data"]["node"]
+    if access["headRefOid"] != head:
+        raise ValueError(f"Suite #{number} changed before merge")
+    if access["viewerCanMergeAsAdmin"] is not False:
+        raise ValueError(f"Suite #{number} is current and green, but requires a non-bypassing merge credential")
+
+    version = "X-GitHub-Api-Version: 2026-03-10"
+    result = api(f"{endpoint}/merge-async", "-X", "PUT", "-H", version,
+                 "-f", "merge_method=merge", "-f", f"sha={head}", "-F", "bypass_rules=false")
+    while result["status"] == "pending":
+        request = result["details"]
+        if request["expected_head_sha"] != head or request.get("bypass_rules") is not False:
+            raise ValueError(f"Suite #{number} merge receipt does not bind the validated head and protections")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError(f"Suite #{number} merge request {request['uuid']} is still pending")
+        time.sleep(min(30, remaining))
+        result = api(f"{endpoint}/merge-async/{request['uuid']}", "-H", version)
+    if result["status"] != "merged":
+        raise ValueError(f"Suite #{number} merge result {result['status']}: {result['details']['message']}")
+    landed = api(endpoint)
+    if not landed["merged"] or landed["head"]["sha"] != head or landed["merge_commit_sha"] != result["details"]["sha"]:
+        raise ValueError(f"Suite #{number} merge result does not match the validated head")
+    return f"Suite #{number} merged at {landed['merge_commit_sha']}."
 
 
 def finish_companion(api, repair, timeout=4200):
@@ -50,38 +125,22 @@ def finish_companion(api, repair, timeout=4200):
     number = companion["number"]
     endpoint = f"repos/{SUITE}/pulls/{number}"
     companion = api(endpoint)
-    if companion["merged"]:
-        return f"Suite #{number} merged at {companion['merge_commit_sha']}."
-    if companion["state"] != "open" or companion["head"]["repo"]["full_name"] != SUITE:
+    if companion["head"]["repo"]["full_name"] != SUITE:
         raise ValueError(f"Suite #{number} is not a branch of {SUITE}")
     if not barn["merged"]:
+        if companion["state"] != "open":
+            raise ValueError(f"Suite #{number} is already closed")
         api(endpoint, "-X", "PATCH", "-f", "state=closed")
         return f"Barn #{repair} closed unmerged. Closed companion #{number}."
 
-    allow = "src/moo_conformance/_db/startup/startup-fixtures.sha256"
-    # Bound the request and verify we saw every changed path, including on a
-    # surprisingly large companion. The compare performed later binds its head.
-    files = api(f"{endpoint}/files?per_page=100")
-    if len(files) != companion["changed_files"] or any(
-        change["filename"] != allow and (
-            change["status"] != "added" or
-            not change["filename"].startswith(("src/moo_conformance/_tests/", "src/moo_conformance/_db/"))
-        ) for change in files
-    ):
-        raise ValueError(f"Suite #{number} has changes outside the allowed test additions")
-    if api(endpoint)["head"]["sha"] != companion["head"]["sha"]:
-        raise ValueError(f"Suite #{number} changed during the file check")
-
     head = companion["head"]["sha"]
+    check_companion_diff(api, endpoint, companion)
     requested = None
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         current = api(endpoint)
         current_head = current["head"]["sha"]
         if current_head != head:
-            # A normal update-branch merge must keep the reviewed tree as one
-            # parent and use suite main as the other. Recheck the changed files
-            # before accepting any other head in a new invocation.
             commit = api(f"repos/{SUITE}/commits/{current_head}")
             parents = [parent["sha"] for parent in commit["parents"]]
             if requested is None or len(parents) != 2 or parents[0] != head:
@@ -90,46 +149,37 @@ def finish_companion(api, repair, timeout=4200):
                 # Main can advance between our read and GitHub's update.
                 if api(f"repos/{SUITE}/compare/{requested}...{parents[1]}")["behind_by"] != 0:
                     raise ValueError(f"Suite #{number} refreshed against an unexpected base")
+            check_companion_diff(api, endpoint, current)
             head, requested = current_head, None
-        if current["merged"]:
-            return f"Suite #{number} merged at {current['merge_commit_sha']}."
-        if current["state"] != "open":
+        if current["state"] != "open" and not current["merged"]:
             raise ValueError(f"Suite #{number} closed without merging")
+        if current["merged"]:
+            failures, pending = required_check_state(api, SUITE, "main", head)
+            if failures or pending:
+                raise ValueError(f"Suite #{number} merged without the expected check verdict on {head}")
+            return f"Suite #{number} merged at {current['merge_commit_sha']}."
         base = api(f"repos/{SUITE}/git/ref/heads/main")["object"]["sha"]
-        comparison = api(f"repos/{SUITE}/compare/{base}...{head}")
-        stale = comparison["behind_by"] != 0
+        stale = api(f"repos/{SUITE}/compare/{base}...{head}")["behind_by"] != 0
         if stale and requested is None:
-            if not current.get("auto_merge"):
-                auto_merge(api, current)
+            if current.get("auto_merge"):
+                raise ValueError(f"Suite #{number} has a pre-existing auto-merge request. Its owner must handle refresh.")
             api(f"{endpoint}/update-branch", "-X", "PUT", "-f", f"expected_head_sha={head}")
             requested = base
         elif not stale:
             failures, pending = required_check_state(api, SUITE, "main", head)
             if failures:
                 raise ValueError(f"Suite #{number} failed required checks on {head}: " + ", ".join(failures))
-            if not current.get("auto_merge"):
-                if not pending and current["mergeable_state"] in {"clean", "unstable"}:
-                    # GitHub declines auto-merge when the PR is immediately
-                    # mergeable. Use the normal endpoint only with protection
-                    # enforced for this credential, even if main moves now.
-                    enforced = api(f"repos/{SUITE}/branches/main/protection/enforce_admins")["enabled"]
-                    admin = (api(f"repos/{SUITE}").get("permissions") or {}).get("admin")
-                    if not enforced and admin is not False:
-                        raise ValueError(f"Suite #{number} is current and green, but requires a non-bypassing merge credential")
-                    result = api(f"{endpoint}/merge", "-X", "PUT", "-f", "merge_method=merge",
-                                 "-f", f"sha={head}")
-                    if result["merged"]:
-                        return f"Suite #{number} merged at {result['sha']}."
-                    raise ValueError(f"Suite #{number} was not merged: {result['message']}")
-                else:
-                    auto_merge(api, current)
-        time.sleep(30)
+            if not pending and not current.get("auto_merge") and current["mergeable_state"] in {"clean", "unstable"}:
+                return merge_checked_companion(api, endpoint, current, deadline)
+        time.sleep(min(30, max(0, deadline - time.monotonic())))
     raise ValueError(f"Suite #{number} did not reach a merge verdict on {head}")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("repair", type=int)
+    parser.add_argument("--barn-head")
+    parser.add_argument("--suite-head")
     args = parser.parse_args()
 
     def api(endpoint, *flags):
@@ -137,7 +187,10 @@ def main():
         return json.loads(output) if output else None
 
     try:
-        print(finish_companion(api, args.repair))
+        if args.barn_head:
+            print(wait_for_repair_checks(api, args.repair, args.barn_head, args.suite_head))
+        else:
+            print(finish_companion(api, args.repair))
     except (ValueError, subprocess.SubprocessError) as error:
         raise SystemExit(str(error)) from error
 

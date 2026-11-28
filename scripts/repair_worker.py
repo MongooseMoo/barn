@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 
 from repair_provider import classify
 
-from repair_completion import auto_merge, companion_pull, finish_companion, required_check_state
+from repair_completion import finish_companion, wait_for_repair_checks
 
 
 BARN = "MongooseMoo/barn"
@@ -259,6 +259,7 @@ def managed_proof(number, head, suite_head, destination):
 def queue_repair(root, pr, suite_pr=None):
     number = pr["number"]
     head = pr["head"]["sha"]
+    suite_head = None
     with tempfile.TemporaryDirectory(prefix="barn-scope-") as temp:
         workspace = Path(temp)
         directory = workspace / "barn"
@@ -288,17 +289,13 @@ def queue_repair(root, pr, suite_pr=None):
             except subprocess.SubprocessError:
                 print(f"Repair #{number}: no accepted managed proof", flush=True)
                 return False
-            companion = companion_pull(api, number)
-            if companion is None or companion["head"]["sha"] != suite_head:
-                print(f"Repair #{number}: the companion head moved after validation", flush=True)
-                return False
-    failures, pending = required_check_state(api, BARN, "master", head)
-    if failures:
-        print(f"Repair #{number}: required checks failed: " + ", ".join(failures), flush=True)
+    try:
+        verdict = wait_for_repair_checks(api, number, head, suite_head)
+    except ValueError as error:
+        print(str(error), flush=True)
         return False
-    if pending:
-        auto_merge(api, pr)
-        print(f"Repair #{number}: armed; waiting for required checks", flush=True)
+    if verdict != "ready":
+        print(f"Repair #{number}: already {verdict}", flush=True)
         return True
     response = api("graphql", "-f", "query=mutation($id:ID!,$head:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$head}){mergeQueueEntry{id}}}",
                    "-f", f"id={pr['node_id']}", "-f", f"head={head}")

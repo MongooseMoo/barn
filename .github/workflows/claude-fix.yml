@@ -18,7 +18,7 @@ run-name: "Repair #${{ inputs.issue_number || github.event.issue.number || githu
 #   - scripts/automatic_fix_scope.py, taken from master, finds it in scope
 #     (a fuzz input replayed red/green, or that conformance evidence);
 #   - Toast did not disagree with the fixed behaviour;
-#   - none of its checks failed. The repairing run waits for the checks and
+#   - the validated head passed its required checks. The repairing run waits and
 #     fixes what its change broke before it ends.
 # Otherwise it stays open with the `needs-decision` label and the reasons.
 # When the repair merges, the conformance job merges its conformance pull
@@ -26,9 +26,9 @@ run-name: "Repair #${{ inputs.issue_number || github.event.issue.number || githu
 # Any other merged pull request carrying `automatic-fix` (one a person or
 # another agent labelled) gets its conformance test written after the merge.
 #
-# A short Claude invocation arms the admitted head with its own token: a
+# A short Claude invocation enqueues the admitted head with its own token: a
 # queue entry made with GITHUB_TOKEN does not start merge_group workflows.
-# GitHub owns pending checks and merge-group timeouts once the head is armed.
+# The admitted head waits for its own checks without arming auto-merge.
 on:
   workflow_dispatch:
     inputs:
@@ -355,9 +355,10 @@ jobs:
           cat "$RUNNER_TEMP/scope.txt"
           echo "in_scope=$in_scope" >> "$GITHUB_OUTPUT"
 
-      - name: Decide whether to arm the repair
+      - name: Wait for required checks on the validated repair head
         if: always() && steps.conformance_route.outputs.provider == 'claude' && steps.toast_handoff.outputs.provider != 'codex'
         id: queue
+        timeout-minutes: 185
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ steps.pr.outputs.number }}
@@ -390,20 +391,24 @@ jobs:
             suite_now=$(gh api "repos/MongooseMoo/moo-conformance-tests/pulls?state=open&head=MongooseMoo:barn-fix/pr-$PR&base=main" --jq '.[0].head.sha // empty')
             [ "$suite_now" = "$SUITE_HEAD" ] || echo "The companion head moved after validation." >> "$reasons"
           fi
-          failed=$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100&filter=latest" \
-            --jq '.check_runs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled" or .conclusion == "action_required") | "- [" + .name + "](" + .html_url + ")"')
-          if [ -n "$failed" ]; then
-            printf 'Checks failed on %s:\n%s\n' "$HEAD_SHA" "$failed" >> "$reasons"
+          if [ ! -s "$reasons" ]; then
+            script="$RUNNER_TEMP/repair_completion.py"
+            git show "$GITHUB_SHA:scripts/repair_completion.py" > "$script"
+            if verdict=$(python3 "$script" "$PR" --barn-head "$HEAD_SHA" --suite-head "$SUITE_HEAD" 2>&1); then
+              if [ "$verdict" = ready ]; then
+                echo "eligible=true" >> "$GITHUB_OUTPUT"
+              else
+                echo "Repair #$PR is already $verdict."
+              fi
+              exit 0
+            fi
+            printf '%s\n' "$verdict" >> "$reasons"
           fi
-          if [ -s "$reasons" ]; then
-            cat "$reasons"
-            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f 'labels[]=needs-decision' --silent
-            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$reasons" --silent
-            exit 0
-          fi
-          echo "eligible=true" >> "$GITHUB_OUTPUT"
+          cat "$reasons"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f 'labels[]=needs-decision' --silent
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$reasons" --silent
 
-      - name: Arm the validated repair head
+      - name: Enqueue the validated repair head
         if: steps.queue.outputs.eligible == 'true'
         uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
         with:
@@ -413,7 +418,7 @@ jobs:
           settings: .github/claude-fix-settings.json
           prompt: |
             Run exactly this one command, once, and nothing else. Post nothing, then stop:
-            gh api graphql -f query='mutation($id: ID!, $head: GitObjectID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, expectedHeadOid: $head, mergeMethod: MERGE}) { clientMutationId } }' -f id='${{ steps.pr.outputs.node }}' -f head='${{ steps.pr.outputs.head }}'
+            gh api graphql -f query='mutation($id: ID!, $head: GitObjectID!) { enqueuePullRequest(input: {pullRequestId: $id, expectedHeadOid: $head}) { mergeQueueEntry { id } } }' -f id='${{ steps.pr.outputs.node }}' -f head='${{ steps.pr.outputs.head }}'
           claude_args: *claude-args
 
       - name: Report the queue handoff
@@ -425,12 +430,11 @@ jobs:
         run: |
           set -euo pipefail
           gh api graphql -f id="$NODE" -f query='query($id: ID!) { node(id: $id) { ... on PullRequest {
-            state headRefOid isInMergeQueue autoMergeRequest { enabledAt }
+            state headRefOid isInMergeQueue
           } } }' --jq '.data.node' |
             jq -e --arg head "$HEAD_SHA" 'select(.headRefOid == $head) |
               if .state == "MERGED" then "merged"
               elif .isInMergeQueue then "queued; merge-group checks own the verdict"
-              elif .autoMergeRequest then "armed; waiting for required checks"
               else empty end' | tee -a "$GITHUB_STEP_SUMMARY"
 
   repair_dequeued:
