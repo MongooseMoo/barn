@@ -13,12 +13,6 @@ inputs:
   merged:
     description: "'true' when the repair has merged and the checkout is its merge commit; 'false' when it is open and the checkout is its head"
     required: true
-  may_queue:
-    description: "'true' when Claude may let an open repair merge once Toast agrees"
-    default: 'false'
-  node:
-    description: GraphQL node id of the repair pull request, needed when may_queue is 'true'
-    default: ''
   claude_code_oauth_token:
     description: Claude Code token
     required: true
@@ -93,11 +87,7 @@ runs:
              - `toast-disagrees`: Toast behaves differently from this checkout's Barn on the fixed
                behaviour. Commit nothing and put the Toast and Barn output, with the exact commands, in
                ./conformance-pr/reason.md. Do not change the repair.
-          5. Queueing. MAY_QUEUE is `${{ inputs.may_queue }}`. Only if MAY_QUEUE is `true` and the outcome is
-             `test`, `not-observable` or `already-covered`, let the pull request merge once its checks pass:
-             `gh api graphql -f query='mutation($id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: MERGE}) { clientMutationId } }' -f id='${{ inputs.node }}'`
-             In every other case do not run it. A later step checks this and undoes it when it was not allowed.
-
+          Do not queue or merge the repair. The workflow decides after validating the evidence.
           Post nothing: no comments and no reviews. A later step posts your reason.md.
         claude_args: ${{ inputs.claude_args }}
 

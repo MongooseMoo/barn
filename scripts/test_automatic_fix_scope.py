@@ -1,9 +1,11 @@
 from pathlib import Path
+import json
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from automatic_fix_scope import out_of_scope  # noqa: E402
+from automatic_fix_scope import load_bound_evidence, out_of_scope  # noqa: E402
 
 SEED = ("A", "vm/testdata/fuzz/FuzzRestore/0123abcd", 0)
 FIX = ("M", "builtins/strings.go", 2)
@@ -89,6 +91,23 @@ class ConformanceEvidenceTests(unittest.TestCase):
         # A Barn that cannot start fails admission too; that is not the test failing.
         broken = {"exit": 1, "passed": [], "failed": [ADMISSION, TEST], "skipped": []}
         self.assertEqual(out_of_scope([FIX], evidence(base=broken)), [self.NO_PROOF])
+
+    def test_harness_error_is_not_a_barn_base_test_failure(self):
+        broken = dict(RED, errors=["test_fixture"])
+        self.assertEqual(out_of_scope([FIX], evidence(base=broken)), [self.NO_PROOF])
+
+    def test_evidence_is_bound_to_both_barn_commits_and_the_suite_head(self):
+        proof = dict(evidence(), base="barn-base", head="barn-head", suite="suite-head")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "evidence.json"
+            path.write_text(json.dumps(proof), encoding="utf-8")
+            self.assertEqual(load_bound_evidence(path, "barn-base", "barn-head", "suite-head"), proof)
+            for refs in (("old-base", "barn-head", "suite-head"),
+                         ("barn-base", "old-head", "suite-head"),
+                         ("barn-base", "barn-head", "old-suite"),
+                         ("barn-base", "barn-head", None)):
+                with self.subTest(refs=refs):
+                    self.assertIsNone(load_bound_evidence(path, *refs))
 
     def test_runs_must_select_the_same_non_empty_tests(self):
         other = {"exit": 0, "passed": [ADMISSION, TEST + "x"], "failed": [], "skipped": []}

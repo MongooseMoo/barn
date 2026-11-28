@@ -15,6 +15,8 @@ from urllib.request import Request, urlopen
 
 from repair_provider import classify
 
+from repair_completion import auto_merge, companion_pull, finish_companion, required_check_state
+
 
 BARN = "MongooseMoo/barn"
 SUITE = "MongooseMoo/moo-conformance-tests"
@@ -222,45 +224,65 @@ def open_pr(repository, branch, base, result, patch, number, expected=None, test
     return pr["number"]
 
 
-def required_checks(repository, branch, head, timeout=1800):
-    protection = api(f"repos/{repository}/branches/{branch}/protection/required_status_checks")
-    required = protection["checks"]
-    if not required:
-        raise ValueError(f"{repository} has no required checks to verify")
-    until = time.monotonic() + timeout
-    while True:
-        checks = api(f"repos/{repository}/commits/{head}/check-runs?per_page=100")["check_runs"]
-        for check in required:
-            matching = [run for run in checks if run["name"] == check["context"] and
-                        check["app_id"] in (None, -1, run["app"]["id"])]
-            if any(run["conclusion"] in {"failure", "timed_out", "cancelled", "action_required"} for run in matching):
-                return False
-            if not any(run["conclusion"] == "success" for run in matching):
-                break
-        else:
-            return True
-        if time.monotonic() >= until:
-            return False
-        time.sleep(30)
+def managed_proof(number, head, suite_head, destination):
+    response = api(f"repos/{BARN}/actions/workflows/repair-proof.yml/dispatches", "-X", "POST",
+                   "-f", "ref=master", "-F", "return_run_details=true",
+                   "-f", f"inputs[pr]={number}", "-f", f"inputs[barn_head]={head}",
+                   "-f", f"inputs[suite_head]={suite_head}")
+    run_id = (response or {}).get("workflow_run_id")
+    if not isinstance(run_id, int):
+        raise ValueError("GitHub did not return a managed proof run id")
+    print(f"Repair #{number}: managed proof https://github.com/{BARN}/actions/runs/{run_id}", flush=True)
+    run("gh", "run", "watch", str(run_id), "--repo", BARN, "--exit-status", timeout=7200)
+    run("gh", "run", "download", str(run_id), "--repo", BARN, "--name", "conformance-evidence",
+        "--dir", str(destination))
+    evidence = destination / "conformance-evidence.json"
+    if not evidence.is_file():
+        raise ValueError("The managed proof run did not publish conformance evidence")
+    return evidence
 
 
-def queue_repair(root, pr):
+def queue_repair(root, pr, suite_pr=None):
     number = pr["number"]
     head = pr["head"]["sha"]
     with tempfile.TemporaryDirectory(prefix="barn-scope-") as temp:
-        directory = Path(temp) / "barn"
+        workspace = Path(temp)
+        directory = workspace / "barn"
         clone(directory, BARN, "master")
         git(directory, "fetch", "origin", f"refs/pull/{number}/head")
+        if git(directory, "rev-parse", "FETCH_HEAD").strip() != head:
+            print(f"Repair #{number}: the Barn head moved before validation", flush=True)
+            return False
         base = git(directory, "merge-base", "HEAD", head).strip()
+        scope_args = ["--base", base, "--head", head]
         try:
             run("python3", str(root / "scripts" / "automatic_fix_scope.py"),
-                "--base", base, "--head", head, cwd=directory)
+                *scope_args, cwd=directory)
         except subprocess.CalledProcessError as error:
-            if error.returncode == 1:
+            if error.returncode != 1:
+                raise
+            if suite_pr is None:
                 return False
-            raise
-    if not required_checks(BARN, "master", head):
+            suite_head = api(f"repos/{SUITE}/pulls/{suite_pr}")["head"]["sha"]
+            try:
+                evidence = managed_proof(number, head, suite_head, workspace)
+                run("python3", str(root / "scripts" / "automatic_fix_scope.py"), *scope_args,
+                    "--suite-head", suite_head, "--conformance-evidence", str(evidence), cwd=directory)
+            except (ValueError, subprocess.SubprocessError):
+                print(f"Repair #{number}: no accepted managed proof", flush=True)
+                return False
+            companion = companion_pull(api, number)
+            if companion is None or companion["head"]["sha"] != suite_head:
+                print(f"Repair #{number}: the companion head moved after validation", flush=True)
+                return False
+    failures, pending = required_check_state(api, BARN, "master", head)
+    if failures:
+        print(f"Repair #{number}: required checks failed: " + ", ".join(failures), flush=True)
         return False
+    if pending:
+        auto_merge(api, pr)
+        print(f"Repair #{number}: armed; waiting for required checks", flush=True)
+        return True
     response = api("graphql", "-f", "query=mutation($id:ID!,$head:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$head}){mergeQueueEntry{id}}}",
                    "-f", f"id={pr['node_id']}", "-f", f"head={head}")
     print(f"Repair #{number}: {response['data']['enqueuePullRequest']['mergeQueueEntry']['id']}", flush=True)
@@ -322,17 +344,16 @@ def process(args, stage, item):
         if outcome == "test":
             suite_pr = open_pr(SUITE, f"barn-fix/pr-{number}", "main", result, patch, number, tested_head=head)
             if pr["merged"]:
-                companion = api(f"repos/{SUITE}/pulls/{suite_pr}")
-                suite_head = companion["head"]["sha"]
-                if not required_checks(SUITE, "main", suite_head):
+                try:
+                    print(finish_companion(api, number), flush=True)
+                except (ValueError, subprocess.SubprocessError) as error:
+                    print(f"Repair #{number}: {error}", flush=True)
                     label(number, "needs-decision", True)
-                    return True
-                api(f"repos/{SUITE}/pulls/{suite_pr}/merge", "-X", "PUT", "-f", "merge_method=merge",
-                    "-f", f"sha={suite_head}")
         else:
+            suite_pr = None
             api(f"repos/{BARN}/issues/{number}/comments", "-X", "POST", "-f", f"body={result['evidence']}")
         if not pr["merged"]:
-            may_queue = outcome != "toast-disagrees" and queue_repair(args.root, pr)
+            may_queue = outcome != "toast-disagrees" and queue_repair(args.root, pr, suite_pr)
             label(number, "needs-decision", not may_queue)
         return True
     if stage in {"repair", "investigation"} and outcome == "patch":

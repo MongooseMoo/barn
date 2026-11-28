@@ -26,12 +26,9 @@ run-name: "Repair #${{ inputs.issue_number || github.event.issue.number || githu
 # Any other merged pull request carrying `automatic-fix` (one a person or
 # another agent labelled) gets its conformance test written after the merge.
 #
-# The merge is armed by Claude's own token, inside the second run: a queue
-# entry made with GITHUB_TOKEN starts no merge_group workflows and stalls.
-# claude-code-action revokes that token when its step ends, so a repair that
-# only the conformance evidence brings into scope is armed by a third, short
-# Claude run after the evidence exists, never before it.
-# The last step disarms the merge unless every condition above holds.
+# A short Claude invocation arms the admitted head with its own token: a
+# queue entry made with GITHUB_TOKEN does not start merge_group workflows.
+# GitHub owns pending checks and merge-group timeouts once the head is armed.
 on:
   workflow_dispatch:
     inputs:
@@ -52,7 +49,7 @@ on:
   issues:
     types: [labeled]
   pull_request:
-    types: [closed]
+    types: [closed, dequeued]
 
 permissions:
   contents: read
@@ -305,8 +302,6 @@ jobs:
         with:
           pr: ${{ steps.pr.outputs.number }}
           merged: 'false'
-          may_queue: ${{ steps.scope.outputs.in_scope == 'true' }}
-          node: ${{ steps.pr.outputs.node }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_bin: *claude-bin
           claude_args: *claude-args
@@ -324,115 +319,23 @@ jobs:
           codex_enabled: ${{ vars.BARN_CODEX_WORKER_ENABLED }}
           token: ${{ github.token }}
 
-      # The Toast check's `test` outcome is Claude's own word. This step runs
-      # the tests the conformance branch adds with the managed harness, three
-      # times: on stock Toast, on Barn at the merge base, on Barn at the head.
-      # Engines and suite are obtained as CI obtains them: Toast from
-      # scripts/build-toast-oracle.sh with the harness command of
-      # scripts/cross-engine-session.sh, Barn with ci.yml's conformance server
-      # command. Each engine is built from a fresh worktree at the exact commit,
-      # and profiles come from the merge base, which is on master.
+      # The provider's claim is not the proof. Test its exact published
+      # candidate with the same managed runner used for Codex companions.
       - name: Run the conformance test on Toast, the merge base and the head
         id: proof
         if: steps.toast.outputs.outcome == 'test'
         timeout-minutes: 90
         env:
+          GH_TOKEN: ${{ github.token }}
           PR: ${{ steps.pr.outputs.number }}
           BASE: ${{ steps.scope.outputs.base }}
           HEAD_SHA: ${{ steps.pr.outputs.head }}
         run: |
           set -euo pipefail
-          work="$RUNNER_TEMP/conformance-proof"
-          evidence="$RUNNER_TEMP/conformance-evidence.json"
-          suite_repo="$PWD/moo-conformance-tests"
-          rm -rf "$work" "$evidence"
-          git worktree prune
-          git -C "$suite_repo" worktree prune
-          mkdir -p "$work"
-          cleanup() {
-            git worktree remove --force "$work/base" || true
-            git worktree remove --force "$work/head" || true
-            git -C "$suite_repo" worktree remove --force "$work/suite" || true
-          }
-          trap cleanup EXIT
-
-          # The branch the Toast check committed and pushed; the same range
-          # .github/actions/conformance-test checks before pushing it.
-          suite_ref=$(git -C "$suite_repo" rev-parse --verify "refs/heads/barn-fix/pr-$PR^{commit}")
-          added=$(git -C "$suite_repo" diff --no-renames --name-only --diff-filter=A "origin/main...$suite_ref" -- src/moo_conformance/_tests)
-          files=()
-          for f in $added; do
-            case "$f" in *.yaml|*.yml) files+=("$f") ;; esac
-          done
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "barn-fix/pr-$PR adds no test file under src/moo_conformance/_tests; no conformance evidence."
-            printf '{"suite": "%s", "files": [], "runs": {}}\n' "$suite_ref" > "$evidence"
-            exit 0
-          fi
-          printf 'Selected: %s\n' "${files[@]}"
-
-          git -C "$suite_repo" worktree add --detach "$work/suite" "$suite_ref"
-          # The suite's ToastCore startup database is a git submodule.
-          git -C "$work/suite" submodule update --init
-          git worktree add --detach "$work/base" "$BASE"
-          git worktree add --detach "$work/head" "$HEAD_SHA"
-          (cd "$work/base" && go build -o "$work/barn-base" ./cmd/barn)
-          (cd "$work/head" && go build -o "$work/barn-head" ./cmd/barn)
-          (cd "$work/base" && bash scripts/build-toast-oracle.sh)
-          toast="$work/base/toaststunt/build/moo"
-          oracle="$work/base/profiles/toast/stock-wsl-testdb.json"
-          config="$work/base/profiles/barn/outbound-on.conf"
-
-          run() {
-            local name="$1" command="$2" status=0
-            shift 2
-            echo "=== $name ==="
-            timeout 1200 uv run --project "$work/suite" --frozen moo-conformance "${files[@]}" \
-              -m "admission or conformance" \
-              --server-command "$command" \
-              --server-db="$work/suite/src/moo_conformance/_db/Test.db" \
-              --server-db-dir="$work/suite/src/moo_conformance/_db/startup" \
-              --moo-host=127.0.0.1 \
-              --oracle-profile-manifest="$oracle" \
-              --fail-on-unexpected-skip --strict-markers -q -p no:cacheprovider \
-              --junitxml="$work/$name.xml" "$@" || status=$?
-            echo "$status" > "$work/$name.exit"
-            echo "=== $name: exit $status ==="
-          }
-          barn() {
-            echo "$1 serve --db {db} --listen tcp://127.0.0.1:{port} --config=$config --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest} --log-dir=$work/$2-logs"
-          }
-          run toast "$toast {db} {db}.new -p {port}" "--target-profile-manifest=$oracle"
-          run barn_base "$(barn "$work/barn-base" barn_base)"
-          run barn_head "$(barn "$work/barn-head" barn_head)"
-
-          python3 - "$work" "$suite_ref" "$BASE" "$HEAD_SHA" "${files[@]}" > "$evidence" <<'PY'
-          import json
-          import sys
-          import xml.etree.ElementTree as ET
-          from pathlib import Path
-
-          work, suite, base, head, *files = sys.argv[1:]
-
-
-          def result(name):
-              run = {"exit": int((Path(work) / f"{name}.exit").read_text()), "passed": [], "failed": [], "skipped": []}
-              junit = Path(work) / f"{name}.xml"
-              if junit.is_file():
-                  for case in ET.parse(junit).iter("testcase"):
-                      if case.find("failure") is not None or case.find("error") is not None:
-                          run["failed"].append(case.get("name"))
-                      elif case.find("skipped") is not None:
-                          run["skipped"].append(case.get("name"))
-                      else:
-                          run["passed"].append(case.get("name"))
-              return run
-
-
-          print(json.dumps({"suite": suite, "files": files, "base": base, "head": head,
-                            "runs": {name: result(name) for name in ("toast", "barn_base", "barn_head")}}, indent=2))
-          PY
-          cat "$evidence"
+          suite=$(gh api "repos/MongooseMoo/moo-conformance-tests/pulls?state=open&head=MongooseMoo:barn-fix/pr-$PR&base=main" --jq '.[0].head.sha // empty')
+          git show "$GITHUB_SHA:scripts/repair-conformance-proof.sh" > "$RUNNER_TEMP/repair-conformance-proof.sh"
+          env -u GH_TOKEN bash "$RUNNER_TEMP/repair-conformance-proof.sh" "$BASE" "$HEAD_SHA" "$suite" moo-conformance-tests
+          echo "suite=$suite" >> "$GITHUB_OUTPUT"
 
       # The same trusted rule as "Check the repair's scope", now given the
       # conformance evidence.
@@ -442,19 +345,66 @@ jobs:
         env:
           BASE: ${{ steps.scope.outputs.base }}
           HEAD_SHA: ${{ steps.pr.outputs.head }}
+          SUITE_HEAD: ${{ steps.proof.outputs.suite }}
         run: |
           set -euo pipefail
           in_scope=true
           python3 "$RUNNER_TEMP/trusted/scripts/automatic_fix_scope.py" --base "$BASE" --head "$HEAD_SHA" \
+            --suite-head "$SUITE_HEAD" \
             --conformance-evidence "$RUNNER_TEMP/conformance-evidence.json" > "$RUNNER_TEMP/scope.txt" || in_scope=false
           cat "$RUNNER_TEMP/scope.txt"
           echo "in_scope=$in_scope" >> "$GITHUB_OUTPUT"
 
-      # The Toast check's Claude armed the merge only when the fuzz rule
-      # already held (may_queue). A repair the conformance evidence brought
-      # into scope is armed here, after the evidence, with Claude's token.
-      - name: Let the proven repair merge
-        if: steps.proof_scope.outputs.in_scope == 'true' && steps.scope.outputs.in_scope != 'true'
+      - name: Decide whether to arm the repair
+        if: always() && steps.conformance_route.outputs.provider == 'claude' && steps.toast_handoff.outputs.provider != 'codex'
+        id: queue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
+          IN_SCOPE: ${{ steps.proof_scope.outputs.in_scope || steps.scope.outputs.in_scope }}
+          TOAST_STEP: ${{ steps.toast.outcome }}
+          OUTCOME: ${{ steps.toast.outputs.outcome }}
+          PROOF_STEP: ${{ steps.proof.outcome }}
+          SUITE_HEAD: ${{ steps.proof.outputs.suite }}
+        run: |
+          set -euo pipefail
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR")
+          state=$(jq -r '.state' <<< "$pr")
+          [ "$state" = open ] || { echo "Repair #$PR is already $state."; exit 0; }
+          head_now=$(jq -r '.head.sha' <<< "$pr")
+          reasons="$RUNNER_TEMP/not-queued.md"
+          : > "$reasons"
+          if [ "$IN_SCOPE" != true ]; then
+            { echo "Out of scope for an unread merge:"; sed 's/^/- /' "$RUNNER_TEMP/scope.txt"; } >> "$reasons"
+          fi
+          if [ "$TOAST_STEP" != success ]; then
+            echo "The Toast check did not finish ($TOAST_STEP); see this run's log." >> "$reasons"
+          elif [ "$OUTCOME" = toast-disagrees ]; then
+            echo "Toast disagrees with the fixed behaviour; see the Toast and Barn output above." >> "$reasons"
+          elif [ "$OUTCOME" = test ] && [ "$PROOF_STEP" != success ]; then
+            echo "The managed conformance proof did not finish ($PROOF_STEP); see this run's log." >> "$reasons"
+          fi
+          [ "$head_now" = "$HEAD_SHA" ] || echo "The repair head moved after validation." >> "$reasons"
+          if [ "$OUTCOME" = test ] && [ "$PROOF_STEP" = success ]; then
+            suite_now=$(gh api "repos/MongooseMoo/moo-conformance-tests/pulls?state=open&head=MongooseMoo:barn-fix/pr-$PR&base=main" --jq '.[0].head.sha // empty')
+            [ "$suite_now" = "$SUITE_HEAD" ] || echo "The companion head moved after validation." >> "$reasons"
+          fi
+          failed=$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100&filter=latest" \
+            --jq '.check_runs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled" or .conclusion == "action_required") | "- [" + .name + "](" + .html_url + ")"')
+          if [ -n "$failed" ]; then
+            printf 'Checks failed on %s:\n%s\n' "$HEAD_SHA" "$failed" >> "$reasons"
+          fi
+          if [ -s "$reasons" ]; then
+            cat "$reasons"
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f 'labels[]=needs-decision' --silent
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$reasons" --silent
+            exit 0
+          fi
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
+
+      - name: Arm the validated repair head
+        if: steps.queue.outputs.eligible == 'true'
         uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -462,92 +412,61 @@ jobs:
           allowed_bots: github-actions,mongoosemoo-barn-repair-worker
           settings: .github/claude-fix-settings.json
           prompt: |
-            Run exactly this one command, once, and nothing else; post nothing; then stop:
-            gh api graphql -f query='mutation($id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: MERGE}) { clientMutationId } }' -f id='${{ steps.pr.outputs.node }}'
+            Run exactly this one command, once, and nothing else. Post nothing, then stop:
+            gh api graphql -f query='mutation($id: ID!, $head: GitObjectID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, expectedHeadOid: $head, mergeMethod: MERGE}) { clientMutationId } }' -f id='${{ steps.pr.outputs.node }}' -f head='${{ steps.pr.outputs.head }}'
           claude_args: *claude-args
 
-      # Claude armed the merge with its own token if it judged that allowed.
-      # This step decides again from the recorded facts and makes the pull
-      # request's state match: armed only when every condition holds.
-      - name: Queue the repair only when every check allows it
-        if: always() && steps.conformance_route.outputs.provider == 'claude' && steps.toast_handoff.outputs.provider != 'codex'
+      - name: Report the queue handoff
+        if: always() && steps.queue.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR: ${{ steps.pr.outputs.number }}
           NODE: ${{ steps.pr.outputs.node }}
           HEAD_SHA: ${{ steps.pr.outputs.head }}
-          IN_SCOPE: ${{ steps.proof_scope.outputs.in_scope || steps.scope.outputs.in_scope }}
-          TOAST_STEP: ${{ steps.toast.outcome }}
-          OUTCOME: ${{ steps.toast.outputs.outcome }}
-          PROOF_STEP: ${{ steps.proof.outcome }}
         run: |
           set -euo pipefail
-          head_now=$(gh api "repos/$GH_REPO/pulls/$PR" --jq .head.sha)
-          # master has a merge queue. The repairing run waits for the checks, so
-          # the PR is clean when Claude arms it, and GitHub then puts it straight
-          # into the queue: no auto-merge request exists and .auto_merge is null.
-          # #831, #840 and #850 were queued that way and merged, while this step,
-          # reading only .auto_merge, failed each run as "not armed".
-          state_query="query(\$id: ID!) { node(id: \$id) { ... on PullRequest { state isInMergeQueue autoMergeRequest { enabledAt } } } }"
-          pr_info=$(gh api graphql -f query="$state_query" -f id="$NODE" \
-            --jq '.data.node | "\(.state) \(.isInMergeQueue) \(.autoMergeRequest != null)"')
-          read -r pr_state in_queue auto_merge <<< "$pr_info"
-          armed=false
-          if [ "$auto_merge" = true ] || [ "$in_queue" = true ] || [ "$pr_state" = MERGED ]; then armed=true; fi
+          gh api graphql -f id="$NODE" -f query='query($id: ID!) { node(id: $id) { ... on PullRequest {
+            state headRefOid isInMergeQueue autoMergeRequest { enabledAt }
+          } } }' --jq '.data.node' |
+            jq -e --arg head "$HEAD_SHA" 'select(.headRefOid == $head) |
+              if .state == "MERGED" then "merged"
+              elif .isInMergeQueue then "queued; merge-group checks own the verdict"
+              elif .autoMergeRequest then "armed; waiting for required checks"
+              else empty end' | tee -a "$GITHUB_STEP_SUMMARY"
 
-          reasons="$RUNNER_TEMP/not-queued.md"
-          : > "$reasons"
-          [ "$IN_SCOPE" = true ] || { echo "Out of scope for an unread merge:"; sed 's/^/- /' "$RUNNER_TEMP/scope.txt"; } >> "$reasons"
-          if [ "$TOAST_STEP" != success ]; then
-            echo "The Toast check did not finish ($TOAST_STEP); see this run's log." >> "$reasons"
-          elif [ "$OUTCOME" = toast-disagrees ]; then
-            echo "Toast disagrees with the fixed behaviour; the comment above has the Toast and Barn output." >> "$reasons"
-          elif [ "$OUTCOME" = test ] && [ "$PROOF_STEP" != success ]; then
-            echo "The conformance test's Toast, merge-base and head runs did not finish ($PROOF_STEP); see this run's log." >> "$reasons"
-          fi
-          [ "$head_now" = "$HEAD_SHA" ] || echo "The pull request's head changed from $HEAD_SHA to $head_now after it was checked." >> "$reasons"
-
-          # An armed pull request with a failed check never merges and tells
-          # nobody (#802 sat that way). Checks still running get half an hour.
-          runs="repos/$GH_REPO/commits/$head_now/check-runs?per_page=100"
-          for _ in $(seq 60); do
-            pending=$(gh api "$runs" --jq '[.check_runs[] | select(.status != "completed")] | length')
-            [ "$pending" -eq 0 ] && break
-            sleep 30
-          done
-          failed=$(gh api "$runs" --jq '[.check_runs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled") | .name] | unique | join(", ")')
-          [ -z "$failed" ] || echo "These checks failed on $head_now: $failed." >> "$reasons"
-          [ "$pending" -eq 0 ] || echo "$pending checks were still running on $head_now after 30 minutes." >> "$reasons"
-
-          # A queued PR has no auto-merge request to disable; it leaves the queue
-          # only by dequeuePullRequest. A merged one cannot be undone.
-          disarm() {
-            if [ "$pr_state" = MERGED ]; then
-              echo "::error::Pull request #$PR merged although a check does not allow it."
-              return 1
+  repair_dequeued:
+    if: >-
+      github.event_name == 'pull_request' && github.event.action == 'dequeued' &&
+      contains(github.event.pull_request.labels.*.name, 'automatic-fix') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Record the merge-queue removal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NODE: ${{ github.event.pull_request.node_id }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          event=$(gh api graphql -f id="$NODE" -f query='query($id: ID!) { node(id: $id) { ... on PullRequest {
+            state timelineItems(itemTypes: [REMOVED_FROM_MERGE_QUEUE_EVENT], last: 1) { nodes {
+              ... on RemovedFromMergeQueueEvent { reason beforeCommit { oid } }
+            } }
+          } } }' --jq '.data.node')
+          reason=$(jq -r '.timelineItems.nodes[0].reason // "unknown"' <<< "$event")
+          sha=$(jq -r '.timelineItems.nodes[0].beforeCommit.oid // empty' <<< "$event")
+          printf 'Repair #%s queue removal: %s\n' "$PR" "$reason" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$reason" = failed_checks ]; then
+            if [ -n "$sha" ]; then
+              gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100&filter=latest" \
+                --jq '.check_runs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled" or .conclusion == "action_required") | "- [" + .name + "](" + .html_url + ")"' |
+                tee -a "$GITHUB_STEP_SUMMARY"
             fi
-            if [ "$in_queue" = true ]; then
-              gh api graphql -f query="mutation(\$id: ID!) { dequeuePullRequest(input: {id: \$id}) { clientMutationId } }" -f id="$NODE"
-            fi
-            if [ "$auto_merge" = true ]; then
-              gh api graphql -f query="mutation(\$id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: \$id}) { clientMutationId } }" -f id="$NODE"
-            fi
-          }
-
-          if [ -s "$reasons" ]; then
-            cat "$reasons"
-            printf '{"labels":["needs-decision"]}' | gh api -X POST "repos/$GH_REPO/issues/$PR/labels" --input - --silent
-            gh api -X POST "repos/$GH_REPO/issues/$PR/comments" -F "body=@$reasons" --silent
-            if [ "$armed" = true ]; then disarm; fi
-            echo "::notice::Pull request #$PR is not queued; it has the needs-decision label and the reasons."
-          elif [ "$armed" != true ]; then
-            echo "::error::Pull request #$PR passed every check but its merge was not armed."
             exit 1
-          elif [ "$pr_state" = MERGED ]; then
-            echo "Pull request #$PR has merged."
-          else
-            echo "Pull request #$PR is in the merge queue or will enter it when its required checks pass."
           fi
 
   resume_conformance:
@@ -632,7 +551,8 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       contains(github.event.pull_request.labels.*.name, 'automatic-fix') &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.action == 'closed'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 240
     permissions:
@@ -713,53 +633,14 @@ jobs:
           codex_enabled: ${{ vars.BARN_CODEX_WORKER_ENABLED }}
           token: ${{ github.token }}
 
-      # Barn's CI runs the suite's tip, so a test for a repair may land only
-      # after the repair has.
-      - name: Merge or close the conformance pull request
+      # Barn CI consumes suite main, so the companion follows the Barn verdict.
+      - name: Finish the conformance pull request
         if: steps.merged_route.outputs.provider != 'codex'
         env:
           GH_TOKEN: ${{ secrets.CONFORMANCE_PR_TOKEN }}
         run: |
           set -euo pipefail
-          number=$(gh api "repos/$SUITE/pulls?state=open&head=MongooseMoo:barn-fix/pr-$FIXED_PR" --jq '.[0].number // empty')
-          if [ -z "$number" ]; then
-            echo "No open conformance pull request for #$FIXED_PR."
-            exit 0
-          fi
-          if [ "$MERGED" != true ]; then
-            gh api -X PATCH "repos/$SUITE/pulls/$number" -f state=closed --silent
-            echo "Repair #$FIXED_PR closed unmerged; closed conformance pull request #$number."
-            exit 0
-          fi
-          # Only a pull request that adds test files and changes nothing else merges unread.
-          # A new startup database also needs its line in the checksum list, the one
-          # existing file such a pull request may change (#188 and #194 both did).
-          other=$(gh api --paginate "repos/$SUITE/pulls/$number/files" \
-            --jq '.[] | select(.filename != "src/moo_conformance/_db/startup/startup-fixtures.sha256")
-              | select(.status != "added" or (.filename | test("^src/moo_conformance/(_tests|_db)/") | not)) | .filename')
-          if [ -n "$other" ]; then
-            echo "::notice::Conformance pull request #$number does more than add test files; it is left open:"
-            echo "$other"
-            exit 0
-          fi
-          # Merge through auto-merge, which waits for the required checks. This token
-          # bypasses the suite's branch protection, so a direct merge landed #202
-          # before its 32-bit Toast run failed, and the suite's main went red.
-          if [ "$(gh api "repos/$SUITE/pulls/$number" --jq .mergeable_state)" = behind ]; then
-            gh api -X PUT "repos/$SUITE/pulls/$number/update-branch" --silent
-          fi
-          node=$(gh api "repos/$SUITE/pulls/$number" --jq .node_id)
-          if gh api graphql -f query="mutation(\$id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: \$id, mergeMethod: MERGE}) { clientMutationId } }" -f id="$node" --silent; then
-            echo "Conformance pull request #$number will merge when its required checks pass."
-            exit 0
-          fi
-          # Auto-merge refuses a pull request whose required checks have all passed.
-          # (clean, or unstable when only a check that is not required failed).
-          state=$(gh api "repos/$SUITE/pulls/$number" --jq .mergeable_state)
-          if [ "$state" = clean ] || [ "$state" = unstable ]; then
-            gh api -X PUT "repos/$SUITE/pulls/$number/merge" -f merge_method=merge --silent
-            echo "Merged conformance pull request #$number."
-            exit 0
-          fi
-          echo "::error::Conformance pull request #$number could not be set to merge."
-          exit 1
+          gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$GITHUB_REPOSITORY/contents/scripts/repair_completion.py?ref=master" \
+            > "$RUNNER_TEMP/repair_completion.py"
+          python3 "$RUNNER_TEMP/repair_completion.py" "$FIXED_PR"

@@ -68,6 +68,8 @@ def conformance_proves(evidence):
     toast, base, head = (runs.get(name) for name in ("toast", "barn_base", "barn_head"))
     if not (toast and base and head):
         return False
+    if any(run.get("errors") for run in (toast, base, head)):
+        return False
     selection = _selected(toast)
     if not selection or _selected(base) != selection or _selected(head) != selection:
         return False
@@ -92,16 +94,24 @@ def out_of_scope(changed, evidence=None):
     return reasons
 
 
+def load_bound_evidence(path, base, head, suite):
+    if path is None or not path.is_file() or not suite:
+        return None
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    if (evidence.get("base"), evidence.get("head"), evidence.get("suite")) != (base, head, suite):
+        return None
+    return evidence
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True, help="commit the change is compared against")
     parser.add_argument("--head", default="HEAD", help="the change's commit")
+    parser.add_argument("--suite-head", help="exact published suite head used by the proof")
     parser.add_argument("--conformance-evidence", type=Path,
                         help="JSON record of the conformance test's Toast, merge-base and head runs")
     args = parser.parse_args()
-    evidence = None
-    if args.conformance_evidence and args.conformance_evidence.is_file():
-        evidence = json.loads(args.conformance_evidence.read_text())
+    evidence = load_bound_evidence(args.conformance_evidence, args.base, args.head, args.suite_head)
     reasons = out_of_scope(changes(args.base, args.head), evidence)
     for reason in reasons:
         print(reason)
